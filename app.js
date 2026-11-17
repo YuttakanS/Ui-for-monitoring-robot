@@ -121,7 +121,8 @@
       rows: '{n} แถว',
       csv: 'ดาวน์โหลด CSV',
       clear: 'ล้าง',
-      confirmClear: 'ข้อมูลที่บันทึกไว้ยังไม่ได้ดาวน์โหลด ต้องการล้างทิ้งหรือไม่?',
+      confirmClear: 'ข้อมูลที่บันทึกไว้ {n} แถวยังไม่ได้ดาวน์โหลด ต้องการล้างทิ้งหรือไม่? ลบแล้วกู้คืนไม่ได้',
+      confirmClearSaved: 'ล้างข้อมูลที่บันทึกไว้ {n} แถวหรือไม่? (ดาวน์โหลด CSV ไปแล้ว)',
       chartXYTitle: 'ตำแหน่งตามเวลา',
       chartATitle: 'มุมตกกระทบตามเวลา',
       chartXYAria: 'กราฟ X และ Y ตามเวลา',
@@ -192,7 +193,8 @@
       rows: '{n} rows',
       csv: 'Download CSV',
       clear: 'Clear',
-      confirmClear: 'The recorded data has not been downloaded yet. Clear it anyway?',
+      confirmClear: 'The {n} recorded rows have not been downloaded yet. Clear them anyway? This cannot be undone.',
+      confirmClearSaved: 'Clear the {n} recorded rows? (The CSV was already downloaded.)',
       chartXYTitle: 'Position over time',
       chartATitle: 'Incidence angle over time',
       chartXYAria: 'Chart of X and Y over time',
@@ -281,6 +283,8 @@
     parseErrors: 0,
     lastRaw: '',
     recording: false,
+    recSince: 0,           // performance.now() when the current recording run started
+    recElapsed: 0,         // ms recorded in earlier runs (since the last Clear)
     log: [],
     logSaved: true,
     dirty: true,
@@ -305,7 +309,8 @@
     btnRecord: $('btnRecord'), recCount: $('recCount'), btnCsv: $('btnCsv'), btnClearLog: $('btnClearLog'),
     tableDetails: $('tableDetails'), tableBody: $('tableBody'),
     lastRaw: $('lastRaw'), errCount: $('errCount'), lastAge: $('lastAge'),
-    noticeText: $('noticeText'), noticeAction: $('noticeAction')
+    noticeText: $('noticeText'), noticeAction: $('noticeAction'),
+    recBadge: $('recBadge'), recTime: $('recTime'), recHeader: $('recHeader'), recHeaderTime: $('recHeaderTime')
   };
 
   /* ---------- theme colors for canvas ---------- */
@@ -570,7 +575,12 @@
 
     setText(el.lastRaw, state.lastRaw || '—');
 
-    el.recCount.textContent = t('rows', state.log.length.toLocaleString('en-US'));
+    var recTime = fmtDuration(recDuration());
+    setText(el.recCount, t('rows', state.log.length.toLocaleString('en-US')) +
+      (state.log.length || state.recording ? '  ·  ' + recTime : ''));
+    el.recBadge.hidden = el.recHeader.hidden = !state.recording;
+    setText(el.recTime, recTime);
+    setText(el.recHeaderTime, recTime);
     el.btnCsv.disabled = el.btnClearLog.disabled = state.log.length === 0;
 
     if (el.tableDetails.open) updateTable();
@@ -1111,9 +1121,23 @@
    * ===================================================================== */
 
   function toggleRecording() {
+    var now = performance.now();
+    if (state.recording) state.recElapsed += now - state.recSince;
+    else state.recSince = now;
     state.recording = !state.recording;
     updateButtons();
     el.btnRecord.classList.toggle('recording', state.recording);
+    updateStatus();
+  }
+
+  // total time spent recording (stopping and starting again adds up)
+  function recDuration() {
+    return state.recElapsed + (state.recording ? performance.now() - state.recSince : 0);
+  }
+
+  function fmtDuration(ms) {
+    var s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60;
+    return (h ? h + ':' + pad2(m) : pad2(m)) + ':' + pad2(s % 60);
   }
 
   function downloadCsv() {
@@ -1130,10 +1154,14 @@
     state.logSaved = true;
   }
 
+  // always asks first; the wording warns harder when the rows were never downloaded
   function clearLog() {
-    if (!state.logSaved && !window.confirm(t('confirmClear'))) return;
+    var n = state.log.length.toLocaleString('en-US');
+    if (!window.confirm(t(state.logSaved ? 'confirmClearSaved' : 'confirmClear', n))) return;
     state.log = [];
     state.logSaved = true;
+    state.recElapsed = 0;
+    state.recSince = performance.now();
     updateStatus();
   }
 

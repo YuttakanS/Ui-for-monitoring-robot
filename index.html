@@ -48,6 +48,7 @@
         <span id="statusDot" class="dot"></span>
         <span id="statusText">ยังไม่เชื่อมต่อ</span>
       </span>
+      <span id="recHeader" class="rec-badge" hidden><span class="rec-dot"></span>REC <span id="recHeaderTime">00:00</span></span>
       <dl class="stats">
         <div><dt data-i18n="statRate">อัตรา</dt><dd id="rate">0 Hz</dd></div>
         <div><dt data-i18n="statErr">อ่านไม่ได้</dt><dd id="errCount">0</dd></div>
@@ -140,7 +141,10 @@
       </section>
 
       <section class="card rec-card">
-        <div class="tile-label" data-i18n="recTitle">บันทึกข้อมูล</div>
+        <div class="rec-head">
+          <div class="tile-label" data-i18n="recTitle">บันทึกข้อมูล</div>
+          <span id="recBadge" class="rec-badge" hidden><span class="rec-dot"></span>REC <span id="recTime">00:00</span></span>
+        </div>
         <div class="rec-row">
           <button id="btnRecord" class="btn" type="button">● เริ่มบันทึก</button>
           <span id="recCount" class="rec-count">0 แถว</span>

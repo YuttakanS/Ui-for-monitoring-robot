@@ -220,6 +220,20 @@ main {
 .rec-card { display: flex; flex-direction: column; gap: 8px; }
 .rec-row { display: flex; align-items: center; gap: 8px; }
 .rec-count { color: var(--text2); font-variant-numeric: tabular-nums; }
+.rec-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.rec-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--critical);
+  border-radius: 999px;
+  color: var(--critical);
+  font-size: 12px; font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.rec-badge[hidden] { display: none; }
+.rec-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--critical); animation: rec-blink 1.2s steps(1) infinite; }
+@keyframes rec-blink { 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { .rec-dot { animation: none; } }
 
 /* ---------- charts ---------- */
 .chart-toolbar {
