@@ -147,7 +147,9 @@
       errLost: 'การเชื่อมต่อหลุด — สายอาจถูกถอดหรือบอร์ดรีเซ็ต เสียบบอร์ดกลับแล้วกด "เชื่อมต่อใหม่"',
       errLostBack: 'พบบอร์ดเสียบกลับมาแล้ว — กด "เชื่อมต่อใหม่" เพื่ออ่านข้อมูลต่อ',
       reconnect: 'เชื่อมต่อใหม่',
-      errUnsupported: 'เบราว์เซอร์นี้ไม่รองรับ Web Serial — ให้เปิดด้วย Chrome หรือ Edge บนคอมพิวเตอร์ (ปุ่ม Demo ยังใช้ได้)'
+      errUnsupported: 'เบราว์เซอร์นี้ไม่รองรับ Web Serial จึงเชื่อมต่อบอร์ดไม่ได้ — ให้เปิดหน้านี้ด้วย Google Chrome หรือ Microsoft Edge (เวอร์ชัน 89 ขึ้นไป) บนคอมพิวเตอร์ ระหว่างนี้ยังกด Demo ดูข้อมูลจำลองได้',
+      errInsecure: 'หน้านี้เปิดผ่านที่อยู่ที่ไม่ปลอดภัย เบราว์เซอร์จึงปิด Web Serial — ให้เปิดไฟล์ index.html โดยตรง หรือเปิดผ่าน http://localhost หรือ https:// แทน',
+      connectDisabled: 'ใช้ไม่ได้ในเบราว์เซอร์นี้ — ดูคำแนะนำด้านล่าง'
     },
     en: {
       connect: 'Connect Serial',
@@ -216,7 +218,9 @@
       errLost: 'Connection lost — the cable may be unplugged or the board was reset. Plug it back in and press Reconnect.',
       errLostBack: 'The board is plugged back in — press Reconnect to continue.',
       reconnect: 'Reconnect',
-      errUnsupported: 'This browser does not support Web Serial — open the page in Chrome or Edge on a computer (Demo still works).'
+      errUnsupported: 'This browser does not support Web Serial, so it can\'t connect to the board — open this page in Google Chrome or Microsoft Edge (version 89 or later) on a computer. Demo still works in the meantime.',
+      errInsecure: 'This page was opened from an insecure address, so the browser turns Web Serial off — open index.html directly, or through http://localhost or https:// instead.',
+      connectDisabled: 'Not available in this browser — see the message below'
     }
   };
   var DEFAULT_LANG = 'th';
@@ -376,6 +380,8 @@
    * Serial (Web Serial API)
    * ===================================================================== */
 
+  // checked by value rather than with `in`, in case a browser keeps the property but leaves it unset
+  var HAS_SERIAL = !!navigator.serial;
   var port = null, reader = null, keepReading = false;
   var lastPort = null; // the port used last, so Reconnect can reopen it without the picker
 
@@ -868,7 +874,7 @@
   // Next-step guidance shown on the empty map; depends on what the user can do now.
   function hintLines() {
     if (state.source === 'serial') return [t('hintWaitTitle'), t('hintWait1'), t('hintWait2')];
-    if (!('serial' in navigator)) return [t('hintTitle'), t('hintNoSerial')];
+    if (!HAS_SERIAL) return [t('hintTitle'), t('hintNoSerial')];
     return [t('hintTitle'), t('hintStep1'), t('hintStep2'), t('hintDemo')];
   }
 
@@ -1156,6 +1162,7 @@
     });
     updateButtons();
     if (state.notice) showNotice(state.notice.key, state.notice.arg, state.notice.action);
+    if (!HAS_SERIAL) el.btnConnect.title = t('connectDisabled');
     updateStatus();
     state.dirty = state.tilesDirty = true; // canvas text, "waiting" placeholders
   }
@@ -1188,7 +1195,7 @@
     if (state.notice && state.notice.action === 'reconnect') reconnectSerial();
   });
   // a board plugged back in while the "connection lost" banner is up
-  if ('serial' in navigator) {
+  if (HAS_SERIAL) {
     navigator.serial.addEventListener('connect', function () {
       if (state.source === 'idle' && state.notice && state.notice.key === 'errLost') showNotice('errLostBack', undefined, 'reconnect');
     });
@@ -1288,9 +1295,13 @@
   }
   window.addEventListener('resize', function () { state.dirty = true; });
 
-  if (!('serial' in navigator)) {
+  if (!HAS_SERIAL) {
     el.btnConnect.disabled = true;
-    showNotice('errUnsupported');
+    el.btnConnect.setAttribute('aria-describedby', 'noticeText');
+    el.btnConnect.title = t('connectDisabled');
+    // Chrome/Edge hide Web Serial on insecure pages (e.g. http://192.168...),
+    // which needs a different fix than switching browsers.
+    showNotice(window.isSecureContext === false ? 'errInsecure' : 'errUnsupported');
   }
 
   readColors();
