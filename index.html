@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RA Position Monitor</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="bar">
+    <h1>Position Monitor</h1>
+    <div class="controls">
+      <button id="btnConnect" class="btn primary" type="button">เชื่อมต่อ Serial</button>
+      <button id="btnDemo" class="btn" type="button">Demo</button>
+      <label class="field">Baud
+        <select id="baud">
+          <option>9600</option>
+          <option>57600</option>
+          <option selected>115200</option>
+          <option>230400</option>
+          <option>921600</option>
+        </select>
+      </label>
+      <label class="field"><span data-i18n="unitField">หน่วยพิกัด</span>
+        <input id="unit" type="text" size="4" maxlength="6" value="cm" spellcheck="false">
+      </label>
+      <label class="field"><span data-i18n="langField">ภาษา</span>
+        <select id="lang">
+          <option value="th" lang="th">ไทย</option>
+          <option value="en" lang="en">English</option>
+        </select>
+      </label>
+    </div>
+    <div class="status" role="status">
+      <span id="statusDot" class="dot"></span>
+      <span id="statusText">ยังไม่เชื่อมต่อ</span>
+      <span id="rate" class="rate">0 Hz</span>
+    </div>
+  </header>
+
+  <div id="notice" class="notice" role="alert" hidden></div>
+
+  <main>
+    <section class="card map-card">
+      <div class="card-head">
+        <h2><span data-i18n="mapTitle">แผนที่ตำแหน่ง (มุมมองบน)</span> <span class="unit" data-unit></span></h2>
+        <button id="btnResetScale" class="btn small" type="button" data-i18n="fitScale">ปรับสเกลให้พอดี</button>
+      </div>
+      <div class="map-wrap"><canvas id="map" data-i18n-aria="mapAria" aria-label="แผนที่ 2 มิติแสดงตำแหน่งหุ่นยนต์เทียบกับ LED"></canvas></div>
+    </section>
+
+    <aside class="side">
+      <section class="card tiles">
+        <div class="tile">
+          <div class="tile-label"><span class="key" style="--k:var(--s1)"></span>X <span class="unit" data-unit></span></div>
+          <div class="tile-value" id="valX">—</div>
+        </div>
+        <div class="tile">
+          <div class="tile-label"><span class="key" style="--k:var(--s2)"></span>Y <span class="unit" data-unit></span></div>
+          <div class="tile-value" id="valY">—</div>
+        </div>
+        <div class="tile">
+          <div class="tile-label">Quadrant</div>
+          <div class="tile-value" id="valQ">—</div>
+        </div>
+        <div class="tile">
+          <div class="tile-label"><span data-i18n="distLed">ระยะจาก LED</span> <span class="unit" data-unit></span></div>
+          <div class="tile-value" id="valR">—</div>
+        </div>
+      </section>
+
+      <section class="card gauge-card">
+        <div class="tile-label"><span class="key" style="--k:var(--s3)"></span><span data-i18n="angle">มุมตกกระทบ</span></div>
+        <div class="gauge-row">
+          <div class="tile-value" id="valA">—</div>
+          <svg class="gauge" viewBox="0 0 200 124" role="img" data-i18n-aria="gaugeAria" aria-label="หน้าปัดมุมตกกระทบ">
+            <path class="g-arc" d="M20 105 A80 80 0 0 1 180 105"/>
+            <path class="g-tick" d="M20 105H28 M43.43 48.43L49.09 54.09 M100 25V33 M156.57 48.43L150.91 54.09 M180 105H172"/>
+            <path class="g-normal" d="M100 105V33"/>
+            <path class="g-wedge" id="gWedge" d=""/>
+            <line class="g-needle" id="gNeedle" x1="100" y1="105" x2="100" y2="37"/>
+            <circle class="g-hub" cx="100" cy="105" r="4"/>
+            <text class="g-text" x="100" y="16" text-anchor="middle">0°</text>
+            <text class="g-text" x="20" y="120" text-anchor="middle">−90°</text>
+            <text class="g-text" x="180" y="120" text-anchor="middle">90°</text>
+          </svg>
+        </div>
+      </section>
+
+      <section class="card rec-card">
+        <div class="tile-label" data-i18n="recTitle">บันทึกข้อมูล</div>
+        <div class="rec-row">
+          <button id="btnRecord" class="btn" type="button">● เริ่มบันทึก</button>
+          <span id="recCount" class="rec-count">0 แถว</span>
+        </div>
+        <div class="rec-row">
+          <button id="btnCsv" class="btn" type="button" data-i18n="csv" disabled>ดาวน์โหลด CSV</button>
+          <button id="btnClearLog" class="btn" type="button" data-i18n="clear" disabled>ล้าง</button>
+        </div>
+      </section>
+    </aside>
+
+    <section class="card chart-card">
+      <div class="card-head">
+        <h2><span data-i18n="chartXYTitle">ตำแหน่งตามเวลา</span> <span class="unit" data-unit></span></h2>
+        <ul class="legend">
+          <li><span class="key" style="--k:var(--s1)"></span>X</li>
+          <li><span class="key" style="--k:var(--s2)"></span>Y</li>
+        </ul>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="chartXY" data-i18n-aria="chartXYAria" aria-label="กราฟ X และ Y ย้อนหลัง 30 วินาที"></canvas>
+        <div class="tooltip" id="tipXY" hidden></div>
+      </div>
+    </section>
+
+    <section class="card chart-card">
+      <div class="card-head">
+        <h2><span data-i18n="chartATitle">มุมตกกระทบตามเวลา</span> <span class="unit">(°)</span></h2>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="chartA" data-i18n-aria="chartAAria" aria-label="กราฟมุมตกกระทบย้อนหลัง 30 วินาที"></canvas>
+        <div class="tooltip" id="tipA" hidden></div>
+      </div>
+    </section>
+
+    <section class="card table-card">
+      <details id="tableDetails">
+        <summary data-i18n="tableTitle">ตารางค่าล่าสุด (20 แถว)</summary>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr><th data-i18n="thTime">เวลา</th><th>Quadrant</th><th>X</th><th>Y</th><th data-i18n="thAngle">มุมตกกระทบ (°)</th></tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+          </table>
+        </div>
+      </details>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span data-i18n="lastRaw">บรรทัดล่าสุดจาก serial:</span>
+    <code id="lastRaw">—</code>
+    <span id="parseErr" class="parse-err"></span>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
