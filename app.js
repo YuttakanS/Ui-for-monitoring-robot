@@ -67,6 +67,16 @@
     return out.join('\r\n') + '\r\n';
   }
 
+  // The firmware sends centimetres. Samples, the map range and the CSV export
+  // stay in raw cm; only what is shown on screen is converted.
+  // f = factor from cm, d = decimals (2 decimals in cm = 0.1 mm resolution).
+  var UNITS = {
+    cm: { f: 1, d: 2 },
+    mm: { f: 10, d: 1 },
+    m: { f: 0.01, d: 4 }
+  };
+  var DEFAULT_UNIT = 'cm';
+
   // UI text. To add a language: add a block here and an <option> in index.html (#lang).
   // {n} is replaced with a number or detail text.
   var I18N = {
@@ -180,7 +190,7 @@
     module.exports = {
       parseLine: parseLine, createLineSplitter: createLineSplitter,
       niceStep: niceStep, niceCeil: niceCeil, fmtTick: fmtTick,
-      fileStamp: fileStamp, toCsv: toCsv, I18N: I18N, translate: translate
+      fileStamp: fileStamp, toCsv: toCsv, I18N: I18N, translate: translate, UNITS: UNITS
     };
   }
   if (typeof document === 'undefined') return;
@@ -193,14 +203,14 @@
   // Break the line only on a real dropout. Must stay well above 1000 ms: a hidden
   // tab throttles the Demo timer to ~1 sample/s, which must still draw as one line.
   var GAP_MS = 2500;
-  var DEFAULT_RANGE = 100;
+  var DEFAULT_RANGE = 100; // cm
 
   var state = {
     source: 'idle',        // idle | serial | demo
     samples: [],
     latest: null,
-    range: null,           // map half-width in data units; null = not fitted yet
-    unit: 'cm',
+    range: null,           // map half-width in cm; null = not fitted yet
+    unit: DEFAULT_UNIT,    // display unit only (key of UNITS)
     lang: DEFAULT_LANG,
     notice: null,          // { key, arg } so it can be re-rendered on language change
     parseErrors: 0,
@@ -214,6 +224,9 @@
 
   function $(id) { return document.getElementById(id); }
   function t(key, n) { return translate(state.lang, key, n); }
+  function unitInfo() { return UNITS[state.unit] || UNITS[DEFAULT_UNIT]; }
+  // cm value -> display string in the selected unit
+  function fmtLen(cm) { var u = unitInfo(); return (cm * u.f).toFixed(u.d); }
 
   var el = {
     btnConnect: $('btnConnect'), btnDemo: $('btnDemo'), baud: $('baud'), unit: $('unit'), lang: $('lang'),
@@ -448,10 +461,10 @@
       return;
     }
     el.gNeedle.style.visibility = 'visible';
-    el.valX.textContent = s.x.toFixed(2);
-    el.valY.textContent = s.y.toFixed(2);
+    el.valX.textContent = fmtLen(s.x);
+    el.valY.textContent = fmtLen(s.y);
     el.valQ.textContent = String(s.quadrant);
-    el.valR.textContent = Math.hypot(s.x, s.y).toFixed(2);
+    el.valR.textContent = fmtLen(Math.hypot(s.x, s.y));
     el.valA.textContent = s.angle.toFixed(2) + '°';
 
     // Dial: 0° is straight up, positive to the right, clamped to ±90° for drawing.
@@ -473,7 +486,7 @@
     for (var i = S.length - 1; i >= 0 && i >= S.length - 20; i--) {
       var s = S[i], tr = document.createElement('tr');
       [clockTime(s.wall) + '.' + String(s.wall % 1000).padStart(3, '0'),
-        s.quadrant, s.x.toFixed(2), s.y.toFixed(2), s.angle.toFixed(2)].forEach(function (v) {
+        s.quadrant, fmtLen(s.x), fmtLen(s.y), s.angle.toFixed(2)].forEach(function (v) {
         var td = document.createElement('td');
         td.textContent = v;
         tr.appendChild(td);
@@ -549,7 +562,10 @@
     var half = (Math.min(w, h) - pad * 2) / 2;
     if (half < 40) return;
     var cx = w / 2, cy = h / 2;
-    var R = state.range === null ? DEFAULT_RANGE : state.range;
+    // Grid and ticks work in the display unit; sample values (cm) go through f.
+    // Factors are powers of 10, so a "nice" cm range stays nice in mm and m.
+    var f = unitInfo().f;
+    var R = (state.range === null ? DEFAULT_RANGE : state.range) * f;
     var k = half / R;
     var s = state.latest;
     function PX(x) { return cx + x * k; }
@@ -614,7 +630,7 @@
     if (s) {
       ctx.strokeStyle = C.text2;
       ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(PX(s.x), PY(s.y)); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(PX(s.x * f), PY(s.y * f)); ctx.stroke();
     }
 
     // LED centre
@@ -631,9 +647,9 @@
 
     // Robot + coordinate label
     if (s) {
-      var rx = PX(s.x), ry = PY(s.y);
+      var rx = PX(s.x * f), ry = PY(s.y * f);
       drawRobot(ctx, rx, ry);
-      var label = '(' + s.x.toFixed(2) + ', ' + s.y.toFixed(2) + ')';
+      var label = '(' + fmtLen(s.x) + ', ' + fmtLen(s.y) + ')';
       ctx.font = '600 12px ' + C.font;
       var tw = ctx.measureText(label).width;
       var lx = Math.max(4 + tw / 2, Math.min(w - 4 - tw / 2, rx));
@@ -706,8 +722,9 @@
     return state.latest.t;
   }
 
-  function makeChart(cv, tip, series) {
-    var ch = { cv: cv, tip: tip, series: series, hoverX: null, rows: [], names: [] };
+  // scaled: series are lengths in cm, shown in the selected unit
+  function makeChart(cv, tip, series, scaled) {
+    var ch = { cv: cv, tip: tip, series: series, scaled: !!scaled, hoverX: null, rows: [], names: [] };
     ch.head = document.createElement('div');
     ch.head.className = 'tip-head';
     tip.appendChild(ch.head);
@@ -739,12 +756,14 @@
     var S = state.samples, series = ch.series;
     var tNow = chartNow(), t0 = tNow - WINDOW_MS;
     var i0 = lowerBound(S, t0), i, j, v;
+    var sf = ch.scaled ? unitInfo().f : 1, dp = ch.scaled ? unitInfo().d : 2;
+    function val(sample, d) { return sample[d.key] * sf; }
 
     // y range over what is visible, snapped to clean numbers
     var lo = Infinity, hi = -Infinity;
     for (i = i0; i < S.length; i++) {
       for (j = 0; j < series.length; j++) {
-        v = S[i][series[j].key];
+        v = val(S[i], series[j]);
         if (v < lo) lo = v;
         if (v > hi) hi = v;
       }
@@ -784,7 +803,7 @@
       ctx.beginPath();
       var prev = -Infinity;
       for (i = i0; i < S.length; i++) {
-        var px = X(S[i].t), py = Y(S[i][series[j].key]);
+        var px = X(S[i].t), py = Y(val(S[i], series[j]));
         if (S[i].t - prev > GAP_MS) ctx.moveTo(px, py); else ctx.lineTo(px, py);
         prev = S[i].t;
       }
@@ -795,7 +814,7 @@
     if (S.length > i0) {
       var last = S[S.length - 1], ex = X(last.t), ys = [];
       for (j = 0; j < series.length; j++) {
-        ys.push(Y(last[series[j].key]));
+        ys.push(Y(val(last, series[j])));
         dot(ctx, ex, ys[j], C[series[j].color]);
       }
       var collide = false;
@@ -805,7 +824,7 @@
         ctx.fillStyle = C.text;
         ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
         for (j = 0; j < series.length; j++) {
-          ctx.fillText(last[series[j].key].toFixed(2), ex + 10, ys[j]);
+          ctx.fillText(val(last, series[j]).toFixed(dp), ex + 10, ys[j]);
         }
       }
     }
@@ -825,8 +844,8 @@
     ctx.strokeStyle = C.muted;
     vline(ctx, hx, T, T + ph);
     for (j = 0; j < series.length; j++) {
-      dot(ctx, hx, Y(hs[series[j].key]), C[series[j].color]);
-      ch.rows[j].textContent = hs[series[j].key].toFixed(2);
+      dot(ctx, hx, Y(val(hs, series[j])), C[series[j].color]);
+      ch.rows[j].textContent = val(hs, series[j]).toFixed(dp);
     }
     ch.head.textContent = clockTime(hs.wall) + '  (' + ((hs.t - tNow) / 1000).toFixed(1) + ' s)';
     ch.tip.hidden = false;
@@ -872,7 +891,7 @@
   var chartXY = makeChart($('chartXY'), $('tipXY'), [
     { key: 'x', color: 's1', label: 'X' },
     { key: 'y', color: 's2', label: 'Y' }
-  ]);
+  ], true);
   var chartA = makeChart($('chartA'), $('tipA'), [
     { key: 'angle', color: 's3', labelKey: 'tipAngle' }
   ]);
@@ -924,10 +943,12 @@
   el.btnClearLog.addEventListener('click', clearLog);
   el.tableDetails.addEventListener('toggle', updateStatus);
 
-  el.unit.addEventListener('input', function () {
-    state.unit = el.unit.value.trim();
+  el.unit.addEventListener('change', function () {
+    state.unit = UNITS[el.unit.value] ? el.unit.value : DEFAULT_UNIT;
     try { localStorage.setItem('ra.unit', state.unit); } catch (e) { /* storage unavailable */ }
     updateUnitLabels();
+    state.tilesDirty = true;
+    updateStatus(); // refreshes the table if it is open
   });
   el.baud.addEventListener('change', function () {
     try { localStorage.setItem('ra.baud', el.baud.value); } catch (e) { /* storage unavailable */ }
@@ -938,12 +959,14 @@
     var savedLang = localStorage.getItem('ra.lang');
     if (savedLang && I18N[savedLang]) state.lang = savedLang;
     var savedUnit = localStorage.getItem('ra.unit');
-    if (savedUnit !== null) { state.unit = savedUnit; el.unit.value = savedUnit; }
+    // older versions stored free text here; only accept a known unit
+    if (savedUnit !== null && UNITS[savedUnit]) state.unit = savedUnit;
     var savedBaud = localStorage.getItem('ra.baud');
     for (var oi = 0; oi < el.baud.options.length; oi++) {
       if (el.baud.options[oi].text === savedBaud) el.baud.selectedIndex = oi;
     }
   } catch (e) { /* storage unavailable */ }
+  el.unit.value = state.unit;
 
   window.addEventListener('beforeunload', function (e) {
     if (state.log.length && !state.logSaved) { e.preventDefault(); e.returnValue = ''; }

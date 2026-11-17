@@ -22,7 +22,11 @@
         </select>
       </label>
       <label class="field"><span data-i18n="unitField">หน่วยพิกัด</span>
-        <input id="unit" type="text" size="4" maxlength="6" value="cm" spellcheck="false">
+        <select id="unit">
+          <option value="cm" selected>cm</option>
+          <option value="mm">mm</option>
+          <option value="m">m</option>
+        </select>
       </label>
       <label class="field"><span data-i18n="langField">ภาษา</span>
         <select id="lang">
@@ -130,7 +134,7 @@
         <div class="table-scroll">
           <table>
             <thead>
-              <tr><th data-i18n="thTime">เวลา</th><th>Quadrant</th><th>X</th><th>Y</th><th data-i18n="thAngle">มุมตกกระทบ (°)</th></tr>
+              <tr><th data-i18n="thTime">เวลา</th><th>Quadrant</th><th>X <span class="unit" data-unit></span></th><th>Y <span class="unit" data-unit></span></th><th data-i18n="thAngle">มุมตกกระทบ (°)</th></tr>
             </thead>
             <tbody id="tableBody"></tbody>
           </table>
