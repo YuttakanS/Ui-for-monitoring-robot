@@ -249,7 +249,7 @@
     statusDot: $('statusDot'), statusText: $('statusText'), rate: $('rate'), notice: $('notice'),
     map: $('map'), btnResetScale: $('btnResetScale'),
     valX: $('valX'), valY: $('valY'), valQ: $('valQ'), valR: $('valR'), valA: $('valA'),
-    mmX: $('mmX'), mmY: $('mmY'), mmR: $('mmR'), mmA: $('mmA'), lastTime: $('lastTime'),
+    qMini: $('qMini'), mmX: $('mmX'), mmY: $('mmY'), mmR: $('mmR'), mmA: $('mmA'), lastTime: $('lastTime'),
     gNeedle: $('gNeedle'), gWedge: $('gWedge'),
     btnRecord: $('btnRecord'), recCount: $('recCount'), btnCsv: $('btnCsv'), btnClearLog: $('btnClearLog'),
     tableDetails: $('tableDetails'), tableBody: $('tableBody'),
@@ -487,6 +487,9 @@
       values[i].classList.toggle('empty', !s);
       if (!s) values[i].textContent = t('waiting');
     }
+    var cells = el.qMini.querySelectorAll('rect');
+    for (i = 0; i < cells.length; i++) cells[i].classList.toggle('on', !!s && +cells[i].dataset.q === s.quadrant);
+    el.qMini.style.visibility = s ? 'visible' : 'hidden';
     if (!s) {
       el.mmX.textContent = el.mmY.textContent = el.mmR.textContent = el.mmA.textContent = '';
       el.lastTime.textContent = '—';
@@ -504,7 +507,7 @@
     el.gNeedle.style.visibility = 'visible';
     el.valX.textContent = fmtLen(s.x);
     el.valY.textContent = fmtLen(s.y);
-    el.valQ.textContent = String(s.quadrant);
+    el.valQ.textContent = 'Q' + s.quadrant;
     el.valR.textContent = fmtLen(Math.hypot(s.x, s.y));
     el.valA.textContent = s.angle.toFixed(2) + '°';
 
@@ -616,7 +619,7 @@
     var qRect = { 1: [cx, cy - half], 2: [cx - half, cy - half], 3: [cx - half, cy], 4: [cx, cy] };
     if (s && qRect[s.quadrant]) {
       ctx.save();
-      ctx.globalAlpha = 0.07;
+      ctx.globalAlpha = 0.09;
       ctx.fillStyle = C.text;
       ctx.fillRect(qRect[s.quadrant][0], qRect[s.quadrant][1], half, half);
       ctx.restore();
@@ -662,9 +665,24 @@
     for (var q = 1; q <= 4; q++) {
       var active = s && s.quadrant === q;
       ctx.font = (active ? '600 ' : '') + '13px ' + C.font;
-      ctx.fillStyle = active ? C.text : C.muted;
       ctx.textAlign = qPos[q][2]; ctx.textBaseline = qPos[q][3];
+      if (active) {
+        // active label as a filled pill, so it doesn't rely on weight alone
+        var qw = ctx.measureText('Q' + q).width + 12, qx = qPos[q][2] === 'right' ? qPos[q][0] - qw + 6 : qPos[q][0] - 6;
+        var qy = qPos[q][3] === 'top' ? qPos[q][1] - 3 : qPos[q][1] - 19;
+        ctx.fillStyle = C.text;
+        ctx.beginPath(); ctx.roundRect(qx, qy, qw, 22, 11); ctx.fill();
+        ctx.fillStyle = C.surface;
+      } else ctx.fillStyle = C.muted;
       ctx.fillText('Q' + q, qPos[q][0], qPos[q][1]);
+    }
+
+    // active quadrant outline, drawn over the grid
+    if (s && qRect[s.quadrant]) {
+      ctx.strokeStyle = C.text2;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(qRect[s.quadrant][0] + 1, qRect[s.quadrant][1] + 1, half - 2, half - 2);
+      ctx.lineWidth = 1;
     }
 
     if (s) drawTrail(ctx, PX, PY, f);

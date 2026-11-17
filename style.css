@@ -174,6 +174,10 @@ main {
 .tile-label .key { vertical-align: middle; margin-right: 6px; }
 .tile-label .unit { white-space: nowrap; }
 .tile-sub { margin-top: 2px; color: var(--text2); font-size: 12px; font-variant-numeric: tabular-nums; }
+.q-row { display: flex; align-items: center; gap: 10px; }
+.q-mini { width: 24px; height: 24px; flex: none; }
+.q-mini rect { fill: none; stroke: var(--axis); stroke-width: 1.5; }
+.q-mini rect.on { fill: var(--text); stroke: var(--text); }
 .tiles-foot {
   grid-column: 1 / -1;
   padding-top: 10px;
