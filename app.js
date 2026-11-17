@@ -84,7 +84,15 @@
       mapTitle: 'แผนที่ตำแหน่ง (มุมมองบน)',
       fitScale: 'ปรับสเกลให้พอดี',
       mapAria: 'แผนที่ 2 มิติแสดงตำแหน่งหุ่นยนต์เทียบกับ LED',
-      mapEmpty: 'ยังไม่มีข้อมูล — กดเชื่อมต่อ Serial หรือ Demo',
+      waiting: 'รอข้อมูล…',
+      hintTitle: 'ยังไม่มีข้อมูล',
+      hintStep1: '1. ต่อบอร์ดเข้ากับคอมพิวเตอร์ผ่าน USB',
+      hintStep2: '2. กด "เชื่อมต่อ Serial" แล้วเลือกพอร์ตของบอร์ด',
+      hintDemo: 'หรือกด Demo เพื่อทดลองด้วยข้อมูลจำลอง',
+      hintNoSerial: 'เบราว์เซอร์นี้ใช้ Serial ไม่ได้ — กด Demo เพื่อทดลองด้วยข้อมูลจำลอง',
+      hintWaitTitle: 'เชื่อมต่อแล้ว — กำลังรอข้อมูล',
+      hintWait1: 'ตรวจว่า baud rate ตรงกับที่บอร์ดใช้',
+      hintWait2: 'บอร์ดต้องส่งบรรทัดแบบ  Quadrant 1: x, y, มุม',
       distLed: 'ระยะจาก LED',
       angle: 'มุมตกกระทบ',
       gaugeAria: 'หน้าปัดมุมตกกระทบ',
@@ -124,7 +132,15 @@
       mapTitle: 'Position map (top view)',
       fitScale: 'Fit scale',
       mapAria: '2D map of the robot position relative to the LED',
-      mapEmpty: 'No data yet — press Connect Serial or Demo',
+      waiting: 'Waiting for data…',
+      hintTitle: 'No data yet',
+      hintStep1: '1. Plug the board in over USB',
+      hintStep2: '2. Press "Connect Serial" and pick its port',
+      hintDemo: 'Or press Demo to try with simulated data',
+      hintNoSerial: 'This browser can\'t use Serial — press Demo to try with simulated data',
+      hintWaitTitle: 'Connected — waiting for data',
+      hintWait1: 'Check that the baud rate matches the board',
+      hintWait2: 'The board must send lines like  Quadrant 1: x, y, angle',
       distLed: 'Distance from LED',
       angle: 'Incidence angle',
       gaugeAria: 'Incidence angle dial',
@@ -421,9 +437,12 @@
 
   function updateTiles() {
     var s = state.latest;
+    var values = [el.valX, el.valY, el.valQ, el.valR, el.valA];
+    for (var i = 0; i < values.length; i++) {
+      values[i].classList.toggle('empty', !s);
+      if (!s) values[i].textContent = t('waiting');
+    }
     if (!s) {
-      el.valX.textContent = el.valY.textContent = el.valQ.textContent =
-        el.valR.textContent = el.valA.textContent = '—';
       el.gNeedle.style.visibility = 'hidden';
       el.gWedge.setAttribute('d', '');
       return;
@@ -628,10 +647,33 @@
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(label, lx, ly);
     } else {
-      ctx.font = '13px ' + C.font;
-      ctx.fillStyle = C.muted;
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(t('mapEmpty'), cx, cy + half * 0.5);
+      drawHint(ctx, cx, cy + half * 0.5);
+    }
+  }
+
+  // Next-step guidance shown on the empty map; depends on what the user can do now.
+  function hintLines() {
+    if (state.source === 'serial') return [t('hintWaitTitle'), t('hintWait1'), t('hintWait2')];
+    if (!('serial' in navigator)) return [t('hintTitle'), t('hintNoSerial')];
+    return [t('hintTitle'), t('hintStep1'), t('hintStep2'), t('hintDemo')];
+  }
+
+  function drawHint(ctx, x, yMid) {
+    var lines = hintLines(), lh = 21, i, wMax = 0;
+    for (i = 0; i < lines.length; i++) {
+      ctx.font = (i === 0 ? '600 14px ' : '13px ') + C.font;
+      wMax = Math.max(wMax, ctx.measureText(lines[i]).width);
+    }
+    var top = yMid - lines.length * lh / 2;
+    ctx.fillStyle = C.surface;
+    ctx.globalAlpha = 0.92;
+    ctx.beginPath(); ctx.roundRect(x - wMax / 2 - 14, top - 8, wMax + 28, lines.length * lh + 16, 8); ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (i = 0; i < lines.length; i++) {
+      ctx.font = (i === 0 ? '600 14px ' : '13px ') + C.font;
+      ctx.fillStyle = i === 0 ? C.text : C.text2;
+      ctx.fillText(lines[i], x, top + lh * (i + 0.5));
     }
   }
 
@@ -849,7 +891,7 @@
     updateButtons();
     if (state.notice) showNotice(state.notice.key, state.notice.arg);
     updateStatus();
-    state.dirty = true; // canvas text
+    state.dirty = state.tilesDirty = true; // canvas text, "waiting" placeholders
   }
 
   function setLang(lang) {
