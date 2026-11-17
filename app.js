@@ -218,6 +218,7 @@
     range: null,           // map half-width in cm; null = not fitted yet
     unit: DEFAULT_UNIT,    // display unit only (key of UNITS)
     trailN: 100,           // map trail length in samples; 0 = off
+    mapHover: null,        // pointer position over the map canvas (CSS px) or null
     lang: DEFAULT_LANG,
     notice: null,          // { key, arg } so it can be re-rendered on language change
     parseErrors: 0,
@@ -675,6 +676,35 @@
     } else {
       drawHint(ctx, cx, cy + half * 0.5);
     }
+
+    drawMapCrosshair(ctx, cx, cy, half, k, w, h);
+  }
+
+  // Hover: dashed crosshair and the X, Y (selected unit) under the pointer.
+  function drawMapCrosshair(ctx, cx, cy, half, k, w, h) {
+    var p = state.mapHover;
+    if (!p || Math.abs(p.x - cx) > half || Math.abs(p.y - cy) > half) return;
+    var u = unitInfo();
+    ctx.save();
+    ctx.strokeStyle = C.text2;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    vline(ctx, p.x, cy - half, cy + half);
+    hline(ctx, cx - half, cx + half, p.y);
+    ctx.setLineDash([]);
+
+    var label = 'X ' + ((p.x - cx) / k).toFixed(u.d) + '   Y ' + ((cy - p.y) / k).toFixed(u.d) +
+      (state.unit ? '  ' + state.unit : '');
+    ctx.font = '600 12px ' + C.font;
+    var tw = ctx.measureText(label).width, bw = tw + 16, bh = 24;
+    var bx = p.x + 12 + bw > w - 4 ? p.x - 12 - bw : p.x + 12;
+    var by = p.y + 12 + bh > h - 4 ? p.y - 12 - bh : p.y + 12;
+    ctx.fillStyle = C.text;
+    ctx.beginPath(); ctx.roundRect(bx, by, bw, bh, 5); ctx.fill();
+    ctx.fillStyle = C.surface;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(label, bx + 8, by + bh / 2);
+    ctx.restore();
   }
 
   // Last N positions; each segment fades with age (oldest ~transparent).
@@ -969,6 +999,12 @@
     if (state.source === 'demo') stopDemo(); else startDemo();
   });
   el.btnResetScale.addEventListener('click', fitScale);
+  el.map.addEventListener('pointermove', function (e) {
+    var b = el.map.getBoundingClientRect();
+    state.mapHover = { x: e.clientX - b.left, y: e.clientY - b.top };
+    state.dirty = true;
+  });
+  el.map.addEventListener('pointerleave', function () { state.mapHover = null; state.dirty = true; });
   el.btnRecord.addEventListener('click', toggleRecording);
   el.btnCsv.addEventListener('click', downloadCsv);
   el.btnClearLog.addEventListener('click', clearLog);
