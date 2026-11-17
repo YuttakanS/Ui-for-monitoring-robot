@@ -12,15 +12,6 @@
     <div class="controls">
       <button id="btnConnect" class="btn primary" type="button">เชื่อมต่อ Serial</button>
       <button id="btnDemo" class="btn secondary" type="button">Demo</button>
-      <label class="field">Baud
-        <select id="baud">
-          <option>9600</option>
-          <option>57600</option>
-          <option selected>115200</option>
-          <option>230400</option>
-          <option>921600</option>
-        </select>
-      </label>
       <label class="field"><span data-i18n="unitField">หน่วยพิกัด</span>
         <select id="unit">
           <option value="cm" selected>cm</option>
@@ -28,12 +19,29 @@
           <option value="m">m</option>
         </select>
       </label>
-      <label class="field"><span data-i18n="langField">ภาษา</span>
-        <select id="lang">
-          <option value="th" lang="th">ไทย</option>
-          <option value="en" lang="en">English</option>
-        </select>
-      </label>
+      <div class="settings">
+        <button id="btnSettings" class="btn secondary" type="button" aria-expanded="false" aria-controls="settingsPanel">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span data-i18n="settings">ตั้งค่า</span>
+        </button>
+        <div id="settingsPanel" class="settings-panel" role="group" data-i18n-aria="settings" aria-label="ตั้งค่า" hidden>
+          <label class="field">Baud rate
+            <select id="baud">
+              <option>9600</option>
+              <option>57600</option>
+              <option selected>115200</option>
+              <option>230400</option>
+              <option>921600</option>
+            </select>
+          </label>
+          <label class="field"><span data-i18n="langField">ภาษา</span>
+            <select id="lang">
+              <option value="th" lang="th">ไทย</option>
+              <option value="en" lang="en">English</option>
+            </select>
+          </label>
+        </div>
+      </div>
     </div>
     <div class="status" role="status">
       <span id="statusDot" class="dot"></span>

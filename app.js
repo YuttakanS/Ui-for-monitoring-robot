@@ -87,6 +87,7 @@
       demoStop: 'หยุด Demo',
       unitField: 'หน่วยพิกัด',
       langField: 'ภาษา',
+      settings: 'ตั้งค่า',
       statusIdle: 'ยังไม่เชื่อมต่อ',
       statusDemo: 'Demo (ข้อมูลจำลอง)',
       statusStale: 'เชื่อมต่อแล้ว — ยังไม่มีข้อมูลที่อ่านได้',
@@ -101,7 +102,7 @@
       hintDemo: 'หรือกด Demo เพื่อทดลองด้วยข้อมูลจำลอง',
       hintNoSerial: 'เบราว์เซอร์นี้ใช้ Serial ไม่ได้ — กด Demo เพื่อทดลองด้วยข้อมูลจำลอง',
       hintWaitTitle: 'เชื่อมต่อแล้ว — กำลังรอข้อมูล',
-      hintWait1: 'ตรวจว่า baud rate ตรงกับที่บอร์ดใช้',
+      hintWait1: 'ตรวจว่า baud rate ในเมนูตั้งค่าตรงกับที่บอร์ดใช้',
       hintWait2: 'บอร์ดต้องส่งบรรทัดแบบ  Quadrant 1: x, y, มุม',
       distLed: 'ระยะจาก LED',
       angle: 'มุมตกกระทบ',
@@ -135,6 +136,7 @@
       demoStop: 'Stop demo',
       unitField: 'Unit',
       langField: 'Language',
+      settings: 'Settings',
       statusIdle: 'Not connected',
       statusDemo: 'Demo (simulated data)',
       statusStale: 'Connected — no readable data yet',
@@ -149,7 +151,7 @@
       hintDemo: 'Or press Demo to try with simulated data',
       hintNoSerial: 'This browser can\'t use Serial — press Demo to try with simulated data',
       hintWaitTitle: 'Connected — waiting for data',
-      hintWait1: 'Check that the baud rate matches the board',
+      hintWait1: 'Check that the baud rate in Settings matches the board',
       hintWait2: 'The board must send lines like  Quadrant 1: x, y, angle',
       distLed: 'Distance from LED',
       angle: 'Incidence angle',
@@ -230,6 +232,7 @@
 
   var el = {
     btnConnect: $('btnConnect'), btnDemo: $('btnDemo'), baud: $('baud'), unit: $('unit'), lang: $('lang'),
+    btnSettings: $('btnSettings'), settingsPanel: $('settingsPanel'),
     statusDot: $('statusDot'), statusText: $('statusText'), rate: $('rate'), notice: $('notice'),
     map: $('map'), btnResetScale: $('btnResetScale'),
     valX: $('valX'), valY: $('valY'), valQ: $('valQ'), valR: $('valR'), valA: $('valA'),
@@ -954,6 +957,23 @@
     try { localStorage.setItem('ra.baud', el.baud.value); } catch (e) { /* storage unavailable */ }
   });
   el.lang.addEventListener('change', function () { setLang(el.lang.value); });
+
+  /* ---------- settings menu (baud, language) ---------- */
+  function setSettingsOpen(open, returnFocus) {
+    el.settingsPanel.hidden = !open;
+    el.btnSettings.setAttribute('aria-expanded', String(open));
+    if (!open && returnFocus) el.btnSettings.focus();
+  }
+  el.btnSettings.addEventListener('click', function () { setSettingsOpen(el.settingsPanel.hidden); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !el.settingsPanel.hidden) setSettingsOpen(false, true);
+  });
+  // close on a click or focus move outside the menu
+  ['pointerdown', 'focusin'].forEach(function (type) {
+    document.addEventListener(type, function (e) {
+      if (!el.settingsPanel.hidden && !el.btnSettings.parentNode.contains(e.target)) setSettingsOpen(false);
+    });
+  });
 
   try {
     var savedLang = localStorage.getItem('ra.lang');

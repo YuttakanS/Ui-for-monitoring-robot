@@ -71,7 +71,28 @@ body {
   border-radius: 6px;
   padding: 5px 8px;
 }
-.field input { width: 64px; }
+
+/* settings menu: baud + language, out of the main toolbar */
+.settings { position: relative; }
+#btnSettings { display: inline-flex; align-items: center; gap: 6px; }
+#btnSettings[aria-expanded="true"] { background: var(--wash); }
+.icon { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.settings-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  display: grid;
+  gap: 10px;
+  min-width: 230px;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16);
+}
+.settings-panel[hidden] { display: none; }
+.settings-panel .field { justify-content: space-between; }
 
 /* Buttons: one shape and size; .primary is filled (the main action),
    .secondary (and plain .btn) is outlined. */
