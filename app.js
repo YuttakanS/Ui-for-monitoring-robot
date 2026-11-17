@@ -107,6 +107,9 @@
       hintWait1: 'ตรวจว่า baud rate ในเมนูตั้งค่าตรงกับที่บอร์ดใช้',
       hintWait2: 'บอร์ดต้องส่งบรรทัดแบบ  Quadrant 1: x, y, มุม',
       distLed: 'ระยะจาก LED',
+      lastReading: 'ค่าล่าสุดเมื่อ',
+      min: 'ต่ำสุด',
+      max: 'สูงสุด',
       angle: 'มุมตกกระทบ',
       gaugeAria: 'หน้าปัดมุมตกกระทบ',
       recTitle: 'บันทึกข้อมูล',
@@ -158,6 +161,9 @@
       hintWait1: 'Check that the baud rate in Settings matches the board',
       hintWait2: 'The board must send lines like  Quadrant 1: x, y, angle',
       distLed: 'Distance from LED',
+      lastReading: 'Last reading at',
+      min: 'min',
+      max: 'max',
       angle: 'Incidence angle',
       gaugeAria: 'Incidence angle dial',
       recTitle: 'Recording',
@@ -219,6 +225,7 @@
     unit: DEFAULT_UNIT,    // display unit only (key of UNITS)
     trailN: 100,           // map trail length in samples; 0 = off
     mapHover: null,        // pointer position over the map canvas (CSS px) or null
+    stats: null,           // session min/max per field, reset with the data
     lang: DEFAULT_LANG,
     notice: null,          // { key, arg } so it can be re-rendered on language change
     parseErrors: 0,
@@ -242,6 +249,7 @@
     statusDot: $('statusDot'), statusText: $('statusText'), rate: $('rate'), notice: $('notice'),
     map: $('map'), btnResetScale: $('btnResetScale'),
     valX: $('valX'), valY: $('valY'), valQ: $('valQ'), valR: $('valR'), valA: $('valA'),
+    mmX: $('mmX'), mmY: $('mmY'), mmR: $('mmR'), mmA: $('mmA'), lastTime: $('lastTime'),
     gNeedle: $('gNeedle'), gWedge: $('gWedge'),
     btnRecord: $('btnRecord'), recCount: $('recCount'), btnCsv: $('btnCsv'), btnClearLog: $('btnClearLog'),
     tableDetails: $('tableDetails'), tableBody: $('tableBody'),
@@ -274,6 +282,7 @@
     s.wall = Date.now();
     state.samples.push(s);
     state.latest = s;
+    addStats(s);
 
     var cutoff = s.t - WINDOW_MS - 2000;
     if (state.samples.length > 512 && state.samples[0].t < cutoff) {
@@ -295,9 +304,23 @@
     state.dirty = state.tilesDirty = true;
   }
 
+  function addStats(s) {
+    var v = { x: s.x, y: s.y, r: Math.hypot(s.x, s.y), angle: s.angle };
+    if (!state.stats) {
+      state.stats = {};
+      for (var k0 in v) state.stats[k0] = { min: v[k0], max: v[k0] };
+      return;
+    }
+    for (var k in v) {
+      if (v[k] < state.stats[k].min) state.stats[k].min = v[k];
+      if (v[k] > state.stats[k].max) state.stats[k].max = v[k];
+    }
+  }
+
   function clearData() {
     state.samples = [];
     state.latest = null;
+    state.stats = null;
     state.range = null;
     state.parseErrors = 0;
     state.lastRaw = '';
@@ -465,10 +488,19 @@
       if (!s) values[i].textContent = t('waiting');
     }
     if (!s) {
+      el.mmX.textContent = el.mmY.textContent = el.mmR.textContent = el.mmA.textContent = '';
+      el.lastTime.textContent = '—';
       el.gNeedle.style.visibility = 'hidden';
       el.gWedge.setAttribute('d', '');
       return;
     }
+    var st = state.stats;
+    function mm(lo, hi) { return t('min') + ' ' + lo + '  ·  ' + t('max') + ' ' + hi; }
+    el.mmX.textContent = mm(fmtLen(st.x.min), fmtLen(st.x.max));
+    el.mmY.textContent = mm(fmtLen(st.y.min), fmtLen(st.y.max));
+    el.mmR.textContent = mm(fmtLen(st.r.min), fmtLen(st.r.max));
+    el.mmA.textContent = mm(st.angle.min.toFixed(2) + '°', st.angle.max.toFixed(2) + '°');
+    el.lastTime.textContent = clockTime(s.wall) + '.' + String(s.wall % 1000).padStart(3, '0');
     el.gNeedle.style.visibility = 'visible';
     el.valX.textContent = fmtLen(s.x);
     el.valY.textContent = fmtLen(s.y);

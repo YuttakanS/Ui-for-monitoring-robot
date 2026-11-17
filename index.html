@@ -78,10 +78,12 @@
         <div class="tile">
           <div class="tile-label"><span class="key" style="--k:var(--s1)"></span>X <span class="unit" data-unit></span></div>
           <div class="tile-value" id="valX">—</div>
+          <div class="tile-sub" id="mmX"></div>
         </div>
         <div class="tile">
           <div class="tile-label"><span class="key" style="--k:var(--s2)"></span>Y <span class="unit" data-unit></span></div>
           <div class="tile-value" id="valY">—</div>
+          <div class="tile-sub" id="mmY"></div>
         </div>
         <div class="tile">
           <div class="tile-label">Quadrant</div>
@@ -90,7 +92,9 @@
         <div class="tile">
           <div class="tile-label"><span data-i18n="distLed">ระยะจาก LED</span> <span class="unit" data-unit></span></div>
           <div class="tile-value" id="valR">—</div>
+          <div class="tile-sub" id="mmR"></div>
         </div>
+        <div class="tiles-foot"><span data-i18n="lastReading">ค่าล่าสุดเมื่อ</span> <span id="lastTime">—</span></div>
       </section>
 
       <section class="card gauge-card">
@@ -109,6 +113,7 @@
             <text class="g-text" x="180" y="120" text-anchor="middle">90°</text>
           </svg>
         </div>
+        <div class="tile-sub" id="mmA"></div>
       </section>
 
       <section class="card rec-card">
