@@ -108,6 +108,9 @@
       hintWait2: 'บอร์ดต้องส่งบรรทัดแบบ  Quadrant 1: x, y, มุม',
       distLed: 'ระยะจาก LED',
       lastReading: 'ค่าล่าสุดเมื่อ',
+      legRobot: 'หุ่นยนต์',
+      legTrail: 'เส้นทาง',
+      legQuad: 'ควอดรันต์ปัจจุบัน',
       min: 'ต่ำสุด',
       max: 'สูงสุด',
       angle: 'มุมตกกระทบ',
@@ -167,6 +170,9 @@
       hintWait2: 'The board must send lines like  Quadrant 1: x, y, angle',
       distLed: 'Distance from LED',
       lastReading: 'Last reading at',
+      legRobot: 'Robot',
+      legTrail: 'Trail',
+      legQuad: 'Current quadrant',
       min: 'min',
       max: 'max',
       angle: 'Incidence angle',
@@ -894,7 +900,7 @@
   function drawChart(ch) {
     var f = fitCanvas(ch.cv), ctx = f.ctx, w = f.w, h = f.h;
     ctx.clearRect(0, 0, w, h);
-    var L = 48, Rm = 60, T = 12, B = 24, pw = w - L - Rm, ph = h - T - B;
+    var L = 48, Rm = 78, T = 12, B = 24, pw = w - L - Rm, ph = h - T - B;
     if (pw < 40 || ph < 40) { ch.tip.hidden = true; return; }
 
     var S = state.samples, series = ch.series;
@@ -976,7 +982,9 @@
         ctx.fillStyle = C.text;
         ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
         for (j = 0; j < series.length; j++) {
-          ctx.fillText(val(last, series[j]).toFixed(dp), ex + 10, ys[j]);
+          // name + value at the line end, so series are told apart without colour
+          ctx.fillText((series[j].label ? series[j].label + ' ' : '') + val(last, series[j]).toFixed(dp) +
+            (series[j].suffix || ''), ex + 10, ys[j]);
         }
       }
     }
@@ -1068,7 +1076,7 @@
     { key: 'y', color: 's2', label: 'Y' }
   ], true);
   var chartA = makeChart($('chartA'), $('tipA'), [
-    { key: 'angle', color: 's3', labelKey: 'tipAngle' }
+    { key: 'angle', color: 's3', labelKey: 'tipAngle', suffix: '°' }
   ]);
 
   /* ---------- language ---------- */

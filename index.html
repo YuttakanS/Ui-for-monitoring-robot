@@ -71,6 +71,12 @@
         </div>
       </div>
       <div class="map-wrap"><canvas id="map" data-i18n-aria="mapAria" aria-label="แผนที่ 2 มิติแสดงตำแหน่งหุ่นยนต์เทียบกับ LED"></canvas></div>
+      <ul class="legend map-legend">
+        <li><span class="sw sw-led"></span>LED</li>
+        <li><span class="sw sw-robot"></span><span data-i18n="legRobot">หุ่นยนต์</span></li>
+        <li><span class="key" style="--k:var(--text2)"></span><span data-i18n="legTrail">เส้นทาง</span></li>
+        <li><span class="sw sw-quad"></span><span data-i18n="legQuad">ควอดรันต์ปัจจุบัน</span></li>
+      </ul>
     </section>
 
     <aside class="side">
@@ -164,6 +170,9 @@
     <section class="card chart-card">
       <div class="card-head">
         <h2><span data-i18n="chartATitle">มุมตกกระทบตามเวลา</span> <span class="unit">(°)</span></h2>
+        <ul class="legend">
+          <li><span class="key" style="--k:var(--s3)"></span><span data-i18n="angle">มุมตกกระทบ</span></li>
+        </ul>
       </div>
       <div class="chart-wrap">
         <canvas id="chartA" data-i18n-aria="chartAAria" aria-label="กราฟมุมตกกระทบย้อนหลัง 30 วินาที"></canvas>
