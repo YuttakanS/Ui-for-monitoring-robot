@@ -137,6 +137,16 @@
       </section>
     </aside>
 
+    <section class="chart-toolbar" data-i18n-aria="chartControls" aria-label="ตัวควบคุมกราฟเวลา">
+      <div class="seg" role="radiogroup" aria-labelledby="rangeLabel">
+        <span id="rangeLabel" class="seg-label" data-i18n="range">ช่วงเวลา</span>
+        <label><input type="radio" name="range" value="10000"><span>10 s</span></label>
+        <label><input type="radio" name="range" value="60000" checked><span>60 s</span></label>
+        <label><input type="radio" name="range" value="all"><span data-i18n="all">ทั้งหมด</span></label>
+      </div>
+      <button id="btnPause" class="btn secondary small" type="button" aria-pressed="false">หยุดกราฟชั่วคราว</button>
+    </section>
+
     <section class="card chart-card">
       <div class="card-head">
         <h2><span data-i18n="chartXYTitle">ตำแหน่งตามเวลา</span> <span class="unit" data-unit></span></h2>

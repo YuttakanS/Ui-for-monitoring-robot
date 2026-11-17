@@ -121,8 +121,13 @@
       confirmClear: 'ข้อมูลที่บันทึกไว้ยังไม่ได้ดาวน์โหลด ต้องการล้างทิ้งหรือไม่?',
       chartXYTitle: 'ตำแหน่งตามเวลา',
       chartATitle: 'มุมตกกระทบตามเวลา',
-      chartXYAria: 'กราฟ X และ Y ย้อนหลัง 30 วินาที',
-      chartAAria: 'กราฟมุมตกกระทบย้อนหลัง 30 วินาที',
+      chartXYAria: 'กราฟ X และ Y ตามเวลา',
+      chartAAria: 'กราฟมุมตกกระทบตามเวลา',
+      chartControls: 'ตัวควบคุมกราฟเวลา',
+      range: 'ช่วงเวลา',
+      all: 'ทั้งหมด',
+      pause: '❚❚ หยุดกราฟชั่วคราว',
+      resume: '▶ เล่นกราฟต่อ',
       tipAngle: 'มุมตกกระทบ (°)',
       tableTitle: 'ตารางค่าล่าสุด (20 แถว)',
       thTime: 'เวลา',
@@ -175,8 +180,13 @@
       confirmClear: 'The recorded data has not been downloaded yet. Clear it anyway?',
       chartXYTitle: 'Position over time',
       chartATitle: 'Incidence angle over time',
-      chartXYAria: 'Chart of X and Y over the last 30 seconds',
-      chartAAria: 'Chart of the incidence angle over the last 30 seconds',
+      chartXYAria: 'Chart of X and Y over time',
+      chartAAria: 'Chart of the incidence angle over time',
+      chartControls: 'Time chart controls',
+      range: 'Range',
+      all: 'All',
+      pause: '❚❚ Pause charts',
+      resume: '▶ Resume charts',
       tipAngle: 'Incidence angle (°)',
       tableTitle: 'Latest values (20 rows)',
       thTime: 'Time',
@@ -211,7 +221,12 @@
    * App state
    * ===================================================================== */
 
-  var WINDOW_MS = 30000;   // chart history
+  var CHART_RANGES = [10000, 60000, 0]; // time chart window in ms; 0 = whole session
+  var MIN_SPAN_MS = 10000; // narrowest x span for "All" while the session is short
+  // History kept for the whole session, capped so a long run can't exhaust
+  // memory: ~1 h at 20 Hz. Oldest samples go first.
+  var MAX_SAMPLES = 72000;
+  var FIT_MS = 30000;      // "Fit scale" looks at this much recent history
   // Break the line only on a real dropout. Must stay well above 1000 ms: a hidden
   // tab throttles the Demo timer to ~1 sample/s, which must still draw as one line.
   var GAP_MS = 2500;
@@ -226,6 +241,9 @@
     trailN: 100,           // map trail length in samples; 0 = off
     mapHover: null,        // pointer position over the map canvas (CSS px) or null
     stats: null,           // session min/max per field, reset with the data
+    chartRange: 60000,     // one of CHART_RANGES
+    paused: false,         // time charts frozen at pausedAt (data keeps arriving)
+    pausedAt: 0,
     lang: DEFAULT_LANG,
     notice: null,          // { key, arg } so it can be re-rendered on language change
     parseErrors: 0,
@@ -246,6 +264,7 @@
   var el = {
     btnConnect: $('btnConnect'), btnDemo: $('btnDemo'), baud: $('baud'), unit: $('unit'), lang: $('lang'),
     btnSettings: $('btnSettings'), settingsPanel: $('settingsPanel'), trailN: $('trailN'),
+    btnPause: $('btnPause'), rangeRadios: document.querySelectorAll('input[name=range]'),
     statusDot: $('statusDot'), statusText: $('statusText'), rate: $('rate'), notice: $('notice'),
     map: $('map'), btnResetScale: $('btnResetScale'),
     valX: $('valX'), valY: $('valY'), valQ: $('valQ'), valR: $('valR'), valA: $('valA'),
@@ -284,12 +303,8 @@
     state.latest = s;
     addStats(s);
 
-    var cutoff = s.t - WINDOW_MS - 2000;
-    if (state.samples.length > 512 && state.samples[0].t < cutoff) {
-      var i = 0;
-      while (state.samples[i].t < cutoff) i++;
-      state.samples.splice(0, i);
-    }
+    // trim in chunks of 1000 so the array copy happens rarely
+    if (state.samples.length > MAX_SAMPLES + 1000) state.samples.splice(0, state.samples.length - MAX_SAMPLES);
 
     var m = Math.max(Math.abs(s.x), Math.abs(s.y));
     if (state.range === null) state.range = niceCeil(Math.max(m * 1.5, 1e-6));
@@ -321,6 +336,7 @@
     state.samples = [];
     state.latest = null;
     state.stats = null;
+    if (state.paused) setPaused(false);
     state.range = null;
     state.parseErrors = 0;
     state.lastRaw = '';
@@ -343,6 +359,7 @@
     el.btnConnect.textContent = t(state.source === 'serial' ? 'disconnect' : 'connect');
     el.btnDemo.textContent = t(state.source === 'demo' ? 'demoStop' : 'demo');
     el.btnRecord.textContent = t(state.recording ? 'recStop' : 'recStart');
+    el.btnPause.textContent = t(state.paused ? 'resume' : 'pause');
   }
 
   function setSource(src) {
@@ -805,7 +822,7 @@
   }
 
   function fitScale() {
-    var S = state.samples, t0 = chartNow() - WINDOW_MS, m = 0;
+    var S = state.samples, t0 = chartWindow().tNow - FIT_MS, m = 0;
     for (var i = lowerBound(S, t0); i < S.length; i++) {
       m = Math.max(m, Math.abs(S[i].x), Math.abs(S[i].y));
     }
@@ -814,7 +831,7 @@
   }
 
   /* =====================================================================
-   * Time charts (rolling 30 s window)
+   * Time charts (10 s / 60 s / whole session, with pause)
    * ===================================================================== */
 
   function lowerBound(arr, t) {
@@ -826,11 +843,27 @@
     return lo;
   }
 
-  // While a source is live the window scrolls with the clock; when idle it
-  // freezes on the last sample so the history stays readable.
-  function chartNow() {
-    if (state.source !== 'idle' || !state.latest) return performance.now();
-    return state.latest.t;
+  // Right edge of the charts: frozen while paused; scrolls with the clock
+  // while a source is live; when idle it stops at the last sample so the
+  // history stays readable.
+  function chartWindow() {
+    var S = state.samples, tNow;
+    if (state.paused) tNow = state.pausedAt;
+    else if (state.source !== 'idle' || !state.latest) tNow = performance.now();
+    else tNow = state.latest.t;
+    var span = state.chartRange || Math.max(MIN_SPAN_MS, S.length ? tNow - S[0].t : 0);
+    return { tNow: tNow, t0: tNow - span, span: span };
+  }
+
+  // x-axis tick spacing (s): first step that gives at most 7 ticks
+  var TICK_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600];
+  function tickStep(totalSec) {
+    for (var i = 0; i < TICK_STEPS.length; i++) if (totalSec / TICK_STEPS[i] <= 7) return TICK_STEPS[i];
+    return TICK_STEPS[TICK_STEPS.length - 1];
+  }
+  function fmtAgo(sec) {
+    if (sec === 0) return '0s';
+    return sec >= 60 && sec % 60 === 0 ? '-' + sec / 60 + 'm' : '-' + sec + 's';
   }
 
   // scaled: series are lengths in cm, shown in the selected unit
@@ -865,14 +898,15 @@
     if (pw < 40 || ph < 40) { ch.tip.hidden = true; return; }
 
     var S = state.samples, series = ch.series;
-    var tNow = chartNow(), t0 = tNow - WINDOW_MS;
-    var i0 = lowerBound(S, t0), i, j, v;
+    var win = chartWindow(), tNow = win.tNow, t0 = win.t0, span = win.span;
+    // [i0, iEnd): samples inside the window; while paused, newer ones are excluded
+    var i0 = lowerBound(S, t0), iEnd = lowerBound(S, tNow + 1e-6), i, j, v;
     var sf = ch.scaled ? unitInfo().f : 1, dp = ch.scaled ? unitInfo().d : 2;
     function val(sample, d) { return sample[d.key] * sf; }
 
     // y range over what is visible, snapped to clean numbers
     var lo = Infinity, hi = -Infinity;
-    for (i = i0; i < S.length; i++) {
+    for (i = i0; i < iEnd; i++) {
       for (j = 0; j < series.length; j++) {
         v = val(S[i], series[j]);
         if (v < lo) lo = v;
@@ -885,7 +919,7 @@
     var step = niceStep(hi - lo + 2 * padY, 4);
     lo = Math.floor((lo - padY) / step) * step;
     hi = Math.ceil((hi + padY) / step) * step;
-    function X(t) { return L + (t - t0) / WINDOW_MS * pw; }
+    function X(t) { return L + (t - t0) / span * pw; }
     function Y(val) { return T + (hi - val) / (hi - lo) * ph; }
 
     // grid, y ticks
@@ -902,28 +936,35 @@
     }
     // x ticks: seconds before the right edge
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    for (var sec = 0; sec <= WINDOW_MS / 1000; sec += 5) {
-      ctx.fillText(sec === 0 ? '0s' : '-' + sec + 's', L + pw - sec * 1000 / WINDOW_MS * pw, T + ph + 8);
+    var ts = tickStep(span / 1000);
+    for (var sec = 0; sec * 1000 <= span + 1; sec += ts) {
+      ctx.fillText(fmtAgo(sec), L + pw - sec * 1000 / span * pw, T + ph + 8);
     }
 
-    // lines
+    // lines; with more than ~2 samples per pixel column (long "All" sessions)
+    // each column is drawn as its min..max, which looks the same and keeps
+    // the path at ~2 points per pixel however long the session is
+    var bucket = iEnd - i0 > pw * 2;
     ctx.lineWidth = 2;
     ctx.lineJoin = ctx.lineCap = 'round';
     for (j = 0; j < series.length; j++) {
       ctx.strokeStyle = C[series[j].color];
       ctx.beginPath();
-      var prev = -Infinity;
-      for (i = i0; i < S.length; i++) {
-        var px = X(S[i].t), py = Y(val(S[i], series[j]));
-        if (S[i].t - prev > GAP_MS) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-        prev = S[i].t;
+      if (bucket) drawBucketed(ctx, S, i0, iEnd, series[j], X, Y, val);
+      else {
+        var prev = -Infinity;
+        for (i = i0; i < iEnd; i++) {
+          var px = X(S[i].t), py = Y(val(S[i], series[j]));
+          if (S[i].t - prev > GAP_MS) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+          prev = S[i].t;
+        }
       }
       ctx.stroke();
     }
 
     // end markers + value labels (skipped when two labels would collide)
-    if (S.length > i0) {
-      var last = S[S.length - 1], ex = X(last.t), ys = [];
+    if (iEnd > i0) {
+      var last = S[iEnd - 1], ex = X(last.t), ys = [];
       for (j = 0; j < series.length; j++) {
         ys.push(Y(val(last, series[j])));
         dot(ctx, ex, ys[j], C[series[j].color]);
@@ -941,13 +982,13 @@
     }
 
     // hover: crosshair snaps to the nearest sample, tooltip lists every series
-    if (ch.hoverX === null || S.length <= i0 || ch.hoverX < L - 10 || ch.hoverX > L + pw + 10) {
+    if (ch.hoverX === null || iEnd <= i0 || ch.hoverX < L - 10 || ch.hoverX > L + pw + 10) {
       ch.tip.hidden = true;
       return;
     }
-    var th = t0 + (ch.hoverX - L) / pw * WINDOW_MS;
+    var th = t0 + (ch.hoverX - L) / pw * span;
     var hi2 = lowerBound(S, th);
-    if (hi2 >= S.length) hi2 = S.length - 1;
+    if (hi2 >= iEnd) hi2 = iEnd - 1;
     else if (hi2 > i0 && th - S[hi2 - 1].t < S[hi2].t - th) hi2--;
     if (hi2 < i0) hi2 = i0;
     var hs = S[hi2], hx = X(hs.t);
@@ -962,6 +1003,29 @@
     ch.tip.hidden = false;
     var tw = ch.tip.offsetWidth;
     ch.tip.style.left = (hx + 14 + tw > w ? hx - 14 - tw : hx + 14) + 'px';
+  }
+
+  // One vertical min..max stroke per pixel column, joined column to column.
+  function drawBucketed(ctx, S, i0, iEnd, d, X, Y, val) {
+    var col = null, mn = 0, mx = 0, lastY = 0, prevT = -Infinity;
+    function flush() { if (col !== null) { ctx.lineTo(col, mn); ctx.lineTo(col, mx); ctx.lineTo(col, lastY); } }
+    for (var i = i0; i < iEnd; i++) {
+      var c = Math.round(X(S[i].t)), y = Y(val(S[i], d));
+      if (S[i].t - prevT > GAP_MS) { flush(); ctx.moveTo(c, y); col = c; mn = mx = y; }
+      else if (c !== col) { flush(); col = c; mn = mx = y; }
+      else { if (y < mn) mn = y; if (y > mx) mx = y; }
+      lastY = y;
+      prevT = S[i].t;
+    }
+    flush();
+  }
+
+  function setPaused(p) {
+    if (p) state.pausedAt = chartWindow().tNow; // read before freezing
+    state.paused = p;
+    el.btnPause.textContent = t(p ? 'resume' : 'pause');
+    el.btnPause.setAttribute('aria-pressed', String(p));
+    state.dirty = true;
   }
 
   /* =====================================================================
@@ -1067,6 +1131,21 @@
     state.tilesDirty = true;
     updateStatus(); // refreshes the table if it is open
   });
+  el.btnPause.addEventListener('click', function () { setPaused(!state.paused); });
+  function setChartRange(ms) {
+    state.chartRange = CHART_RANGES.indexOf(ms) >= 0 ? ms : 60000;
+    for (var i = 0; i < el.rangeRadios.length; i++) {
+      el.rangeRadios[i].checked = (el.rangeRadios[i].value === 'all' ? 0 : +el.rangeRadios[i].value) === state.chartRange;
+    }
+    state.dirty = true;
+  }
+  for (var ri = 0; ri < el.rangeRadios.length; ri++) {
+    el.rangeRadios[ri].addEventListener('change', function (e) {
+      setChartRange(e.target.value === 'all' ? 0 : +e.target.value);
+      try { localStorage.setItem('ra.range', String(state.chartRange)); } catch (err) { /* storage unavailable */ }
+    });
+  }
+
   el.trailN.addEventListener('change', function () {
     state.trailN = Math.max(0, parseInt(el.trailN.value, 10) || 0);
     try { localStorage.setItem('ra.trail', String(state.trailN)); } catch (e) { /* storage unavailable */ }
@@ -1104,6 +1183,8 @@
     for (var oi = 0; oi < el.baud.options.length; oi++) {
       if (el.baud.options[oi].text === savedBaud) el.baud.selectedIndex = oi;
     }
+    var savedRange = localStorage.getItem('ra.range');
+    if (savedRange !== null && CHART_RANGES.indexOf(+savedRange) >= 0) state.chartRange = +savedRange;
     var savedTrail = localStorage.getItem('ra.trail');
     for (oi = 0; oi < el.trailN.options.length; oi++) {
       if (el.trailN.options[oi].value === savedTrail) state.trailN = +savedTrail;
@@ -1111,6 +1192,7 @@
   } catch (e) { /* storage unavailable */ }
   el.unit.value = state.unit;
   el.trailN.value = String(state.trailN);
+  setChartRange(state.chartRange);
 
   window.addEventListener('beforeunload', function (e) {
     if (state.log.length && !state.logSaved) { e.preventDefault(); e.returnValue = ''; }
