@@ -43,10 +43,16 @@
         </div>
       </div>
     </div>
-    <div class="status" role="status">
-      <span id="statusDot" class="dot"></span>
-      <span id="statusText">ยังไม่เชื่อมต่อ</span>
-      <span id="rate" class="rate">0 Hz</span>
+    <div class="status">
+      <span class="status-main" role="status">
+        <span id="statusDot" class="dot"></span>
+        <span id="statusText">ยังไม่เชื่อมต่อ</span>
+      </span>
+      <dl class="stats">
+        <div><dt data-i18n="statRate">อัตรา</dt><dd id="rate">0 Hz</dd></div>
+        <div><dt data-i18n="statErr">อ่านไม่ได้</dt><dd id="errCount">0</dd></div>
+        <div><dt data-i18n="statLast">ข้อมูลล่าสุด</dt><dd id="lastAge">—</dd></div>
+      </dl>
     </div>
   </header>
 
@@ -198,7 +204,6 @@
   <footer class="foot">
     <span data-i18n="lastRaw">บรรทัดล่าสุดจาก serial:</span>
     <code id="lastRaw">—</code>
-    <span id="parseErr" class="parse-err"></span>
   </footer>
 
   <script src="app.js"></script>

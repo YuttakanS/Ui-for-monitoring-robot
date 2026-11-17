@@ -136,7 +136,12 @@
       thTime: 'เวลา',
       thAngle: 'มุมตกกระทบ (°)',
       lastRaw: 'บรรทัดล่าสุดจาก serial:',
-      parseErr: '· อ่านไม่ได้ {n} บรรทัด',
+      statRate: 'อัตรา',
+      statErr: 'อ่านไม่ได้',
+      statLast: 'ข้อมูลล่าสุด',
+      justNow: 'เมื่อสักครู่',
+      secAgo: '{n} วินาทีก่อน',
+      minAgo: '{n} นาทีก่อน',
       errBusy: 'เปิดพอร์ตไม่ได้ — พอร์ตอาจถูกโปรแกรมอื่นใช้อยู่ ให้ปิด Serial Monitor ของ Arduino IDE แล้วลองใหม่',
       errOpen: 'เปิดพอร์ตไม่ได้: {n}',
       errLost: 'การเชื่อมต่อหลุด — สายอาจถูกถอดหรือบอร์ดรีเซ็ต กดเชื่อมต่อ Serial อีกครั้ง',
@@ -198,7 +203,12 @@
       thTime: 'Time',
       thAngle: 'Incidence angle (°)',
       lastRaw: 'Last line from serial:',
-      parseErr: '· {n} unreadable lines',
+      statRate: 'Rate',
+      statErr: 'Unreadable',
+      statLast: 'Last data',
+      justNow: 'just now',
+      secAgo: '{n} s ago',
+      minAgo: '{n} min ago',
       errBusy: 'Could not open the port — another program may be using it. Close the Arduino IDE Serial Monitor and try again.',
       errOpen: 'Could not open the port: {n}',
       errLost: 'Connection lost — the cable may be unplugged or the board was reset. Press Connect Serial again.',
@@ -286,7 +296,7 @@
     gNeedle: $('gNeedle'), gWedge: $('gWedge'),
     btnRecord: $('btnRecord'), recCount: $('recCount'), btnCsv: $('btnCsv'), btnClearLog: $('btnClearLog'),
     tableDetails: $('tableDetails'), tableBody: $('tableBody'),
-    lastRaw: $('lastRaw'), parseErr: $('parseErr')
+    lastRaw: $('lastRaw'), errCount: $('errCount'), lastAge: $('lastAge')
   };
 
   /* ---------- theme colors for canvas ---------- */
@@ -488,22 +498,36 @@
     return n;
   }
 
+  function ageText(ms) {
+    var sec = ms / 1000;
+    if (sec < 1) return t('justNow');
+    if (sec < 60) return t('secAgo', Math.floor(sec));
+    return t('minAgo', Math.floor(sec / 60));
+  }
+
+  // only touch the DOM when the text changes (the status text is a live region)
+  function setText(node, text) { if (node.textContent !== text) node.textContent = text; }
+
   function updateStatus() {
     var hz = state.source === 'idle' ? 0 : currentRate();
-    el.rate.textContent = hz + ' Hz';
+    setText(el.rate, hz + ' Hz');
 
+    var stale = !state.latest || performance.now() - state.latest.t > 2000;
     var cls = 'dot', text = t('statusIdle');
     if (state.source === 'demo') { cls = 'dot demo'; text = t('statusDemo'); }
     else if (state.source === 'serial') {
-      var stale = !state.latest || performance.now() - state.latest.t > 2000;
       cls = stale ? 'dot warn' : 'dot on';
       text = t(stale ? 'statusStale' : 'statusOn');
     }
     el.statusDot.className = cls;
-    el.statusText.textContent = text;
+    setText(el.statusText, text);
 
-    el.lastRaw.textContent = state.lastRaw || '—';
-    el.parseErr.textContent = state.parseErrors ? t('parseErr', state.parseErrors) : '';
+    setText(el.errCount, state.parseErrors.toLocaleString('en-US'));
+    el.errCount.classList.toggle('bad', state.parseErrors > 0);
+    setText(el.lastAge, state.latest ? ageText(performance.now() - state.latest.t) : '—');
+    el.lastAge.classList.toggle('bad', state.source === 'serial' && stale);
+
+    setText(el.lastRaw, state.lastRaw || '—');
 
     el.recCount.textContent = t('rows', state.log.length.toLocaleString('en-US'));
     el.btnCsv.disabled = el.btnClearLog.disabled = state.log.length === 0;
