@@ -73,20 +73,24 @@ body {
 }
 .field input { width: 64px; }
 
+/* Buttons: one shape and size; .primary is filled (the main action),
+   .secondary (and plain .btn) is outlined. */
 .btn {
   font: inherit;
+  font-weight: 500;
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--axis);
   border-radius: 6px;
-  padding: 6px 12px;
+  padding: 6px 14px;
   cursor: pointer;
   white-space: nowrap;
 }
-.btn:hover:not(:disabled) { background: var(--wash); }
+.btn:hover:not(:disabled) { background: var(--wash); border-color: var(--muted); }
 .btn:disabled { color: var(--muted); cursor: default; }
-.btn.primary { background: var(--text); color: var(--surface); border-color: var(--text); }
+.btn.primary { background: var(--text); color: var(--surface); border-color: var(--text); font-weight: 600; }
 .btn.primary:hover:not(:disabled) { background: var(--text2); border-color: var(--text2); }
+.btn.primary:disabled { background: var(--wash); color: var(--muted); border-color: var(--axis); }
 .btn.small { padding: 3px 10px; font-size: 12px; }
 .btn.recording { border-color: var(--critical); }
 .btn:focus-visible, .field select:focus-visible, .field input:focus-visible, summary:focus-visible {
