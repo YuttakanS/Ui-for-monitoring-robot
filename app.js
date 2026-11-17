@@ -96,7 +96,7 @@
       fitScale: 'ปรับสเกลให้พอดี',
       trail: 'เส้นทาง (จุด)',
       off: 'ปิด',
-      mapAria: 'แผนที่ 2 มิติแสดงตำแหน่งหุ่นยนต์เทียบกับ LED',
+      mapAria: 'แผนที่ 2 มิติแสดงตำแหน่งหุ่นยนต์เทียบกับ LED 9 ดวง',
       waiting: 'รอข้อมูล…',
       hintTitle: 'ยังไม่มีข้อมูล',
       hintStep1: '1. ต่อบอร์ดเข้ากับคอมพิวเตอร์ผ่าน USB',
@@ -106,7 +106,7 @@
       hintWaitTitle: 'เชื่อมต่อแล้ว — กำลังรอข้อมูล',
       hintWait1: 'ตรวจว่า baud rate ในเมนูตั้งค่าตรงกับที่บอร์ดใช้',
       hintWait2: 'บอร์ดต้องส่งบรรทัดแบบ  Quadrant 1: x, y, มุม',
-      distLed: 'ระยะจาก LED',
+      distLed: 'ระยะจาก LED กลาง',
       lastReading: 'ค่าล่าสุดเมื่อ',
       legRobot: 'หุ่นยนต์',
       legTrail: 'เส้นทาง',
@@ -158,7 +158,7 @@
       fitScale: 'Fit scale',
       trail: 'Trail (points)',
       off: 'Off',
-      mapAria: '2D map of the robot position relative to the LED',
+      mapAria: '2D map of the robot position relative to the 9 LEDs',
       waiting: 'Waiting for data…',
       hintTitle: 'No data yet',
       hintStep1: '1. Plug the board in over USB',
@@ -168,7 +168,7 @@
       hintWaitTitle: 'Connected — waiting for data',
       hintWait1: 'Check that the baud rate in Settings matches the board',
       hintWait2: 'The board must send lines like  Quadrant 1: x, y, angle',
-      distLed: 'Distance from LED',
+      distLed: 'Distance from centre LED',
       lastReading: 'Last reading at',
       legRobot: 'Robot',
       legTrail: 'Trail',
@@ -236,7 +236,15 @@
   // Break the line only on a real dropout. Must stay well above 1000 ms: a hidden
   // tab throttles the Demo timer to ~1 sample/s, which must still draw as one line.
   var GAP_MS = 2500;
-  var DEFAULT_RANGE = 100; // cm
+  // LEDs: 3x3 grid centred on the origin (the centre LED is (0, 0), which is
+  // also where the firmware's x, y are measured from). Change LED_SPACING if
+  // the physical layout changes.
+  var LED_SPACING = 100;   // cm between neighbouring LEDs
+  var LEDS = [];
+  for (var gx = -1; gx <= 1; gx++) for (var gy = -1; gy <= 1; gy++) LEDS.push([gx * LED_SPACING, gy * LED_SPACING]);
+  // the map never zooms in past the LED grid, so all 9 LEDs stay in view
+  var MIN_RANGE = LED_SPACING * 1.25;
+  var DEFAULT_RANGE = MIN_RANGE; // cm
 
   var state = {
     source: 'idle',        // idle | serial | demo
@@ -313,8 +321,8 @@
     if (state.samples.length > MAX_SAMPLES + 1000) state.samples.splice(0, state.samples.length - MAX_SAMPLES);
 
     var m = Math.max(Math.abs(s.x), Math.abs(s.y));
-    if (state.range === null) state.range = niceCeil(Math.max(m * 1.5, 1e-6));
-    else if (m > state.range * 0.92) state.range = niceCeil(m * 1.2);
+    if (state.range === null) state.range = Math.max(MIN_RANGE, niceCeil(Math.max(m * 1.5, 1e-6)));
+    else if (m > state.range * 0.92) state.range = Math.max(MIN_RANGE, niceCeil(m * 1.2));
 
     if (state.recording) {
       state.log.push({
@@ -601,7 +609,7 @@
   }
 
   /* =====================================================================
-   * 2D map (top view): LED centre at the origin, robot at (x, y)
+   * 2D map (top view): 3x3 LED grid, centre LED at the origin, robot at (x, y)
    * ===================================================================== */
 
   function drawRobot(ctx, x, y) {
@@ -717,17 +725,14 @@
       ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(PX(s.x * f), PY(s.y * f)); ctx.stroke();
     }
 
-    // LED centre
-    ctx.fillStyle = C.surface;
-    ctx.beginPath(); ctx.arc(cx, cy, 9, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = C.led;
-    ctx.beginPath(); ctx.arc(cx, cy, 7, 0, Math.PI * 2); ctx.fill();
-    ctx.font = '600 11px ' + C.font;
-    ctx.fillStyle = C.text2;
-    var ledRight = !s || s.x < 0, ledUp = !s || s.y < 0; // keep the label off the LED->robot line
-    ctx.textAlign = ledRight ? 'left' : 'right';
-    ctx.textBaseline = ledUp ? 'bottom' : 'top';
-    ctx.fillText('LED', cx + (ledRight ? 10 : -10), cy + (ledUp ? -6 : 6));
+    // LEDs (the legend below the map names them)
+    for (var li = 0; li < LEDS.length; li++) {
+      var ex = PX(LEDS[li][0] * f), ey = PY(LEDS[li][1] * f);
+      ctx.fillStyle = C.surface;
+      ctx.beginPath(); ctx.arc(ex, ey, 9, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = C.led;
+      ctx.beginPath(); ctx.arc(ex, ey, 7, 0, Math.PI * 2); ctx.fill();
+    }
 
     // Robot + coordinate label
     if (s) {
@@ -832,7 +837,7 @@
     for (var i = lowerBound(S, t0); i < S.length; i++) {
       m = Math.max(m, Math.abs(S[i].x), Math.abs(S[i].y));
     }
-    state.range = m > 0 ? niceCeil(m * 1.2) : null;
+    state.range = m > 0 ? Math.max(MIN_RANGE, niceCeil(m * 1.2)) : null;
     state.dirty = true;
   }
 
