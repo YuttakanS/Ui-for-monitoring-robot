@@ -144,7 +144,9 @@
       minAgo: '{n} นาทีก่อน',
       errBusy: 'เปิดพอร์ตไม่ได้ — พอร์ตอาจถูกโปรแกรมอื่นใช้อยู่ ให้ปิด Serial Monitor ของ Arduino IDE แล้วลองใหม่',
       errOpen: 'เปิดพอร์ตไม่ได้: {n}',
-      errLost: 'การเชื่อมต่อหลุด — สายอาจถูกถอดหรือบอร์ดรีเซ็ต กดเชื่อมต่อ Serial อีกครั้ง',
+      errLost: 'การเชื่อมต่อหลุด — สายอาจถูกถอดหรือบอร์ดรีเซ็ต เสียบบอร์ดกลับแล้วกด "เชื่อมต่อใหม่"',
+      errLostBack: 'พบบอร์ดเสียบกลับมาแล้ว — กด "เชื่อมต่อใหม่" เพื่ออ่านข้อมูลต่อ',
+      reconnect: 'เชื่อมต่อใหม่',
       errUnsupported: 'เบราว์เซอร์นี้ไม่รองรับ Web Serial — ให้เปิดด้วย Chrome หรือ Edge บนคอมพิวเตอร์ (ปุ่ม Demo ยังใช้ได้)'
     },
     en: {
@@ -211,7 +213,9 @@
       minAgo: '{n} min ago',
       errBusy: 'Could not open the port — another program may be using it. Close the Arduino IDE Serial Monitor and try again.',
       errOpen: 'Could not open the port: {n}',
-      errLost: 'Connection lost — the cable may be unplugged or the board was reset. Press Connect Serial again.',
+      errLost: 'Connection lost — the cable may be unplugged or the board was reset. Plug it back in and press Reconnect.',
+      errLostBack: 'The board is plugged back in — press Reconnect to continue.',
+      reconnect: 'Reconnect',
       errUnsupported: 'This browser does not support Web Serial — open the page in Chrome or Edge on a computer (Demo still works).'
     }
   };
@@ -296,7 +300,8 @@
     gNeedle: $('gNeedle'), gWedge: $('gWedge'),
     btnRecord: $('btnRecord'), recCount: $('recCount'), btnCsv: $('btnCsv'), btnClearLog: $('btnClearLog'),
     tableDetails: $('tableDetails'), tableBody: $('tableBody'),
-    lastRaw: $('lastRaw'), errCount: $('errCount'), lastAge: $('lastAge')
+    lastRaw: $('lastRaw'), errCount: $('errCount'), lastAge: $('lastAge'),
+    noticeText: $('noticeText'), noticeAction: $('noticeAction')
   };
 
   /* ---------- theme colors for canvas ---------- */
@@ -372,10 +377,14 @@
    * ===================================================================== */
 
   var port = null, reader = null, keepReading = false;
+  var lastPort = null; // the port used last, so Reconnect can reopen it without the picker
 
-  function showNotice(key, arg) {
-    state.notice = key ? { key: key, arg: arg } : null;
-    el.notice.textContent = key ? t(key, arg) : '';
+  // action: optional button in the banner ('reconnect')
+  function showNotice(key, arg, action) {
+    state.notice = key ? { key: key, arg: arg, action: action || null } : null;
+    el.noticeText.textContent = key ? t(key, arg) : '';
+    el.noticeAction.hidden = !(key && action);
+    if (key && action) el.noticeAction.textContent = t(action);
     el.notice.hidden = !key;
   }
 
@@ -403,13 +412,39 @@
     } catch (e) {
       return; // user closed the port picker
     }
+    await openPort(p, null);
+  }
+
+  // Reopen the last board without the port picker when the browser still has
+  // permission for it; fall back to the picker otherwise.
+  async function reconnectSerial() {
+    var ports = [];
+    try { ports = await navigator.serial.getPorts(); } catch (e) { /* treat as none */ }
+    var p = null;
+    if (lastPort && ports.indexOf(lastPort) >= 0) p = lastPort;
+    if (!p && lastPort && lastPort.getInfo) {
+      var want = lastPort.getInfo();
+      for (var i = 0; i < ports.length && !p; i++) {
+        var info = ports[i].getInfo ? ports[i].getInfo() : {};
+        if (info.usbVendorId === want.usbVendorId && info.usbProductId === want.usbProductId) p = ports[i];
+      }
+    }
+    if (!p && ports.length === 1) p = ports[0];
+    if (!p) { connectSerial(); return; }
+    showNotice('');
+    await openPort(p, 'reconnect');
+  }
+
+  // retryAction: keep a Reconnect button on the error banner when reconnecting
+  async function openPort(p, retryAction) {
     try {
       await p.open({ baudRate: Number(el.baud.value) });
     } catch (e) {
-      if (e && (e.name === 'NetworkError' || e.name === 'InvalidStateError')) showNotice('errBusy');
-      else showNotice('errOpen', e && e.message ? e.message : String(e));
+      if (e && (e.name === 'NetworkError' || e.name === 'InvalidStateError')) showNotice('errBusy', undefined, retryAction);
+      else showNotice('errOpen', e && e.message ? e.message : String(e), retryAction);
       return;
     }
+    lastPort = p;
     // Pico's USB CDC only starts sending once DTR is asserted.
     try { await p.setSignals({ dataTerminalReady: true }); } catch (e) { /* not fatal */ }
 
@@ -446,7 +481,7 @@
     try { await p.close(); } catch (e) { /* already gone */ }
     if (port === p) port = null;
     if (state.source === 'serial') setSource('idle');
-    if (lost) showNotice('errLost');
+    if (lost) showNotice('errLost', undefined, 'reconnect');
   }
 
   async function disconnectSerial() {
@@ -1120,7 +1155,7 @@
       ch.series.forEach(function (d, j) { if (d.labelKey) ch.names[j].textContent = t(d.labelKey); });
     });
     updateButtons();
-    if (state.notice) showNotice(state.notice.key, state.notice.arg);
+    if (state.notice) showNotice(state.notice.key, state.notice.arg, state.notice.action);
     updateStatus();
     state.dirty = state.tilesDirty = true; // canvas text, "waiting" placeholders
   }
@@ -1149,6 +1184,15 @@
   el.btnDemo.addEventListener('click', function () {
     if (state.source === 'demo') stopDemo(); else startDemo();
   });
+  el.noticeAction.addEventListener('click', function () {
+    if (state.notice && state.notice.action === 'reconnect') reconnectSerial();
+  });
+  // a board plugged back in while the "connection lost" banner is up
+  if ('serial' in navigator) {
+    navigator.serial.addEventListener('connect', function () {
+      if (state.source === 'idle' && state.notice && state.notice.key === 'errLost') showNotice('errLostBack', undefined, 'reconnect');
+    });
+  }
   el.btnResetScale.addEventListener('click', fitScale);
   el.map.addEventListener('pointermove', function (e) {
     var b = el.map.getBoundingClientRect();

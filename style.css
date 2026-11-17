@@ -144,7 +144,10 @@ body {
   background: var(--surface);
   color: var(--text);
 }
-.notice::before { content: "⚠ "; color: var(--critical); }
+.notice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.notice[hidden] { display: none; }
+.notice::before { content: "⚠"; color: var(--critical); }
+#noticeText { flex: 1 1 260px; }
 
 /* ---------- layout ---------- */
 main {
