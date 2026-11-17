@@ -687,10 +687,11 @@
    * 2D map (top view): 3x3 LED grid, centre LED at the origin, robot at (x, y)
    * ===================================================================== */
 
-  function drawRobot(ctx, x, y) {
+  function drawRobot(ctx, x, y, scale) {
     var s = 14;
     ctx.save();
     ctx.translate(x, y);
+    ctx.scale(scale, scale);
     ctx.fillStyle = C.surface; // surface ring so it stays legible over grid lines
     ctx.beginPath(); ctx.roundRect(-s - 6, -s - 3, 2 * s + 12, 2 * s + 6, 8); ctx.fill();
     ctx.fillStyle = C.text2;   // wheels
@@ -708,10 +709,12 @@
   function drawMap() {
     var f = fitCanvas(el.map), ctx = f.ctx, w = f.w, h = f.h;
     ctx.clearRect(0, 0, w, h);
-    var pad = 36;
+    var pad = w < 400 ? 28 : 36; // room for tick labels; tighter on phones
     var half = (Math.min(w, h) - pad * 2) / 2;
     if (half < 40) return;
     var cx = w / 2, cy = h / 2;
+    // markers shrink on small maps (phones) so they don't cover each other
+    var mk = Math.max(0.55, Math.min(1, half / 230));
     // Grid and ticks work in the display unit; sample values (cm) go through f.
     // Factors are powers of 10, so a "nice" cm range stays nice in mm and m.
     var f = unitInfo().f;
@@ -762,22 +765,25 @@
     ctx.fillText('Y', cx + 6, cy - half + 6);
 
     // Quadrant labels in the outer corners
+    // smaller labels tucked further into the corners on small maps, clear of the corner LEDs
+    var qi = mk < 0.8 ? 6 : 10, qf = mk < 0.8 ? 11 : 13;
     var qPos = {
-      1: [cx + half - 10, cy - half + 10, 'right', 'top'],
-      2: [cx - half + 10, cy - half + 10, 'left', 'top'],
-      3: [cx - half + 10, cy + half - 10, 'left', 'bottom'],
-      4: [cx + half - 10, cy + half - 10, 'right', 'bottom']
+      1: [cx + half - qi, cy - half + qi, 'right', 'top'],
+      2: [cx - half + qi, cy - half + qi, 'left', 'top'],
+      3: [cx - half + qi, cy + half - qi, 'left', 'bottom'],
+      4: [cx + half - qi, cy + half - qi, 'right', 'bottom']
     };
     for (var q = 1; q <= 4; q++) {
       var active = s && s.quadrant === q;
-      ctx.font = (active ? '600 ' : '') + '13px ' + C.font;
+      ctx.font = (active ? '600 ' : '') + qf + 'px ' + C.font;
       ctx.textAlign = qPos[q][2]; ctx.textBaseline = qPos[q][3];
       if (active) {
         // active label as a filled pill, so it doesn't rely on weight alone
-        var qw = ctx.measureText('Q' + q).width + 12, qx = qPos[q][2] === 'right' ? qPos[q][0] - qw + 6 : qPos[q][0] - 6;
-        var qy = qPos[q][3] === 'top' ? qPos[q][1] - 3 : qPos[q][1] - 19;
+        var ph = qf + 9, pp = qi < 10 ? 4 : 6;
+        var qw = ctx.measureText('Q' + q).width + 2 * pp, qx = qPos[q][2] === 'right' ? qPos[q][0] - qw + pp : qPos[q][0] - pp;
+        var qy = qPos[q][3] === 'top' ? qPos[q][1] - 3 : qPos[q][1] - ph + 3;
         ctx.fillStyle = C.text;
-        ctx.beginPath(); ctx.roundRect(qx, qy, qw, 22, 11); ctx.fill();
+        ctx.beginPath(); ctx.roundRect(qx, qy, qw, ph, ph / 2); ctx.fill();
         ctx.fillStyle = C.surface;
       } else ctx.fillStyle = C.muted;
       ctx.fillText('Q' + q, qPos[q][0], qPos[q][1]);
@@ -804,21 +810,22 @@
     for (var li = 0; li < LEDS.length; li++) {
       var ex = PX(LEDS[li][0] * f), ey = PY(LEDS[li][1] * f);
       ctx.fillStyle = C.surface;
-      ctx.beginPath(); ctx.arc(ex, ey, 9, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(ex, ey, 9 * mk, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = C.led;
-      ctx.beginPath(); ctx.arc(ex, ey, 7, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(ex, ey, 7 * mk, 0, Math.PI * 2); ctx.fill();
     }
 
     // Robot + coordinate label
     if (s) {
       var rx = PX(s.x * f), ry = PY(s.y * f);
-      drawRobot(ctx, rx, ry);
+      drawRobot(ctx, rx, ry, mk);
       var label = '(' + fmtLen(s.x) + ', ' + fmtLen(s.y) + ')';
       ctx.font = '600 12px ' + C.font;
       var tw = ctx.measureText(label).width;
       var lx = Math.max(4 + tw / 2, Math.min(w - 4 - tw / 2, rx));
-      var above = ry - 30 > 12;
-      var ly = above ? ry - 30 : ry + 30;
+      var gap = 12 + 18 * mk;
+      var above = ry - gap > 12;
+      var ly = above ? ry - gap : ry + gap;
       ctx.fillStyle = C.surface;
       ctx.globalAlpha = 0.85;
       ctx.beginPath(); ctx.roundRect(lx - tw / 2 - 5, ly - 9, tw + 10, 18, 4); ctx.fill();

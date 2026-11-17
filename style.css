@@ -152,7 +152,8 @@ body {
 /* ---------- layout ---------- */
 main {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
+  /* side panel grows and shrinks with the window instead of a fixed width */
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
   gap: 12px;
   padding: 12px 16px;
   max-width: 1280px;
@@ -318,8 +319,18 @@ th:first-child, td:first-child { text-align: left; }
   overflow-wrap: anywhere;
 }
 
-@media (max-width: 820px) {
+/* Narrow: the side panel moves below the map; its cards sit side by side
+   while there is room (2 columns on tablets, 1 on phones). */
+@media (max-width: 900px) {
   main { grid-template-columns: minmax(0, 1fr); }
-  .map-card, .side, .chart-card, .table-card { grid-column: 1; }
+  .map-card, .side, .chart-card, .table-card, .chart-toolbar { grid-column: 1; }
+  .side { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); align-items: start; }
   .status { margin-left: 0; }
 }
+@media (max-width: 480px) {
+  main { padding: 12px; }
+  .bar { padding: 10px 12px; }
+  .tile-value { font-size: 26px; }
+  .card-head { flex-wrap: wrap; }
+}
+.settings-panel { max-width: calc(100vw - 32px); }
