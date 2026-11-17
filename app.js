@@ -94,6 +94,8 @@
       statusOn: 'เชื่อมต่อ Serial แล้ว',
       mapTitle: 'แผนที่ตำแหน่ง (มุมมองบน)',
       fitScale: 'ปรับสเกลให้พอดี',
+      trail: 'เส้นทาง (จุด)',
+      off: 'ปิด',
       mapAria: 'แผนที่ 2 มิติแสดงตำแหน่งหุ่นยนต์เทียบกับ LED',
       waiting: 'รอข้อมูล…',
       hintTitle: 'ยังไม่มีข้อมูล',
@@ -143,6 +145,8 @@
       statusOn: 'Serial connected',
       mapTitle: 'Position map (top view)',
       fitScale: 'Fit scale',
+      trail: 'Trail (points)',
+      off: 'Off',
       mapAria: '2D map of the robot position relative to the LED',
       waiting: 'Waiting for data…',
       hintTitle: 'No data yet',
@@ -213,6 +217,7 @@
     latest: null,
     range: null,           // map half-width in cm; null = not fitted yet
     unit: DEFAULT_UNIT,    // display unit only (key of UNITS)
+    trailN: 100,           // map trail length in samples; 0 = off
     lang: DEFAULT_LANG,
     notice: null,          // { key, arg } so it can be re-rendered on language change
     parseErrors: 0,
@@ -232,7 +237,7 @@
 
   var el = {
     btnConnect: $('btnConnect'), btnDemo: $('btnDemo'), baud: $('baud'), unit: $('unit'), lang: $('lang'),
-    btnSettings: $('btnSettings'), settingsPanel: $('settingsPanel'),
+    btnSettings: $('btnSettings'), settingsPanel: $('settingsPanel'), trailN: $('trailN'),
     statusDot: $('statusDot'), statusText: $('statusText'), rate: $('rate'), notice: $('notice'),
     map: $('map'), btnResetScale: $('btnResetScale'),
     valX: $('valX'), valY: $('valY'), valQ: $('valQ'), valR: $('valR'), valA: $('valA'),
@@ -629,6 +634,8 @@
       ctx.fillText('Q' + q, qPos[q][0], qPos[q][1]);
     }
 
+    if (s) drawTrail(ctx, PX, PY, f);
+
     // LED -> robot line
     if (s) {
       ctx.strokeStyle = C.text2;
@@ -668,6 +675,27 @@
     } else {
       drawHint(ctx, cx, cy + half * 0.5);
     }
+  }
+
+  // Last N positions; each segment fades with age (oldest ~transparent).
+  // A real dropout (GAP_MS) breaks the trail instead of drawing a jump.
+  function drawTrail(ctx, PX, PY, f) {
+    var S = state.samples, n = Math.min(state.trailN, S.length);
+    if (n < 2) return;
+    var i0 = S.length - n;
+    ctx.save();
+    ctx.strokeStyle = C.text2;
+    ctx.lineWidth = 2;
+    ctx.lineJoin = ctx.lineCap = 'round';
+    for (var i = i0 + 1; i < S.length; i++) {
+      if (S[i].t - S[i - 1].t > GAP_MS) continue;
+      ctx.globalAlpha = 0.05 + 0.6 * (i - i0) / (n - 1);
+      ctx.beginPath();
+      ctx.moveTo(PX(S[i - 1].x * f), PY(S[i - 1].y * f));
+      ctx.lineTo(PX(S[i].x * f), PY(S[i].y * f));
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   // Next-step guidance shown on the empty map; depends on what the user can do now.
@@ -953,6 +981,11 @@
     state.tilesDirty = true;
     updateStatus(); // refreshes the table if it is open
   });
+  el.trailN.addEventListener('change', function () {
+    state.trailN = Math.max(0, parseInt(el.trailN.value, 10) || 0);
+    try { localStorage.setItem('ra.trail', String(state.trailN)); } catch (e) { /* storage unavailable */ }
+    state.dirty = true;
+  });
   el.baud.addEventListener('change', function () {
     try { localStorage.setItem('ra.baud', el.baud.value); } catch (e) { /* storage unavailable */ }
   });
@@ -985,8 +1018,13 @@
     for (var oi = 0; oi < el.baud.options.length; oi++) {
       if (el.baud.options[oi].text === savedBaud) el.baud.selectedIndex = oi;
     }
+    var savedTrail = localStorage.getItem('ra.trail');
+    for (oi = 0; oi < el.trailN.options.length; oi++) {
+      if (el.trailN.options[oi].value === savedTrail) state.trailN = +savedTrail;
+    }
   } catch (e) { /* storage unavailable */ }
   el.unit.value = state.unit;
+  el.trailN.value = String(state.trailN);
 
   window.addEventListener('beforeunload', function (e) {
     if (state.log.length && !state.logSaved) { e.preventDefault(); e.returnValue = ''; }

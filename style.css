@@ -154,6 +154,9 @@ main {
 }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .card h2 { margin: 0; font-size: 14px; font-weight: 600; }
+.card-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.field.small { font-size: 12px; }
+.field.small select { padding: 2px 6px; }
 .unit { color: var(--muted); font-weight: 400; }
 
 .map-card { grid-column: 1; }

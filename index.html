@@ -56,7 +56,19 @@
     <section class="card map-card">
       <div class="card-head">
         <h2><span data-i18n="mapTitle">แผนที่ตำแหน่ง (มุมมองบน)</span> <span class="unit" data-unit></span></h2>
-        <button id="btnResetScale" class="btn small" type="button" data-i18n="fitScale">ปรับสเกลให้พอดี</button>
+        <div class="card-tools">
+          <label class="field small"><span data-i18n="trail">เส้นทาง</span>
+            <select id="trailN">
+              <option value="0" data-i18n="off">ปิด</option>
+              <option value="50">50</option>
+              <option value="100" selected>100</option>
+              <option value="250">250</option>
+              <option value="500">500</option>
+              <option value="1000">1000</option>
+            </select>
+          </label>
+          <button id="btnResetScale" class="btn small" type="button" data-i18n="fitScale">ปรับสเกลให้พอดี</button>
+        </div>
       </div>
       <div class="map-wrap"><canvas id="map" data-i18n-aria="mapAria" aria-label="แผนที่ 2 มิติแสดงตำแหน่งหุ่นยนต์เทียบกับ LED"></canvas></div>
     </section>
