@@ -7,13 +7,13 @@ repeating_timer_t timer;
 const int N = 2500;  //number of samples in each buffer
 const int samplingFreq = 25000;
 const int N_PD = 3;
-const int N_LED = 6;
-const int N_Z = N_LED * N_PD;  // number of RSS measurements (was 12 with 4 LEDs)
+const int N_LED = 9;
+const int N_Z = N_LED * N_PD;  // number of RSS measurements (was 12 with 4 LEDs, 18 with 6)
 const int N_STATE = 6;
 const int pins[N_PD] = { 28, 27, 26 };
 
-// Same order as p:           LED4     LED5     LED7     LED8     LED1     LED2
-const float Fref[N_LED] = { 2300.0f, 2900.0f, 3700.0f, 4100.0f, 1300.0f, 1700.0f };
+// Same order as p:           LED4     LED5     LED7     LED8     LED1     LED2     LED0     LED3     LED6
+const float Fref[N_LED] = { 2300.0f, 2900.0f, 3700.0f, 4100.0f, 1300.0f, 1700.0f, 1100.0f, 1900.0f, 3100.0f };
 volatile int sampleTemp[N_PD][N];
 volatile int sampleIndex = 0;
 volatile bool isSampling = false;
@@ -28,10 +28,10 @@ const float be = M_PI / 3;
 // Which LEDs the EKF uses (same order as p). An LED set to false is not
 // demodulated and adds nothing to the update. These are the values at power-up;
 // the web page can change them at run time (see readCommands()).
-const int LED_NUM[N_LED] = {     4,     5,    7,    8,    1,    2 };  // LED number per row of p
-bool LED_ON[N_LED]       = { false, false, true, true, true, true };  // LED4, LED5 off at start
-// LED1, LED2 = 0.46 for now (not calibrated yet)
-const float PtxGamma[N_LED] = { 0.49f, 0.49f, 0.46f, 0.46f, 0.46f, 0.46f };
+const int LED_NUM[N_LED] = {     4,     5,    7,    8,    1,    2,    0,    3,    6 };  // LED number per row of p
+bool LED_ON[N_LED]       = { false, false, true, true, true, true, true, true, true };  // LED4, LED5 off at start
+// LED1, LED2, LED0, LED3, LED6 = 0.46 for now (not calibrated yet)
+const float PtxGamma[N_LED] = { 0.49f, 0.49f, 0.46f, 0.46f, 0.46f, 0.46f, 0.46f, 0.46f, 0.46f };
 const float eps = 0.01; //0.01;
 const float sigma2 = 0.01; //0.1, 0.4, 0.1, 0.005; 
 // const float q = 0.01;
@@ -42,7 +42,10 @@ BLA::Matrix<N_LED, 3> p = { 0, 0, 0.920, //0.93 - 0.03 - 0.01   LED4
                             0, 0.5, 0.920,                   // LED7
                             -0.5, 0.5, 0.920,                // LED8
                             0, -0.5, 0.920,                  // LED1
-                            -0.5, -0.5, 0.920 };             // LED2
+                            -0.5, -0.5, 0.920,               // LED2
+                            0.5, -0.5, 0.920,                // LED0
+                            0.5, 0, 0.920,                   // LED3
+                            0.5, 0.5, 0.920 };               // LED6
 
 BLA::Matrix<3, 1> uk = { 0.0, 0.0, -1.0 };
 BLA::Matrix<3, 3> v = { cos(be) * cos(al[0]), -cos(be) * sin(al[0]), sin(be),
