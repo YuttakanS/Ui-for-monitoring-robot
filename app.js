@@ -138,8 +138,11 @@
       ledSynced: 'บอร์ดรับคำสั่งแล้ว',
       ledPending: 'รอบอร์ดยืนยัน… (firmware ต้องรองรับคำสั่ง LED)',
       legTrail: 'เส้นทาง',
-      legVec: 'ทิศหุ่น',
-      vecTheta: 'θ วัดทวนเข็มจาก +X',
+      legVec: 'ทิศการเคลื่อนที่',
+      vecParts: 'แตกเวกเตอร์',
+      vecTitle: 'ทิศการเคลื่อนที่ (เวกเตอร์หนึ่งหน่วย)',
+      vecMoving: 'จากการเคลื่อนที่ใน 0.5 s ล่าสุด',
+      vecStill: 'หุ่นหยุดนิ่ง — ใช้ทิศที่หุ่นหัน (Z = 0)',
       legQuad: 'ควอดรันต์ปัจจุบัน',
       min: 'ต่ำสุด',
       max: 'สูงสุด',
@@ -230,8 +233,11 @@
       ledSynced: 'Board confirmed',
       ledPending: 'Waiting for the board to confirm… (needs firmware with LED commands)',
       legTrail: 'Trail',
-      legVec: 'Heading',
-      vecTheta: 'θ counter-clockwise from +X',
+      legVec: 'Direction of motion',
+      vecParts: 'Split vector',
+      vecTitle: 'Direction of motion (unit vector)',
+      vecMoving: 'From the movement in the last 0.5 s',
+      vecStill: 'Standing still — using the heading (Z = 0)',
       legQuad: 'Current quadrant',
       min: 'min',
       max: 'max',
@@ -340,6 +346,27 @@
     return { deg: d, x: Math.cos(a), y: Math.sin(a) };
   }
   function fmtVec(v) { var s = v.toFixed(2); return s === '-0.00' ? '0.00' : s; }
+
+  // Direction of motion as a 3D unit vector: from where the robot was
+  // VEC_WINDOW_MS ago to where it is now (x, y, z). If it moved less than
+  // VEC_MIN_CM (standing still, or only noise) the heading is used instead,
+  // level (z = 0); `moving` tells the two apart.
+  var VEC_WINDOW_MS = 500, VEC_MIN_CM = 1;
+  function motionVec() {
+    var S = state.samples, s = state.latest, ref = null;
+    if (!s) return null;
+    for (var i = S.length - 2, n = 0; i >= 0 && n < 400; i--, n++) {
+      if (s.t - S[i].t >= VEC_WINDOW_MS) { ref = S[i]; break; }
+    }
+    if (ref && s.t - ref.t > VEC_WINDOW_MS * 4) ref = null; // across a dropout
+    if (ref) {
+      var dx = s.x - ref.x, dy = s.y - ref.y, dz = s.z - ref.z;
+      var len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (len >= VEC_MIN_CM) return { x: dx / len, y: dy / len, z: dz / len, moving: true };
+    }
+    var hv = headingVec(s.angle);
+    return { x: hv.x, y: hv.y, z: 0, moving: false };
+  }
   function setLine(ln, x1, y1, x2, y2) {
     ln.setAttribute('x1', x1.toFixed(1)); ln.setAttribute('y1', y1.toFixed(1));
     ln.setAttribute('x2', x2.toFixed(1)); ln.setAttribute('y2', y2.toFixed(1));
@@ -357,6 +384,7 @@
     unit: DEFAULT_UNIT,    // display unit only (key of UNITS)
     trailN: 100,           // map trail length in samples; 0 = off
     mapView: '2d',         // '2d' | '3d'
+    vecParts: true,        // show the motion vector's X / Y / Z parts
     mapHover: null,        // pointer position over the map canvas (CSS px) or null
     stats: null,           // session min/max per field, reset with the data
     chartRange: 60000,     // one of CHART_RANGES
@@ -388,6 +416,7 @@
     statusDot: $('statusDot'), statusText: $('statusText'), rate: $('rate'), notice: $('notice'),
     map: $('map'), map2dWrap: $('map2dWrap'), map3d: $('map3d'), btnReset3d: $('btnReset3d'),
     viewRadios: document.querySelectorAll('input[name=mapView]'), legQuad: $('legQuad'),
+    btnVecParts: $('btnVecParts'), legVecParts: $('legVecParts'),
     mapTitle: document.querySelector('[data-i18n=mapTitle]'),
     valX: $('valX'), valY: $('valY'), valZ: $('valZ'), mmZ: $('mmZ'), valQ: $('valQ'), valR: $('valR'),
     valH: $('valH'), cNeedle: $('cNeedle'), headingNote: $('headingNote'),
@@ -764,17 +793,20 @@
     el.valH.textContent = s.angle.toFixed(2) + '°';
     el.cNeedle.style.visibility = 'visible';
     el.cNeedle.setAttribute('transform', 'rotate(' + (-mapHeading(s.angle)).toFixed(2) + ' 70 70)');
-    // the same heading as a unit vector, split into X = cos(theta), Y = sin(theta)
-    var hv = headingVec(s.angle), R = 42, tx = 70 + R * hv.x, ty = 70 - R * hv.y;
+    // X / Y parts of the direction-of-motion vector (seen from above) and
+    // its X / Y / Z values; hidden when "Split vector" is off
+    var mv = motionVec(), R = 42, tx = 70 + R * mv.x, ty = 70 - R * mv.y;
     setLine(el.cVx, 70, 70, tx, 70);
     setLine(el.cVy, 70, 70, 70, ty);
-    setLine(el.cDashX, tx, 70, tx, ty);   // from the X part's tip up to the needle tip
-    setLine(el.cDashY, 70, ty, tx, ty);   // from the Y part's tip across to it
-    el.cComp.style.visibility = 'visible';
-    el.hComp.innerHTML =
-      '<span class="key" style="--k:var(--s1)"></span>X = cos θ = ' + fmtVec(hv.x) + '<br>' +
-      '<span class="key" style="--k:var(--s2)"></span>Y = sin θ = ' + fmtVec(hv.y) + '<br>' +
-      'θ = ' + hv.deg.toFixed(1) + '° (' + t('vecTheta') + ')';
+    setLine(el.cDashX, tx, 70, tx, ty);
+    setLine(el.cDashY, 70, ty, tx, ty);
+    el.cComp.style.visibility = state.vecParts ? 'visible' : 'hidden';
+    el.hComp.hidden = !state.vecParts;
+    el.hComp.innerHTML = '<b>' + t('vecTitle') + '</b><br>' +
+      '<span class="vp"><span class="key" style="--k:var(--s1)"></span>X = ' + fmtVec(mv.x) + '</span>' +
+      '<span class="vp"><span class="key" style="--k:var(--s2)"></span>Y = ' + fmtVec(mv.y) + '</span>' +
+      '<span class="vp"><span class="key" style="--k:var(--s3)"></span>Z = ' + fmtVec(mv.z) + '</span><br>' +
+      t(mv.moving ? 'vecMoving' : 'vecStill');
   }
 
   function clockTime(ms) {
@@ -855,7 +887,7 @@
     ctx.lineJoin = 'round';
     ctx.strokeStyle = C.surface; ctx.lineWidth = 7; body(); ctx.stroke(); // halo over grid lines
     ctx.fillStyle = C.text; body(); ctx.fill();
-    // the heading arrow is drawn as a vector with its X / Y parts (drawHeadingVec)
+    // the direction arrow is drawn separately, with its parts (drawMotionVec)
     // photodiodes at the face centres; photodiode 1 (front) highlighted
     for (var p = 0; p < 3; p++) {
       var ang = p * 2 * Math.PI / 3, d = r * c60 * 0.62;
@@ -865,11 +897,12 @@
     ctx.restore();
   }
 
-  // Heading as a vector from the robot's centre (green), split into its X part
-  // (blue, along +X) and Y part (orange, along +Y), with dashed lines closing
-  // the rectangle and the two values at the tips of the parts.
-  function drawHeadingVec(ctx, x, y, mk, hv) {
-    var L = 64 * mk, ex = x + L * hv.x, ey = y - L * hv.y;
+  // Direction of motion from the robot's centre (main colour). Seen from above
+  // only its X / Y projection can be drawn; with "Split vector" on, the X part
+  // (blue, along +X) and Y part (orange, along +Y) are drawn with dashed lines
+  // closing the rectangle, and Z is written next to the robot (up / down arrow).
+  function drawMotionVec(ctx, x, y, mk, v, parts) {
+    var L = 64 * mk, ex = x + L * v.x, ey = y - L * v.y;
     function arrow(x0, y0, x1, y1, col, wdt) {
       var dx = x1 - x0, dy = y1 - y0, len = Math.hypot(dx, dy);
       if (len < 3) return;
@@ -883,13 +916,6 @@
       ctx.closePath(); ctx.fill();
     }
     ctx.save();
-    ctx.setLineDash([4, 4]); ctx.strokeStyle = C.muted; ctx.lineWidth = 1.2;
-    ctx.beginPath(); ctx.moveTo(ex, y); ctx.lineTo(ex, ey); ctx.moveTo(x, ey); ctx.lineTo(ex, ey); ctx.stroke();
-    ctx.setLineDash([]);
-    arrow(x, y, ex, y, C.s1, 2.5);
-    arrow(x, y, x, ey, C.s2, 2.5);
-    arrow(x, y, ex, ey, C.s3, 3);
-    // values at the tips of the parts, on a light pill so they read over the grid
     ctx.font = '600 11px ' + C.font;
     function tag(text, tx, ty, col, align, base) {
       ctx.textAlign = align; ctx.textBaseline = base;
@@ -900,8 +926,22 @@
       ctx.globalAlpha /= 0.85;
       ctx.fillStyle = col; ctx.fillText(text, tx, ty);
     }
-    tag('X ' + fmtVec(hv.x), ex, y + (hv.y >= 0 ? 5 : -5), C.s1, 'center', hv.y >= 0 ? 'top' : 'bottom');
-    tag('Y ' + fmtVec(hv.y), x + (hv.x >= 0 ? -6 : 6), ey, C.s2, hv.x >= 0 ? 'right' : 'left', 'middle');
+    if (parts) {
+      ctx.setLineDash([4, 4]); ctx.strokeStyle = C.muted; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(ex, y); ctx.lineTo(ex, ey); ctx.moveTo(x, ey); ctx.lineTo(ex, ey); ctx.stroke();
+      ctx.setLineDash([]);
+      arrow(x, y, ex, y, C.s1, 2.5);
+      arrow(x, y, x, ey, C.s2, 2.5);
+    }
+    arrow(x, y, ex, ey, C.text, 3);
+    if (parts) {
+      tag('X ' + fmtVec(v.x), ex, y + (v.y >= 0 ? 5 : -5), C.s1, 'center', v.y >= 0 ? 'top' : 'bottom');
+      tag('Y ' + fmtVec(v.y), x + (v.x >= 0 ? -6 : 6), ey, C.s2, v.x >= 0 ? 'right' : 'left', 'middle');
+      // Z: beside the robot, on the side away from the vector (the coordinate
+      // label sits above or below, so this stays clear of both)
+      var zt = 'Z ' + fmtVec(v.z) + (v.z > 0.005 ? ' \u2191' : v.z < -0.005 ? ' \u2193' : '');
+      tag(zt, x + (v.x >= 0 ? -22 : 22) * mk, y, C.s3, v.x >= 0 ? 'right' : 'left', 'middle');
+    }
     ctx.restore();
   }
 
@@ -1064,8 +1104,8 @@
       var outside = rx !== rpx || ry !== rpy;
       if (outside) ctx.globalAlpha = 0.45;
       drawRobot(ctx, rx, ry, mk, mapHeading(s.angle));
-      var hv = headingVec(s.angle);
-      drawHeadingVec(ctx, rx, ry, mk, hv);
+      var hv = motionVec();
+      drawMotionVec(ctx, rx, ry, mk, hv, state.vecParts);
       ctx.globalAlpha = 1;
       var label = '(' + fmtLen(s.x) + ', ' + fmtLen(s.y) + ')';
       ctx.font = '600 12px ' + C.font;
@@ -1596,23 +1636,25 @@
     });
   }
 
-  // Heading vector in 3D: kept level and NOT turned with the robot, so its X
-  // and Y parts stay on the world axes. Length VEC_LEN cm.
+  // Direction-of-motion vector in 3D, NOT turned with the robot, so its X, Y
+  // and Z parts stay on the room's axes. Length VEC_LEN cm. The dashed lines
+  // drop from its tip to the floor plane and run from there to the X / Y tips.
   var VEC_LEN = 28;
   function makeVec3d() {
     var T = THREE, g = new T.Group(), o = new T.Vector3();
     var main = new T.ArrowHelper(new T.Vector3(1, 0, 0), o, VEC_LEN, 0x000000, 6, 4);
     var ax = new T.ArrowHelper(new T.Vector3(1, 0, 0), o, VEC_LEN, 0x000000, 4, 3);
     var ay = new T.ArrowHelper(new T.Vector3(0, 1, 0), o, VEC_LEN, 0x000000, 4, 3);
+    var az = new T.ArrowHelper(new T.Vector3(0, 0, 1), o, VEC_LEN, 0x000000, 4, 3);
     var dg = new T.BufferGeometry();
-    dg.setAttribute('position', new T.BufferAttribute(new Float32Array(12), 3));
+    dg.setAttribute('position', new T.BufferAttribute(new Float32Array(18), 3));
     var dash = new T.LineSegments(dg, new T.LineDashedMaterial({ dashSize: 1.5, gapSize: 1.5 }));
     dash.frustumCulled = false;
-    var lx = dynLabel3(), ly = dynLabel3();
-    [main, ax, ay, dash, lx, ly].forEach(function (m) { g.add(m); });
+    var lx = dynLabel3(), ly = dynLabel3(), lz = dynLabel3();
+    [main, ax, ay, az, dash, lx, ly, lz].forEach(function (m) { g.add(m); });
     g.visible = false;
     v3.scene.add(g);
-    return { group: g, main: main, ax: ax, ay: ay, dash: dash, lx: lx, ly: ly };
+    return { group: g, main: main, ax: ax, ay: ay, az: az, dash: dash, lx: lx, ly: ly, lz: lz };
   }
 
   // a label whose text changes (redrawn only when the text does)
@@ -1642,23 +1684,30 @@
   }
 
   function update3dVec(s) {
-    var V = v3.vec, hv = headingVec(s.angle), T = THREE, z = s.z + ROBOT_H + 1.5;
-    V.group.position.set(s.x, s.y, z);
-    V.main.setDirection(new T.Vector3(hv.x, hv.y, 0));
-    var lx = VEC_LEN * Math.abs(hv.x), ly = VEC_LEN * Math.abs(hv.y);
-    V.ax.visible = lx > 2; V.ay.visible = ly > 2;
-    V.ax.setDirection(new T.Vector3(hv.x >= 0 ? 1 : -1, 0, 0));
-    V.ay.setDirection(new T.Vector3(0, hv.y >= 0 ? 1 : -1, 0));
-    if (V.ax.visible) V.ax.setLength(lx, Math.min(4, lx * 0.5), 3);
-    if (V.ay.visible) V.ay.setLength(ly, Math.min(4, ly * 0.5), 3);
-    var ex = VEC_LEN * hv.x, ey = VEC_LEN * hv.y, p = V.dash.geometry.attributes.position;
-    p.setXYZ(0, ex, 0, 0); p.setXYZ(1, ex, ey, 0); p.setXYZ(2, 0, ey, 0); p.setXYZ(3, ex, ey, 0);
+    var V = v3.vec, v = motionVec(), T = THREE, parts = state.vecParts;
+    V.group.position.set(s.x, s.y, s.z + ROBOT_H + 1.5);
+    V.main.setDirection(new T.Vector3(v.x, v.y, v.z));
+    [['ax', 'x', new T.Vector3(1, 0, 0)], ['ay', 'y', new T.Vector3(0, 1, 0)], ['az', 'z', new T.Vector3(0, 0, 1)]]
+      .forEach(function (a) {
+        var arr = V[a[0]], c = v[a[1]], len = VEC_LEN * Math.abs(c);
+        arr.visible = parts && len > 2;
+        if (!arr.visible) return;
+        arr.setDirection(a[2].multiplyScalar(c >= 0 ? 1 : -1));
+        arr.setLength(len, Math.min(4, len * 0.5), 3);
+      });
+    var ex = VEC_LEN * v.x, ey = VEC_LEN * v.y, ez = VEC_LEN * v.z, p = V.dash.geometry.attributes.position;
+    p.setXYZ(0, ex, ey, ez); p.setXYZ(1, ex, ey, 0);   // tip down to the floor plane
+    p.setXYZ(2, ex, ey, 0); p.setXYZ(3, ex, 0, 0);     // across to the X tip
+    p.setXYZ(4, ex, ey, 0); p.setXYZ(5, 0, ey, 0);     // across to the Y tip
     p.needsUpdate = true;
     V.dash.computeLineDistances();
-    setDynLabel(V.lx, 'X ' + fmtVec(hv.x));
-    setDynLabel(V.ly, 'Y ' + fmtVec(hv.y));
-    V.lx.position.set(ex, hv.y >= 0 ? -4 : 4, 0);
-    V.ly.position.set(hv.x >= 0 ? -8 : 8, ey, 0);
+    V.dash.visible = V.lx.visible = V.ly.visible = V.lz.visible = parts;
+    setDynLabel(V.lx, 'X ' + fmtVec(v.x));
+    setDynLabel(V.ly, 'Y ' + fmtVec(v.y));
+    setDynLabel(V.lz, 'Z ' + fmtVec(v.z));
+    V.lx.position.set(ex, v.y >= 0 ? -4 : 4, 0);
+    V.ly.position.set(v.x >= 0 ? -8 : 8, ey, 0);
+    V.lz.position.set(v.x >= 0 ? -8 : 8, 0, ez + (v.z >= 0 ? 3 : -3));
   }
 
   function reset3dView() {
@@ -1700,7 +1749,7 @@
   // viewport height tall, so s = 2 * px / (P[1][1] * viewport height).
   function size3dLabels() {
     var k = 2 / (v3.camera.projectionMatrix.elements[5] * v3.h);
-    v3.labels.concat(v3.vec ? [v3.vec.lx, v3.vec.ly] : []).forEach(function (sp) {
+    v3.labels.concat(v3.vec ? [v3.vec.lx, v3.vec.ly, v3.vec.lz] : []).forEach(function (sp) {
       var s = sp.userData.px * k;
       sp.scale.set(s * sp.userData.aspect, s, 1);
     });
@@ -1819,12 +1868,14 @@
 
     paint3(v3.robot, { ra_body: C.text, ra_pd: C.muted, ra_pd1: C.s3 }, C.text);
     v3.robot.traverse(function (o) { if (o.isMesh) o.material.flatShading = true; });
-    v3.vec.main.setColor(color3(C.s3));
+    v3.vec.main.setColor(color3(C.text));
     v3.vec.ax.setColor(color3(C.s1));
     v3.vec.ay.setColor(color3(C.s2));
+    v3.vec.az.setColor(color3(C.s3));
+    v3.vec.lz.userData.css = C.s3;
     v3.vec.dash.material.color = color3(C.muted);
     v3.vec.lx.userData.css = C.s1; v3.vec.ly.userData.css = C.s2;
-    v3.vec.lx.userData.text = v3.vec.ly.userData.text = ''; // redraw labels in the new colours
+    v3.vec.lx.userData.text = v3.vec.ly.userData.text = v3.vec.lz.userData.text = ''; // redraw in the new colours
     v3.trail.material.color = color3(C.text2);
     v3.toOrigin.material.color = color3(C.text2);
     v3.drop.material.color = color3(C.s3);
@@ -1875,6 +1926,17 @@
     v3.trail.geometry.setDrawRange(0, n);
     v3.renderer.render(v3.scene, v3.camera);
     v3.needs = false;
+  }
+
+  function setVecParts(on, save) {
+    state.vecParts = !!on;
+    el.btnVecParts.setAttribute('aria-pressed', String(state.vecParts));
+    el.legVecParts.hidden = !state.vecParts;
+    if (v3) v3.needs = true;
+    state.dirty = state.tilesDirty = true;
+    if (save) {
+      try { localStorage.setItem('ra.vecParts', state.vecParts ? '1' : '0'); } catch (e) { /* storage unavailable */ }
+    }
   }
 
   function setMapView(view, save) {
@@ -1998,6 +2060,7 @@
     var savedRange = localStorage.getItem('ra.range');
     if (savedRange !== null && CHART_RANGES.indexOf(+savedRange) >= 0) state.chartRange = +savedRange;
     if (localStorage.getItem('ra.mapView') === '3d') state.mapView = '3d';
+    if (localStorage.getItem('ra.vecParts') === '0') state.vecParts = false;
     var savedTrail = localStorage.getItem('ra.trail');
     for (oi = 0; oi < el.trailN.options.length; oi++) {
       if (el.trailN.options[oi].value === savedTrail) state.trailN = +savedTrail;
@@ -2024,6 +2087,8 @@
     }
   }
   el.btnReset3d.addEventListener('click', function () { if (v3) reset3dView(); });
+  el.btnVecParts.addEventListener('click', function () { setVecParts(!state.vecParts, true); });
+  setVecParts(state.vecParts, false);
 
   window.addEventListener('beforeunload', function (e) {
     if (state.log.length && !state.logSaved) { e.preventDefault(); e.returnValue = ''; }

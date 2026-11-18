@@ -248,6 +248,7 @@ main {
 .c-dash { stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 3 3; }
 .vec-parts { margin-top: 6px; font-size: 13px; color: var(--text2); line-height: 1.5; font-variant-numeric: tabular-nums; }
 .vec-parts .key { margin-right: 4px; }
+.vec-parts .vp { display: inline-block; white-space: nowrap; margin-right: 10px; }
 
 .rec-card { display: flex; flex-direction: column; gap: 8px; }
 .rec-row { display: flex; align-items: center; gap: 8px; }
@@ -296,7 +297,7 @@ main {
 .seg label span:hover { background: var(--wash); }
 .seg input:checked + span { background: var(--text); color: var(--surface); border-color: var(--text); position: relative; }
 .seg input:focus-visible + span { outline: 2px solid var(--s1); outline-offset: 2px; position: relative; z-index: 1; }
-#btnPause[aria-pressed="true"] { background: var(--text); color: var(--surface); border-color: var(--text); }
+#btnPause[aria-pressed="true"], #btnVecParts[aria-pressed="true"] { background: var(--text); color: var(--surface); border-color: var(--text); }
 .chart-wrap { position: relative; height: 200px; }
 .chart-wrap canvas { cursor: crosshair; }
 .legend { display: flex; gap: 14px; list-style: none; margin: 0; padding: 0; color: var(--text2); font-size: 13px; }
