@@ -6,13 +6,16 @@
    * ===================================================================== */
 
   // Firmware line format:  Quadrant 3: -33.84, -47.30, -23.71
-  //                        Quadrant <n>: <x>, <y>, <incidence angle>
-  var LINE_RE = /^Quadrant\s*(\d+)\s*:\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/i;
+  //                        Quadrant <n>: <x>, <y>, <incidence angle>[, <z>]
+  // z (cm, up) is optional: 0 = the robot on the floor. The current firmware
+  // does not send it; Demo does. hasZ tells the two apart.
+  var LINE_RE = /^Quadrant\s*(\d+)\s*:\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)(?:\s*,\s*(-?\d+(?:\.\d+)?))?$/i;
 
   function parseLine(raw) {
     var m = LINE_RE.exec(String(raw).trim());
     if (!m) return null;
-    return { quadrant: +m[1], x: +m[2], y: +m[3], angle: +m[4] };
+    var hasZ = m[5] !== undefined;
+    return { quadrant: +m[1], x: +m[2], y: +m[3], angle: +m[4], z: hasZ ? +m[5] : 0, hasZ: hasZ };
   }
 
   // Standard numbering: Q1 = +x,+y, then counter-clockwise.
@@ -60,13 +63,15 @@
   }
 
   function toCsv(rows) {
-    var out = ['timestamp_iso,t_ms,quadrant,x,y,incidence_angle_deg,source'];
+    // z is the last column so the earlier columns keep their place; it is
+    // empty when the board did not send z (not 0, so the CSV stays raw)
+    var out = ['timestamp_iso,t_ms,quadrant,x,y,incidence_angle_deg,source,z'];
     var t0 = rows.length ? rows[0].t : 0;
     for (var i = 0; i < rows.length; i++) {
       var r = rows[i];
       out.push([
         new Date(r.wall).toISOString(), Math.round(r.t - t0),
-        r.quadrant, r.x, r.y, r.angle, r.source
+        r.quadrant, r.x, r.y, r.angle, r.source, r.hasZ ? r.z : ''
       ].join(','));
     }
     return out.join('\r\n') + '\r\n';
@@ -105,6 +110,11 @@
       trail: 'เส้นทาง (จุด)',
       off: 'ปิด',
       mapAria: 'แผนที่ 2 มิติแสดงตำแหน่งหุ่นยนต์เทียบกับ LED 9 ดวง',
+      mapTitle3d: 'แผนที่ตำแหน่ง (3 มิติ)',
+      map3dAria: 'ภาพ 3 มิติของ LED 9 ดวงที่ความสูงจริงและหุ่นยนต์บนพื้น',
+      viewLabel: 'มุมมองแผนที่',
+      resetView: 'รีเซ็ตมุมมอง',
+      no3d: 'เบราว์เซอร์นี้แสดง 3D (WebGL) ไม่ได้',
       waiting: 'รอข้อมูล…',
       hintTitle: 'ยังไม่มีข้อมูล',
       hintStep1: '1. ต่อบอร์ดเข้ากับคอมพิวเตอร์ผ่าน USB',
@@ -115,6 +125,7 @@
       hintWait1: 'ตรวจว่า baud rate ในเมนูตั้งค่าตรงกับที่บอร์ดใช้',
       hintWait2: 'บอร์ดต้องส่งบรรทัดแบบ  Quadrant 1: x, y, มุม',
       distLed: 'ระยะจาก LED 4 (origin)',
+      zNone: 'บอร์ดยังไม่ส่งค่า z (ถือว่าอยู่บนพื้น)',
       orientation: 'ทิศของหุ่น (Orientation)',
       compassAria: 'เข็มทิศแสดงทิศที่หุ่นหัน',
       headingCW: '0° = หันไป +X · ค่าบวก = หมุนตามเข็มนาฬิกา',
@@ -127,6 +138,11 @@
       ledSynced: 'บอร์ดรับคำสั่งแล้ว',
       ledPending: 'รอบอร์ดยืนยัน… (firmware ต้องรองรับคำสั่ง LED)',
       legTrail: 'เส้นทาง',
+      legVec: 'ทิศการเคลื่อนที่',
+      vecParts: 'แตกเวกเตอร์',
+      vecTitle: 'ทิศการเคลื่อนที่ (เวกเตอร์หนึ่งหน่วย)',
+      vecMoving: 'จากการเคลื่อนที่ใน 0.5 s ล่าสุด',
+      vecStill: 'หุ่นหยุดนิ่ง — ใช้ทิศที่หุ่นหัน (Z = 0)',
       legQuad: 'ควอดรันต์ปัจจุบัน',
       min: 'ต่ำสุด',
       max: 'สูงสุด',
@@ -189,6 +205,11 @@
       trail: 'Trail (points)',
       off: 'Off',
       mapAria: '2D map of the robot position relative to the 9 LEDs',
+      mapTitle3d: 'Position map (3D)',
+      map3dAria: '3D view of the 9 LEDs at their real height and the robot on the floor',
+      viewLabel: 'Map view',
+      resetView: 'Reset view',
+      no3d: 'This browser cannot show 3D (WebGL)',
       waiting: 'Waiting for data…',
       hintTitle: 'No data yet',
       hintStep1: '1. Plug the board in over USB',
@@ -199,6 +220,7 @@
       hintWait1: 'Check that the baud rate in Settings matches the board',
       hintWait2: 'The board must send lines like  Quadrant 1: x, y, angle',
       distLed: 'Distance from LED 4 (origin)',
+      zNone: 'The board sends no z yet (taken as on the floor)',
       orientation: 'Orientation',
       compassAria: 'Compass showing where the robot faces',
       headingCW: '0° = facing +X · positive = clockwise',
@@ -211,6 +233,11 @@
       ledSynced: 'Board confirmed',
       ledPending: 'Waiting for the board to confirm… (needs firmware with LED commands)',
       legTrail: 'Trail',
+      legVec: 'Direction of motion',
+      vecParts: 'Split vector',
+      vecTitle: 'Direction of motion (unit vector)',
+      vecMoving: 'From the movement in the last 0.5 s',
+      vecStill: 'Standing still — using the heading (Z = 0)',
       legQuad: 'Current quadrant',
       min: 'min',
       max: 'max',
@@ -312,6 +339,38 @@
   var HEADING_OFFSET = 0;
   // firmware angle -> map angle, counter-clockwise from +X
   function mapHeading(deg) { return wrapDeg(HEADING_SIGN * deg + HEADING_OFFSET); }
+  // unit vector of the heading on the map: x = cos(theta), y = sin(theta),
+  // theta = map heading (deg, counter-clockwise from +X)
+  function headingVec(fwDeg) {
+    var d = mapHeading(fwDeg), a = d * Math.PI / 180;
+    return { deg: d, x: Math.cos(a), y: Math.sin(a) };
+  }
+  function fmtVec(v) { var s = v.toFixed(2); return s === '-0.00' ? '0.00' : s; }
+
+  // Direction of motion as a 3D unit vector: from where the robot was
+  // VEC_WINDOW_MS ago to where it is now (x, y, z). If it moved less than
+  // VEC_MIN_CM (standing still, or only noise) the heading is used instead,
+  // level (z = 0); `moving` tells the two apart.
+  var VEC_WINDOW_MS = 500, VEC_MIN_CM = 1;
+  function motionVec() {
+    var S = state.samples, s = state.latest, ref = null;
+    if (!s) return null;
+    for (var i = S.length - 2, n = 0; i >= 0 && n < 400; i--, n++) {
+      if (s.t - S[i].t >= VEC_WINDOW_MS) { ref = S[i]; break; }
+    }
+    if (ref && s.t - ref.t > VEC_WINDOW_MS * 4) ref = null; // across a dropout
+    if (ref) {
+      var dx = s.x - ref.x, dy = s.y - ref.y, dz = s.z - ref.z;
+      var len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (len >= VEC_MIN_CM) return { x: dx / len, y: dy / len, z: dz / len, moving: true };
+    }
+    var hv = headingVec(s.angle);
+    return { x: hv.x, y: hv.y, z: 0, moving: false };
+  }
+  function setLine(ln, x1, y1, x2, y2) {
+    ln.setAttribute('x1', x1.toFixed(1)); ln.setAttribute('y1', y1.toFixed(1));
+    ln.setAttribute('x2', x2.toFixed(1)); ln.setAttribute('y2', y2.toFixed(1));
+  }
 
   // Fixed map half-width (cm): the LED area (100 x 100 cm) plus a 25 cm margin
   // for the LED labels. The map never rescales; a robot outside the view is
@@ -324,6 +383,8 @@
     latest: null,
     unit: DEFAULT_UNIT,    // display unit only (key of UNITS)
     trailN: 100,           // map trail length in samples; 0 = off
+    mapView: '2d',         // '2d' | '3d'
+    vecParts: true,        // show the motion vector's X / Y / Z parts
     mapHover: null,        // pointer position over the map canvas (CSS px) or null
     stats: null,           // session min/max per field, reset with the data
     chartRange: 60000,     // one of CHART_RANGES
@@ -353,9 +414,13 @@
     btnSettings: $('btnSettings'), settingsPanel: $('settingsPanel'), trailN: $('trailN'),
     btnPause: $('btnPause'), rangeRadios: document.querySelectorAll('input[name=range]'),
     statusDot: $('statusDot'), statusText: $('statusText'), rate: $('rate'), notice: $('notice'),
-    map: $('map'),
-    valX: $('valX'), valY: $('valY'), valQ: $('valQ'), valR: $('valR'),
+    map: $('map'), map2dWrap: $('map2dWrap'), map3d: $('map3d'), btnReset3d: $('btnReset3d'),
+    viewRadios: document.querySelectorAll('input[name=mapView]'), legQuad: $('legQuad'),
+    btnVecParts: $('btnVecParts'), legVecParts: $('legVecParts'),
+    mapTitle: document.querySelector('[data-i18n=mapTitle]'),
+    valX: $('valX'), valY: $('valY'), valZ: $('valZ'), mmZ: $('mmZ'), valQ: $('valQ'), valR: $('valR'),
     valH: $('valH'), cNeedle: $('cNeedle'), headingNote: $('headingNote'),
+    cComp: $('cComp'), cVx: $('cVx'), cVy: $('cVy'), cDashX: $('cDashX'), cDashY: $('cDashY'), hComp: $('hComp'),
     qMini: $('qMini'), mmX: $('mmX'), mmY: $('mmY'), mmR: $('mmR'), lastTime: $('lastTime'),
     btnRecord: $('btnRecord'), recCount: $('recCount'), btnCsv: $('btnCsv'), btnClearLog: $('btnClearLog'),
     tableDetails: $('tableDetails'), tableBody: $('tableBody'),
@@ -405,7 +470,8 @@
 
     if (state.recording) {
       state.log.push({
-        wall: s.wall, t: s.t, quadrant: s.quadrant, x: s.x, y: s.y, angle: s.angle, source: state.source
+        wall: s.wall, t: s.t, quadrant: s.quadrant, x: s.x, y: s.y, angle: s.angle, source: state.source,
+        z: s.z, hasZ: s.hasZ
       });
       state.logSaved = false;
     }
@@ -413,7 +479,7 @@
   }
 
   function addStats(s) {
-    var v = { x: s.x, y: s.y, r: Math.hypot(s.x, s.y), angle: s.angle };
+    var v = { x: s.x, y: s.y, z: s.z, r: Math.hypot(s.x, s.y), angle: s.angle };
     if (!state.stats) {
       state.stats = {};
       for (var k0 in v) state.stats[k0] = { min: v[k0], max: v[k0] };
@@ -620,11 +686,12 @@
       // firmware frame: the LED area is x and y in [-50, 50]
       var x = 40 * Math.cos(t * 0.35) + (Math.random() - 0.5) * 1.2;
       var y = 40 * Math.sin(t * 0.55) + (Math.random() - 0.5) * 1.2;
+      var z = 15 - 15 * Math.cos(t * 0.4) + Math.random() * 0.4; // 0..30 cm, up and down
       // face the direction of travel (derivative of the path above)
       var mh = Math.atan2(40 * 0.55 * Math.cos(t * 0.55), -40 * 0.35 * Math.sin(t * 0.35)) * 180 / Math.PI;
       var a = wrapDeg((mh - HEADING_OFFSET) * HEADING_SIGN) + (Math.random() - 0.5) * 0.6;
       var q = quadrantOf(x, y);
-      var line = 'Quadrant ' + q + ': ' + x.toFixed(2) + ', ' + y.toFixed(2) + ', ' + a.toFixed(2) + '\r\n';
+      var line = 'Quadrant ' + q + ': ' + x.toFixed(2) + ', ' + y.toFixed(2) + ', ' + a.toFixed(2) + ', ' + z.toFixed(2) + '\r\n';
       var cut = Math.floor(Math.random() * line.length); // arrive in two chunks, like real serial
       split(line.slice(0, cut));
       split(line.slice(cut));
@@ -692,7 +759,7 @@
 
   function updateTiles() {
     var s = state.latest;
-    var values = [el.valX, el.valY, el.valQ, el.valR, el.valH];
+    var values = [el.valX, el.valY, el.valZ, el.valQ, el.valR, el.valH];
     for (var i = 0; i < values.length; i++) {
       values[i].classList.toggle('empty', !s);
       if (!s) values[i].textContent = t('waiting');
@@ -701,9 +768,11 @@
     for (i = 0; i < cells.length; i++) cells[i].classList.toggle('on', !!s && +cells[i].dataset.q === s.quadrant);
     el.qMini.style.visibility = s ? 'visible' : 'hidden';
     if (!s) {
-      el.mmX.textContent = el.mmY.textContent = el.mmR.textContent = '';
+      el.mmX.textContent = el.mmY.textContent = el.mmZ.textContent = el.mmR.textContent = '';
       el.lastTime.textContent = '—';
       el.cNeedle.style.visibility = 'hidden';
+      el.cComp.style.visibility = 'hidden';
+      el.hComp.textContent = '';
       return;
     }
     var st = state.stats;
@@ -711,9 +780,11 @@
     el.mmX.textContent = mm(fmtLen(st.x.min), fmtLen(st.x.max));
     el.mmY.textContent = mm(fmtLen(st.y.min), fmtLen(st.y.max));
     el.mmR.textContent = mm(fmtLen(st.r.min), fmtLen(st.r.max));
+    el.mmZ.textContent = s.hasZ ? mm(fmtLen(st.z.min), fmtLen(st.z.max)) : t('zNone');
     el.lastTime.textContent = clockTime(s.wall) + '.' + String(s.wall % 1000).padStart(3, '0');
     el.valX.textContent = fmtLen(s.x);
     el.valY.textContent = fmtLen(s.y);
+    el.valZ.textContent = fmtLen(s.z);
     el.valQ.textContent = 'Q' + s.quadrant;
     el.valR.textContent = fmtLen(Math.hypot(s.x, s.y));
 
@@ -722,6 +793,20 @@
     el.valH.textContent = s.angle.toFixed(2) + '°';
     el.cNeedle.style.visibility = 'visible';
     el.cNeedle.setAttribute('transform', 'rotate(' + (-mapHeading(s.angle)).toFixed(2) + ' 70 70)');
+    // X / Y parts of the direction-of-motion vector (seen from above) and
+    // its X / Y / Z values; hidden when "Split vector" is off
+    var mv = motionVec(), R = 42, tx = 70 + R * mv.x, ty = 70 - R * mv.y;
+    setLine(el.cVx, 70, 70, tx, 70);
+    setLine(el.cVy, 70, 70, 70, ty);
+    setLine(el.cDashX, tx, 70, tx, ty);
+    setLine(el.cDashY, 70, ty, tx, ty);
+    el.cComp.style.visibility = state.vecParts ? 'visible' : 'hidden';
+    el.hComp.hidden = !state.vecParts;
+    el.hComp.innerHTML = '<b>' + t('vecTitle') + '</b><br>' +
+      '<span class="vp"><span class="key" style="--k:var(--s1)"></span>X = ' + fmtVec(mv.x) + '</span>' +
+      '<span class="vp"><span class="key" style="--k:var(--s2)"></span>Y = ' + fmtVec(mv.y) + '</span>' +
+      '<span class="vp"><span class="key" style="--k:var(--s3)"></span>Z = ' + fmtVec(mv.z) + '</span><br>' +
+      t(mv.moving ? 'vecMoving' : 'vecStill');
   }
 
   function clockTime(ms) {
@@ -734,7 +819,7 @@
     for (var i = S.length - 1; i >= 0 && i >= S.length - 20; i--) {
       var s = S[i], tr = document.createElement('tr');
       [clockTime(s.wall) + '.' + String(s.wall % 1000).padStart(3, '0'),
-        s.quadrant, fmtLen(s.x), fmtLen(s.y)].forEach(function (v) {
+        s.quadrant, fmtLen(s.x), fmtLen(s.y), s.hasZ ? fmtLen(s.z) : '—'].forEach(function (v) {
         var td = document.createElement('td');
         td.textContent = v;
         tr.appendChild(td);
@@ -802,15 +887,60 @@
     ctx.lineJoin = 'round';
     ctx.strokeStyle = C.surface; ctx.lineWidth = 7; body(); ctx.stroke(); // halo over grid lines
     ctx.fillStyle = C.text; body(); ctx.fill();
-    // heading arrow from the front face
-    ctx.strokeStyle = C.s3; ctx.fillStyle = C.s3; ctx.lineWidth = 3; ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(r * c60, 0); ctx.lineTo(r + 9, 0); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(r + 16, 0); ctx.lineTo(r + 7, -6); ctx.lineTo(r + 7, 6); ctx.closePath(); ctx.fill();
+    // the direction arrow is drawn separately, with its parts (drawMotionVec)
     // photodiodes at the face centres; photodiode 1 (front) highlighted
     for (var p = 0; p < 3; p++) {
       var ang = p * 2 * Math.PI / 3, d = r * c60 * 0.62;
       ctx.fillStyle = p === 0 ? C.s3 : C.surface;
       ctx.beginPath(); ctx.arc(d * Math.cos(ang), -d * Math.sin(ang), 2.6, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // Direction of motion from the robot's centre (main colour). Seen from above
+  // only its X / Y projection can be drawn; with "Split vector" on, the X part
+  // (blue, along +X) and Y part (orange, along +Y) are drawn with dashed lines
+  // closing the rectangle, and Z is written next to the robot (up / down arrow).
+  function drawMotionVec(ctx, x, y, mk, v, parts) {
+    var L = 64 * mk, ex = x + L * v.x, ey = y - L * v.y;
+    function arrow(x0, y0, x1, y1, col, wdt) {
+      var dx = x1 - x0, dy = y1 - y0, len = Math.hypot(dx, dy);
+      if (len < 3) return;
+      var ux = dx / len, uy = dy / len, hl = Math.min(9, len * 0.6) * (wdt / 3 + 0.4);
+      ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = wdt; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1 - ux * hl * 0.8, y1 - uy * hl * 0.8); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x1 - ux * hl - uy * hl * 0.5, y1 - uy * hl + ux * hl * 0.5);
+      ctx.lineTo(x1 - ux * hl + uy * hl * 0.5, y1 - uy * hl - ux * hl * 0.5);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.save();
+    ctx.font = '600 11px ' + C.font;
+    function tag(text, tx, ty, col, align, base) {
+      ctx.textAlign = align; ctx.textBaseline = base;
+      var tw = ctx.measureText(text).width, bx = align === 'left' ? tx : align === 'right' ? tx - tw : tx - tw / 2;
+      var by = base === 'top' ? ty : base === 'bottom' ? ty - 13 : ty - 6.5;
+      ctx.fillStyle = C.surface; ctx.globalAlpha *= 0.85;
+      ctx.fillRect(bx - 3, by - 1, tw + 6, 15);
+      ctx.globalAlpha /= 0.85;
+      ctx.fillStyle = col; ctx.fillText(text, tx, ty);
+    }
+    if (parts) {
+      ctx.setLineDash([4, 4]); ctx.strokeStyle = C.muted; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(ex, y); ctx.lineTo(ex, ey); ctx.moveTo(x, ey); ctx.lineTo(ex, ey); ctx.stroke();
+      ctx.setLineDash([]);
+      arrow(x, y, ex, y, C.s1, 2.5);
+      arrow(x, y, x, ey, C.s2, 2.5);
+    }
+    arrow(x, y, ex, ey, C.text, 3);
+    if (parts) {
+      tag('X ' + fmtVec(v.x), ex, y + (v.y >= 0 ? 5 : -5), C.s1, 'center', v.y >= 0 ? 'top' : 'bottom');
+      tag('Y ' + fmtVec(v.y), x + (v.x >= 0 ? -6 : 6), ey, C.s2, v.x >= 0 ? 'right' : 'left', 'middle');
+      // Z: beside the robot, on the side away from the vector (the coordinate
+      // label sits above or below, so this stays clear of both)
+      var zt = 'Z ' + fmtVec(v.z) + (v.z > 0.005 ? ' \u2191' : v.z < -0.005 ? ' \u2193' : '');
+      tag(zt, x + (v.x >= 0 ? -22 : 22) * mk, y, C.s3, v.x >= 0 ? 'right' : 'left', 'middle');
     }
     ctx.restore();
   }
@@ -974,13 +1104,16 @@
       var outside = rx !== rpx || ry !== rpy;
       if (outside) ctx.globalAlpha = 0.45;
       drawRobot(ctx, rx, ry, mk, mapHeading(s.angle));
+      var hv = motionVec();
+      drawMotionVec(ctx, rx, ry, mk, hv, state.vecParts);
       ctx.globalAlpha = 1;
       var label = '(' + fmtLen(s.x) + ', ' + fmtLen(s.y) + ')';
       ctx.font = '600 12px ' + C.font;
       var tw = ctx.measureText(label).width;
       var lx = Math.max(4 + tw / 2, Math.min(w - 4 - tw / 2, rx));
       var gap = 12 + 18 * mk;
-      var above = ry - gap > 12;
+      // on the side away from the heading vector so it doesn't cover it
+      var above = hv.y < 0 ? ry - gap > 12 : ry + gap > h - 12;
       var ly = above ? ry - gap : ry + gap;
       ctx.fillStyle = C.surface;
       ctx.globalAlpha = 0.85;
@@ -1325,7 +1458,8 @@
 
   var chartXY = makeChart($('chartXY'), $('tipXY'), [
     { key: 'x', color: 's1', label: 'X' },
-    { key: 'y', color: 's2', label: 'Y' }
+    { key: 'y', color: 's2', label: 'Y' },
+    { key: 'z', color: 's3', label: 'Z' }
   ], true);
   // The incidence angle is still parsed, kept in samples and exported to CSV,
   // but not shown on screen for now.
@@ -1368,14 +1502,472 @@
     readColors(); // canvases take their colours from the CSS variables
   }
 
+  /* =====================================================================
+   * 3D view (three.js): the LED grid at its real height, the robot on the
+   * floor. Firmware coordinates in cm with +Z up. Built on first use.
+   * ===================================================================== */
+
+  // Heights from the floor (z = 0), in cm. Photodiodes are 1 cm above the floor
+  // and the LEDs 92 cm above the photodiodes (firmware p(k, 2) = 0.920 m).
+  // The models come from Maya (models/build_models.py -> models/models.js).
+  var MODELS = window.RA_MODELS || null;
+  var PD_HEIGHT = MODELS ? MODELS.meta.pdHeight : 1;
+  var LED_HEIGHT = MODELS ? MODELS.meta.ledZ : PD_HEIGHT + 92;
+  // fallback robot when the models are missing (drawn size only)
+  var ROBOT_R = MODELS ? 2 * MODELS.meta.robotInradius : 10.4;
+  var ROBOT_H = MODELS ? MODELS.meta.robotHeight : 3;
+  var TRAIL_MAX = 1000;    // largest trail option
+  var HAS_3D = (function () {
+    if (!window.THREE || !THREE.OrbitControls) return false;
+    try {
+      var c = document.createElement('canvas');
+      return !!(c.getContext('webgl2') || c.getContext('webgl'));
+    } catch (e) { return false; }
+  })();
+  var v3 = null;
+
+  function init3d() {
+    var T = THREE;
+    var renderer = new T.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    el.map3d.appendChild(renderer.domElement);
+    var scene = new T.Scene();
+    var camera = new T.PerspectiveCamera(40, 1, 1, 5000);
+    camera.up.set(0, 0, 1); // +Z up, like the real room
+    var controls = new T.OrbitControls(camera, renderer.domElement);
+    controls.maxPolarAngle = Math.PI * 0.495; // stay above the floor
+    controls.minDistance = 60;
+    controls.maxDistance = 900;
+    scene.add(new T.AmbientLight(0xffffff, 0.7));
+    var sun = new T.DirectionalLight(0xffffff, 0.6);
+    sun.position.set(-80, -120, 200);
+    scene.add(sun);
+
+    // grid, axes and LEDs; rebuilt when colours, unit, language or LEDs change
+    var statics = new T.Group();
+    scene.add(statics);
+
+    // robot: triangular pyramid, one face per photodiode. Face normals at 0
+    // and +-120 deg (local); photodiode 1's face looks along local +X (= heading).
+    var robot = new T.Group();
+    var base = [60, 180, 300].map(function (d) {
+      var a = d * Math.PI / 180;
+      return [ROBOT_R * Math.cos(a), ROBOT_R * Math.sin(a), 0];
+    });
+    var apex = [0, 0, ROBOT_H], tri = [], i;
+    for (i = 0; i < 3; i++) tri.push(base[i], base[(i + 1) % 3], apex); // sides
+    tri.push(base[0], base[2], base[1]);                                // bottom
+    var flat = [];
+    tri.forEach(function (p) { flat.push(p[0], p[1], p[2]); });
+    var g = new T.BufferGeometry();
+    g.setAttribute('position', new T.Float32BufferAttribute(flat, 3));
+    g.computeVertexNormals();
+    var body = new T.Mesh(g, new T.MeshLambertMaterial({ flatShading: true }));
+    body.material.name = 'ra_body';
+    var parts = loadModels3d();
+    robot.add(parts && parts.robot ? parts.robot : body);
+    robot.visible = false;
+    scene.add(robot);
+
+    var tg = new T.BufferGeometry();
+    tg.setAttribute('position', new T.BufferAttribute(new Float32Array(TRAIL_MAX * 3), 3));
+    var trail = new T.Line(tg, new T.LineBasicMaterial({ transparent: true, opacity: 0.8 }));
+    trail.frustumCulled = false;
+    scene.add(trail);
+
+    // origin -> robot line on the floor (the distance shown in the side panel)
+    var rg = new T.BufferGeometry();
+    rg.setAttribute('position', new T.BufferAttribute(new Float32Array(6), 3));
+    var toOrigin = new T.Line(rg, new T.LineBasicMaterial());
+    toOrigin.frustumCulled = false;
+    scene.add(toOrigin);
+
+    // when the robot is off the floor: dashed line straight down and its spot on the floor
+    var dg = new T.BufferGeometry();
+    dg.setAttribute('position', new T.BufferAttribute(new Float32Array(6), 3));
+    var drop = new T.Line(dg, new T.LineDashedMaterial({ dashSize: 2, gapSize: 2 }));
+    drop.frustumCulled = false;
+    drop.visible = false;
+    scene.add(drop);
+    var shadow = new T.Mesh(new T.CircleGeometry(ROBOT_R * 0.8, 24),
+      new T.MeshBasicMaterial({ transparent: true, opacity: 0.18, depthWrite: false }));
+    shadow.visible = false;
+    scene.add(shadow);
+
+    v3 = { renderer: renderer, scene: scene, camera: camera, controls: controls, statics: statics, drop: drop, shadow: shadow,
+      robot: robot, trail: trail, toOrigin: toOrigin, labels: [], parts: parts, vec: null,
+      sig: '', w: 0, h: 0, needs: true };
+    controls.addEventListener('change', function () { v3.needs = true; });
+    v3.vec = makeVec3d(); // heading vector; drawn level, not turned with the robot
+    reset3dView();
+  }
+
+  // Parse the Maya models (OBJ text). Their geometry is shared by every copy,
+  // so it is marked to survive dispose3(). Returns null if unavailable.
+  function loadModels3d() {
+    if (!MODELS || !THREE.OBJLoader) return null;
+    try {
+      var loader = new THREE.OBJLoader(), out = {};
+      ['robot', 'led', 'frame'].forEach(function (k) {
+        out[k] = loader.parse(MODELS.obj[k]);
+        out[k].traverse(function (o) { if (o.geometry) o.geometry.userData.shared = true; });
+      });
+      return out;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Give every mesh under obj a Lambert material coloured by the Maya
+  // material name (cols: name -> CSS colour); unknown names use `fallback`.
+  function paint3(obj, cols, fallback, opts) {
+    obj.traverse(function (o) {
+      if (!o.isMesh) return;
+      var list = Array.isArray(o.material) ? o.material : [o.material];
+      var mats = list.map(function (m) {
+        var nm = new THREE.MeshLambertMaterial({ color: color3(cols[m.name] || fallback) });
+        nm.name = m.name;
+        if (opts && opts.opacity < 1) { nm.transparent = true; nm.opacity = opts.opacity; }
+        if (opts && opts.emissive && opts.emissive[m.name]) nm.emissive = color3(opts.emissive[m.name]);
+        if (m.dispose) m.dispose();
+        return nm;
+      });
+      o.material = Array.isArray(o.material) ? mats : mats[0];
+    });
+  }
+
+  // Direction-of-motion vector in 3D, NOT turned with the robot, so its X, Y
+  // and Z parts stay on the room's axes. Length VEC_LEN cm. The dashed lines
+  // drop from its tip to the floor plane and run from there to the X / Y tips.
+  var VEC_LEN = 28;
+  function makeVec3d() {
+    var T = THREE, g = new T.Group(), o = new T.Vector3();
+    var main = new T.ArrowHelper(new T.Vector3(1, 0, 0), o, VEC_LEN, 0x000000, 6, 4);
+    var ax = new T.ArrowHelper(new T.Vector3(1, 0, 0), o, VEC_LEN, 0x000000, 4, 3);
+    var ay = new T.ArrowHelper(new T.Vector3(0, 1, 0), o, VEC_LEN, 0x000000, 4, 3);
+    var az = new T.ArrowHelper(new T.Vector3(0, 0, 1), o, VEC_LEN, 0x000000, 4, 3);
+    var dg = new T.BufferGeometry();
+    dg.setAttribute('position', new T.BufferAttribute(new Float32Array(18), 3));
+    var dash = new T.LineSegments(dg, new T.LineDashedMaterial({ dashSize: 1.5, gapSize: 1.5 }));
+    dash.frustumCulled = false;
+    var lx = dynLabel3(), ly = dynLabel3(), lz = dynLabel3();
+    [main, ax, ay, az, dash, lx, ly, lz].forEach(function (m) { g.add(m); });
+    g.visible = false;
+    v3.scene.add(g);
+    return { group: g, main: main, ax: ax, ay: ay, az: az, dash: dash, lx: lx, ly: ly, lz: lz };
+  }
+
+  // a label whose text changes (redrawn only when the text does)
+  function dynLabel3() {
+    var cv = document.createElement('canvas');
+    cv.width = 256; cv.height = 64;
+    var tex = new THREE.CanvasTexture(cv);
+    tex.minFilter = THREE.LinearFilter;
+    var sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true, sizeAttenuation: false }));
+    sp.userData = { cv: cv, tex: tex, text: '', css: '#888', px: 13 * 64 / 48, aspect: 4 };
+    sp.renderOrder = 11;
+    return sp;
+  }
+
+  function setDynLabel(sp, text) {
+    if (sp.userData.text === text) return;
+    var u = sp.userData, ctx = u.cv.getContext('2d');
+    ctx.clearRect(0, 0, 256, 64);
+    ctx.font = '700 44px ' + C.font;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = 10; ctx.strokeStyle = C.surface; ctx.lineJoin = 'round';
+    ctx.strokeText(text, 128, 32);
+    ctx.fillStyle = u.css;
+    ctx.fillText(text, 128, 32);
+    u.tex.needsUpdate = true;
+    u.text = text;
+  }
+
+  function update3dVec(s) {
+    var V = v3.vec, v = motionVec(), T = THREE, parts = state.vecParts;
+    V.group.position.set(s.x, s.y, s.z + ROBOT_H + 1.5);
+    V.main.setDirection(new T.Vector3(v.x, v.y, v.z));
+    [['ax', 'x', new T.Vector3(1, 0, 0)], ['ay', 'y', new T.Vector3(0, 1, 0)], ['az', 'z', new T.Vector3(0, 0, 1)]]
+      .forEach(function (a) {
+        var arr = V[a[0]], c = v[a[1]], len = VEC_LEN * Math.abs(c);
+        arr.visible = parts && len > 2;
+        if (!arr.visible) return;
+        arr.setDirection(a[2].multiplyScalar(c >= 0 ? 1 : -1));
+        arr.setLength(len, Math.min(4, len * 0.5), 3);
+      });
+    var ex = VEC_LEN * v.x, ey = VEC_LEN * v.y, ez = VEC_LEN * v.z, p = V.dash.geometry.attributes.position;
+    p.setXYZ(0, ex, ey, ez); p.setXYZ(1, ex, ey, 0);   // tip down to the floor plane
+    p.setXYZ(2, ex, ey, 0); p.setXYZ(3, ex, 0, 0);     // across to the X tip
+    p.setXYZ(4, ex, ey, 0); p.setXYZ(5, 0, ey, 0);     // across to the Y tip
+    p.needsUpdate = true;
+    V.dash.computeLineDistances();
+    V.dash.visible = V.lx.visible = V.ly.visible = V.lz.visible = parts;
+    setDynLabel(V.lx, 'X ' + fmtVec(v.x));
+    setDynLabel(V.ly, 'Y ' + fmtVec(v.y));
+    setDynLabel(V.lz, 'Z ' + fmtVec(v.z));
+    V.lx.position.set(ex, v.y >= 0 ? -4 : 4, 0);
+    V.ly.position.set(v.x >= 0 ? -8 : 8, ey, 0);
+    V.lz.position.set(v.x >= 0 ? -8 : 8, 0, ez + (v.z >= 0 ? 3 : -3));
+  }
+
+  function reset3dView() {
+    // looking in from the -Y side (Q3/Q4), the side the 2D map is drawn from
+    v3.camera.position.set(130, -285, 205);
+    v3.controls.target.set(0, 0, 35);
+    v3.controls.update();
+    v3.needs = true;
+  }
+
+  function color3(css) { return new THREE.Color(css || '#888888'); }
+
+  // Text label that always faces the camera and keeps the same size on screen
+  // (px = text height in CSS px; see size3dLabels). Anchored at its bottom
+  // centre when `above` is set, otherwise at its centre.
+  function label3(text, css, px, weight, above) {
+    var h = px;
+    var fpx = 48, cv = document.createElement('canvas'), ctx = cv.getContext('2d');
+    var font = (weight || '600') + ' ' + fpx + 'px ' + C.font;
+    ctx.font = font;
+    cv.width = Math.ceil(ctx.measureText(text).width) + 16;
+    cv.height = fpx + 16;
+    ctx.font = font; // resizing the canvas resets the context
+    ctx.fillStyle = css;
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, 8, cv.height / 2);
+    var tex = new THREE.CanvasTexture(cv);
+    tex.minFilter = THREE.LinearFilter;
+    var sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true, sizeAttenuation: false }));
+    sp.userData.px = h * cv.height / fpx; // canvas has padding around the text
+    sp.userData.aspect = cv.width / cv.height;
+    if (above) sp.center.set(0.5, 0);
+    sp.renderOrder = 10;
+    v3.labels.push(sp);
+    return sp;
+  }
+
+  // Without size attenuation a sprite of scale s is s * P[1][1] / 2 of the
+  // viewport height tall, so s = 2 * px / (P[1][1] * viewport height).
+  function size3dLabels() {
+    var k = 2 / (v3.camera.projectionMatrix.elements[5] * v3.h);
+    v3.labels.concat(v3.vec ? [v3.vec.lx, v3.vec.ly, v3.vec.lz] : []).forEach(function (sp) {
+      var s = sp.userData.px * k;
+      sp.scale.set(s * sp.userData.aspect, s, 1);
+    });
+  }
+
+  function lines3(pts, css, dashed) {
+    var g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    var m = dashed
+      ? new THREE.LineDashedMaterial({ color: color3(css), dashSize: 3, gapSize: 3, transparent: true, opacity: 0.7 })
+      : new THREE.LineBasicMaterial({ color: color3(css) });
+    var l = new THREE.LineSegments(g, m);
+    if (dashed) l.computeLineDistances();
+    return l;
+  }
+
+  function dispose3(obj) {
+    obj.traverse(function (o) {
+      if (o.geometry && !o.geometry.userData.shared) o.geometry.dispose();
+      if (o.material) {
+        if (o.material.map) o.material.map.dispose();
+        o.material.dispose();
+      }
+    });
+  }
+
+  function build3dStatics() {
+    var T = THREE, G = v3.statics, R = MAP_RANGE, f = unitInfo().f, i, v, pts;
+    for (i = G.children.length - 1; i >= 0; i--) { dispose3(G.children[i]); G.remove(G.children[i]); }
+    v3.labels = [];
+
+    // floor grid every 10 cm over the same area as the 2D map
+    pts = [];
+    for (v = -R; v <= R + 1e-9; v += 10) {
+      if (Math.abs(v) < 1e-9) continue; // the axes are drawn on their own
+      pts.push(v, -R, 0, v, R, 0, -R, v, 0, R, v, 0);
+    }
+    G.add(lines3(pts, C.grid));
+
+    // axes: X and Y on the floor, Z up past the LEDs (colours match the X/Y series)
+    var zTop = LED_HEIGHT + 20;
+    G.add(lines3([-R, 0, 0, R, 0, 0], C.s1));
+    G.add(lines3([0, -R, 0, 0, R, 0], C.s2));
+    G.add(lines3([0, 0, 0, 0, 0, zTop], C.s3));
+    var off = 8;
+    [['+X', R + off, 0, 0, C.s1], ['−X', -R - off, 0, 0, C.s1],
+     ['+Y', 0, R + off, 0, C.s2], ['−Y', 0, -R - off, 0, C.s2],
+     ['+Z', 0, 0, zTop + off, C.s3]].forEach(function (a) {
+      var sp = label3(a[0], a[4], 15, '700');
+      sp.position.set(a[1], a[2], a[3]);
+      G.add(sp);
+    });
+
+    // ticks in the display unit: +-50 on the floor axes, every 25 cm up Z
+    pts = [];
+    function tick(text, x, y, z, css) {
+      var sp = label3(text, css || C.muted, 11, '500');
+      sp.position.set(x, y, z);
+      G.add(sp);
+    }
+    [-50, 50].forEach(function (d) {
+      pts.push(d, -2, 0, d, 2, 0, -2, d, 0, 2, d, 0);
+      tick(fmtTick(d * f, 25 * f), d, -6, 0);
+      tick(fmtTick(d * f, 25 * f), -7, d, 0);
+    });
+    for (v = 25; v < LED_HEIGHT; v += 25) {
+      pts.push(-2, 0, v, 2, 0, v);
+      tick(fmtTick(v * f, 25 * f), -7, 0, v);
+    }
+    pts.push(-2, 0, LED_HEIGHT, 2, 0, LED_HEIGHT);
+    tick(fmtTick(LED_HEIGHT * f, f), -7, 0, LED_HEIGHT, C.led); // LED height above the floor
+    G.add(lines3(pts, C.muted));
+
+    // the frame that holds the LEDs (Maya model); without it, thin lines
+    // join the LEDs at z = LED_HEIGHT (8--7--6 / 5--4--3 / 2--1--0)
+    var P = v3.parts;
+    if (P && P.frame) {
+      var fr = P.frame.clone();
+      paint3(fr, {}, C.muted, { opacity: 0.35 });
+      fr.traverse(function (o) { if (o.isMesh) o.material.depthWrite = false; }); // see-through
+      G.add(fr);
+    }
+    pts = [];
+    for (v = -LED_SPACING; v <= LED_SPACING; v += LED_SPACING) {
+      pts.push(-LED_SPACING, v, LED_HEIGHT, LED_SPACING, v, LED_HEIGHT);
+      pts.push(v, -LED_SPACING, LED_HEIGHT, v, LED_SPACING, LED_HEIGHT);
+    }
+    if (!(P && P.frame)) G.add(lines3(pts, C.axis));
+
+    // LEDs (Maya model: housing + lens; lens lit when on, grey when off), or a
+    // sphere / grey wireframe without the model; dashed drop line to the floor
+    var drop = [];
+    LEDS.forEach(function (L) {
+      var on = ledOn[L[2]];
+      // the bulb (lit sphere / grey wireframe) shows on/off from any angle;
+      // the Maya housing sits on top of it
+      var m = new T.Mesh(new T.SphereGeometry(on ? 2.8 : 2.4, 20, 14),
+        new T.MeshBasicMaterial(on ? { color: color3(C.led) } : { color: color3(C.muted), wireframe: true }));
+      m.position.set(L[0], L[1], LED_HEIGHT);
+      if (P && P.led) {
+        var hs = P.led.clone();
+        paint3(hs, { ra_led_housing: C.axis, ra_led_lens: on ? C.led : C.muted }, C.muted);
+        hs.position.set(L[0], L[1], LED_HEIGHT + 1.2); // housing above the bulb
+        G.add(hs);
+      }
+      G.add(m);
+      var sp = label3('LED ' + L[2] + (on ? '' : ' (' + t('ledOff') + ')'), on ? C.text2 : C.muted, 12, '600', true);
+      sp.position.set(L[0], L[1], LED_HEIGHT + 5);
+      G.add(sp);
+      drop.push(L[0], L[1], LED_HEIGHT - 1.5, L[0], L[1], 0);
+      var dot = new T.Mesh(new T.RingGeometry(1.2, 2, 20), new T.MeshBasicMaterial({ color: color3(C.muted), side: T.DoubleSide }));
+      dot.position.set(L[0], L[1], 0.05);
+      G.add(dot);
+    });
+    G.add(lines3(drop, C.muted, true));
+
+    paint3(v3.robot, { ra_body: C.text, ra_pd: C.muted, ra_pd1: C.s3 }, C.text);
+    v3.robot.traverse(function (o) { if (o.isMesh) o.material.flatShading = true; });
+    v3.vec.main.setColor(color3(C.text));
+    v3.vec.ax.setColor(color3(C.s1));
+    v3.vec.ay.setColor(color3(C.s2));
+    v3.vec.az.setColor(color3(C.s3));
+    v3.vec.lz.userData.css = C.s3;
+    v3.vec.dash.material.color = color3(C.muted);
+    v3.vec.lx.userData.css = C.s1; v3.vec.ly.userData.css = C.s2;
+    v3.vec.lx.userData.text = v3.vec.ly.userData.text = v3.vec.lz.userData.text = ''; // redraw in the new colours
+    v3.trail.material.color = color3(C.text2);
+    v3.toOrigin.material.color = color3(C.text2);
+    v3.drop.material.color = color3(C.s3);
+    v3.shadow.material.color = color3(C.text);
+  }
+
+  function render3d() {
+    var box = el.map3d.getBoundingClientRect(), w = Math.round(box.width), h = Math.round(box.height);
+    if (w < 10 || h < 10) return;
+    var relabel = false;
+    if (w !== v3.w || h !== v3.h) {
+      v3.renderer.setSize(w, h, false);
+      v3.camera.aspect = w / h;
+      v3.camera.updateProjectionMatrix();
+      v3.w = w; v3.h = h;
+      relabel = true;
+    }
+    var sig = JSON.stringify([C, state.unit, state.lang, ledOn]);
+    if (sig !== v3.sig) { build3dStatics(); v3.sig = sig; relabel = true; }
+    if (relabel) size3dLabels();
+
+    var s = state.latest;
+    v3.robot.visible = v3.toOrigin.visible = v3.vec.group.visible = !!s;
+    if (!s) v3.drop.visible = v3.shadow.visible = false;
+    if (s) {
+      v3.robot.position.set(s.x, s.y, s.z);
+      update3dVec(s);
+      var dp = v3.drop.geometry.attributes.position;
+      dp.setXYZ(0, s.x, s.y, s.z);
+      dp.setXYZ(1, s.x, s.y, 0.1);
+      dp.needsUpdate = true;
+      v3.drop.computeLineDistances();
+      v3.drop.visible = v3.shadow.visible = s.z > 0.5;
+      v3.shadow.position.set(s.x, s.y, 0.08);
+      v3.robot.rotation.z = mapHeading(s.angle) * Math.PI / 180;
+      var op = v3.toOrigin.geometry.attributes.position;
+      op.setXYZ(0, 0, 0, 0.1);
+      op.setXYZ(1, s.x, s.y, 0.1);
+      op.needsUpdate = true;
+    }
+    var S = state.samples, n = Math.min(state.trailN, S.length, TRAIL_MAX);
+    var tp = v3.trail.geometry.attributes.position;
+    for (var i = 0; i < n; i++) {
+      var q = S[S.length - n + i];
+      tp.setXYZ(i, q.x, q.y, q.z + 0.1);
+    }
+    tp.needsUpdate = true;
+    v3.trail.geometry.setDrawRange(0, n);
+    v3.renderer.render(v3.scene, v3.camera);
+    v3.needs = false;
+  }
+
+  function setVecParts(on, save) {
+    state.vecParts = !!on;
+    el.btnVecParts.setAttribute('aria-pressed', String(state.vecParts));
+    el.legVecParts.hidden = !state.vecParts;
+    if (v3) v3.needs = true;
+    state.dirty = state.tilesDirty = true;
+    if (save) {
+      try { localStorage.setItem('ra.vecParts', state.vecParts ? '1' : '0'); } catch (e) { /* storage unavailable */ }
+    }
+  }
+
+  function setMapView(view, save) {
+    if (view === '3d' && !HAS_3D) view = '2d';
+    state.mapView = view === '3d' ? '3d' : '2d';
+    var is3d = state.mapView === '3d';
+    if (is3d && !v3) init3d();
+    el.map2dWrap.hidden = is3d;
+    el.map3d.hidden = !is3d;
+    el.btnReset3d.hidden = !is3d;
+    el.legQuad.hidden = is3d; // the quadrant highlight is 2D only
+    el.mapTitle.setAttribute('data-i18n', is3d ? 'mapTitle3d' : 'mapTitle');
+    el.mapTitle.textContent = t(is3d ? 'mapTitle3d' : 'mapTitle');
+    for (var i = 0; i < el.viewRadios.length; i++) el.viewRadios[i].checked = el.viewRadios[i].value === state.mapView;
+    if (v3) v3.needs = true;
+    state.dirty = true;
+    if (save) {
+      try { localStorage.setItem('ra.mapView', state.mapView); } catch (e) { /* storage unavailable */ }
+    }
+  }
+
   function frame() {
     var live = state.source !== 'idle';
     if (state.dirty || live) {
-      if (state.dirty) drawMap();
+      if (state.dirty && state.mapView === '2d') drawMap();
       drawChart(chartXY);
+      if (v3 && state.dirty) v3.needs = true;
       state.dirty = false;
     }
     if (state.tilesDirty) { updateTiles(); state.tilesDirty = false; }
+    if (v3 && state.mapView === '3d' && v3.needs) render3d();
     requestAnimationFrame(frame);
   }
 
@@ -1467,6 +2059,8 @@
     }
     var savedRange = localStorage.getItem('ra.range');
     if (savedRange !== null && CHART_RANGES.indexOf(+savedRange) >= 0) state.chartRange = +savedRange;
+    if (localStorage.getItem('ra.mapView') === '3d') state.mapView = '3d';
+    if (localStorage.getItem('ra.vecParts') === '0') state.vecParts = false;
     var savedTrail = localStorage.getItem('ra.trail');
     for (oi = 0; oi < el.trailN.options.length; oi++) {
       if (el.trailN.options[oi].value === savedTrail) state.trailN = +savedTrail;
@@ -1485,6 +2079,16 @@
   el.unit.value = state.unit;
   el.trailN.value = String(state.trailN);
   setChartRange(state.chartRange);
+  for (var vi = 0; vi < el.viewRadios.length; vi++) {
+    el.viewRadios[vi].addEventListener('change', function (e) { if (e.target.checked) setMapView(e.target.value, true); });
+    if (el.viewRadios[vi].value === '3d' && !HAS_3D) {
+      el.viewRadios[vi].disabled = true;
+      el.viewRadios[vi].parentNode.title = t('no3d');
+    }
+  }
+  el.btnReset3d.addEventListener('click', function () { if (v3) reset3dView(); });
+  el.btnVecParts.addEventListener('click', function () { setVecParts(!state.vecParts, true); });
+  setVecParts(state.vecParts, false);
 
   window.addEventListener('beforeunload', function (e) {
     if (state.log.length && !state.logSaved) { e.preventDefault(); e.returnValue = ''; }
@@ -1495,7 +2099,7 @@
   }
   if (window.ResizeObserver) {
     var ro = new ResizeObserver(function () { state.dirty = true; });
-    ro.observe(el.map); ro.observe(chartXY.cv);
+    ro.observe(el.map); ro.observe(el.map3d); ro.observe(chartXY.cv);
   }
   window.addEventListener('resize', function () { state.dirty = true; });
 
@@ -1511,6 +2115,7 @@
   readColors();
   updateUnitLabels();
   applyLang();
+  setMapView(state.mapView, false); // after applyLang, so the title is in the right language
   setInterval(updateStatus, 500);
   requestAnimationFrame(frame);
 

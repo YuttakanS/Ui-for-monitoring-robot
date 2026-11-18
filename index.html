@@ -74,6 +74,12 @@
       <div class="card-head">
         <h2><span data-i18n="mapTitle">แผนที่ตำแหน่ง (มุมมองบน)</span> <span class="unit" data-unit></span></h2>
         <div class="card-tools">
+          <div class="seg" role="radiogroup" data-i18n-aria="viewLabel" aria-label="มุมมองแผนที่">
+            <label><input type="radio" name="mapView" value="2d" checked><span>2D</span></label>
+            <label><input type="radio" name="mapView" value="3d"><span>3D</span></label>
+          </div>
+          <button id="btnReset3d" class="btn secondary small" type="button" data-i18n="resetView" hidden>รีเซ็ตมุมมอง</button>
+          <button id="btnVecParts" class="btn secondary small" type="button" aria-pressed="true" data-i18n="vecParts">แตกเวกเตอร์</button>
           <label class="field small"><span data-i18n="trail">เส้นทาง</span>
             <select id="trailN">
               <option value="0" data-i18n="off">ปิด</option>
@@ -86,13 +92,17 @@
           </label>
         </div>
       </div>
-      <div class="map-wrap"><canvas id="map" data-i18n-aria="mapAria" aria-label="แผนที่ 2 มิติแสดงตำแหน่งหุ่นยนต์เทียบกับ LED 9 ดวง"></canvas></div>
+      <div class="map-wrap" id="map2dWrap"><canvas id="map" data-i18n-aria="mapAria" aria-label="แผนที่ 2 มิติแสดงตำแหน่งหุ่นยนต์เทียบกับ LED 9 ดวง"></canvas></div>
+      <!-- 3D view (three.js), built the first time 3D is chosen -->
+      <div class="map-wrap map3d" id="map3d" role="img" data-i18n-aria="map3dAria" aria-label="ภาพ 3 มิติของ LED 9 ดวงที่ความสูงจริงและหุ่นยนต์บนพื้น" hidden></div>
       <ul class="legend map-legend">
         <li><span class="sw sw-led"></span>LED</li>
         <li><span class="sw sw-led-off"></span>LED <span data-i18n="ledOff">ปิด</span></li>
         <li><span class="sw sw-robot"></span><span data-i18n="legRobot">หุ่นยนต์</span></li>
+        <li><span class="key" style="--k:var(--text)"></span><span data-i18n="legVec">ทิศการเคลื่อนที่</span><span id="legVecParts">
+          = <span class="key" style="--k:var(--s1)"></span>X + <span class="key" style="--k:var(--s2)"></span>Y + <span class="key" style="--k:var(--s3)"></span>Z</span></li>
         <li><span class="key" style="--k:var(--text2)"></span><span data-i18n="legTrail">เส้นทาง</span></li>
-        <li><span class="sw sw-quad"></span><span data-i18n="legQuad">ควอดรันต์ปัจจุบัน</span></li>
+        <li id="legQuad"><span class="sw sw-quad"></span><span data-i18n="legQuad">ควอดรันต์ปัจจุบัน</span></li>
       </ul>
     </section>
 
@@ -109,6 +119,11 @@
           <div class="tile-sub" id="mmY"></div>
         </div>
         <div class="tile">
+          <div class="tile-label"><span class="key" style="--k:var(--s3)"></span>Z <span class="unit" data-unit></span></div>
+          <div class="tile-value" id="valZ">—</div>
+          <div class="tile-sub" id="mmZ"></div>
+        </div>
+        <div class="tile">
           <div class="tile-label">Quadrant</div>
           <div class="q-row">
             <div class="tile-value" id="valQ">—</div>
@@ -120,7 +135,7 @@
             </svg>
           </div>
         </div>
-        <div class="tile">
+        <div class="tile wide">
           <div class="tile-label"><span data-i18n="distLed">ระยะจาก LED 4 (origin)</span> <span class="unit" data-unit></span></div>
           <div class="tile-value" id="valR">—</div>
           <div class="tile-sub" id="mmR"></div>
@@ -134,6 +149,7 @@
           <div>
             <div class="tile-value" id="valH">—</div>
             <div class="tile-sub" id="headingNote" data-i18n="headingCW">0° = หันไป +X · ค่าบวก = หมุนตามเข็มนาฬิกา</div>
+            <div class="vec-parts" id="hComp" aria-live="off"></div>
           </div>
           <svg class="compass" viewBox="0 0 140 140" role="img" data-i18n-aria="compassAria" aria-label="เข็มทิศแสดงทิศที่หุ่นหัน">
             <circle class="g-arc" cx="70" cy="70" r="44"/>
@@ -143,6 +159,13 @@
             <text class="g-text" x="2" y="74" text-anchor="start">−X</text>
             <text class="g-text" x="70" y="16" text-anchor="middle">+Y</text>
             <text class="g-text" x="70" y="136" text-anchor="middle">−Y</text>
+            <!-- heading split into its X and Y parts (set from app.js) -->
+            <g id="cComp" style="visibility:hidden">
+              <line id="cDashX" class="c-dash" x1="70" y1="70" x2="70" y2="70"/>
+              <line id="cDashY" class="c-dash" x1="70" y1="70" x2="70" y2="70"/>
+              <line id="cVx" class="c-vx" x1="70" y1="70" x2="70" y2="70"/>
+              <line id="cVy" class="c-vy" x1="70" y1="70" x2="70" y2="70"/>
+            </g>
             <g id="cNeedle" style="visibility:hidden">
               <line class="g-needle" x1="70" y1="70" x2="100" y2="70"/>
               <path class="c-head" d="M112 70L98 62L98 78Z"/>
@@ -191,6 +214,7 @@
         <ul class="legend">
           <li><span class="key" style="--k:var(--s1)"></span>X</li>
           <li><span class="key" style="--k:var(--s2)"></span>Y</li>
+          <li><span class="key" style="--k:var(--s3)"></span>Z</li>
         </ul>
       </div>
       <div class="chart-wrap">
@@ -205,7 +229,7 @@
         <div class="table-scroll">
           <table>
             <thead>
-              <tr><th data-i18n="thTime">เวลา</th><th>Quadrant</th><th>X <span class="unit" data-unit></span></th><th>Y <span class="unit" data-unit></span></th></tr>
+              <tr><th data-i18n="thTime">เวลา</th><th>Quadrant</th><th>X <span class="unit" data-unit></span></th><th>Y <span class="unit" data-unit></span></th><th>Z <span class="unit" data-unit></span></th></tr>
             </thead>
             <tbody id="tableBody"></tbody>
           </table>
@@ -219,6 +243,10 @@
     <code id="lastRaw">—</code>
   </footer>
 
+  <script src="vendor/three.min.js"></script>
+  <script src="vendor/OrbitControls.js"></script>
+  <script src="vendor/OBJLoader.js"></script>
+  <script src="models/models.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
