@@ -115,6 +115,10 @@
       hintWait1: 'ตรวจว่า baud rate ในเมนูตั้งค่าตรงกับที่บอร์ดใช้',
       hintWait2: 'บอร์ดต้องส่งบรรทัดแบบ  Quadrant 1: x, y, มุม',
       distLed: 'ระยะจาก LED 4 (origin)',
+      orientation: 'ทิศของหุ่น (Orientation)',
+      compassAria: 'เข็มทิศแสดงทิศที่หุ่นหัน',
+      headingCW: '0° = หันไป +X · ค่าบวก = หมุนตามเข็มนาฬิกา',
+      headingCCW: '0° = หันไป +X · ค่าบวก = หมุนทวนเข็มนาฬิกา',
       lastReading: 'ค่าล่าสุดเมื่อ',
       legRobot: 'หุ่นยนต์',
       legTrail: 'เส้นทาง',
@@ -190,6 +194,10 @@
       hintWait1: 'Check that the baud rate in Settings matches the board',
       hintWait2: 'The board must send lines like  Quadrant 1: x, y, angle',
       distLed: 'Distance from LED 4 (origin)',
+      orientation: 'Orientation',
+      compassAria: 'Compass showing where the robot faces',
+      headingCW: '0° = facing +X · positive = clockwise',
+      headingCCW: '0° = facing +X · positive = counter-clockwise',
       lastReading: 'Last reading at',
       legRobot: 'Robot',
       legTrail: 'Trail',
@@ -276,6 +284,16 @@
   ];
   // the map is centred on the LED square (firmware coordinates), not on the origin
   var VIEW_C = [-LED_SPACING / 2, LED_SPACING / 2];
+  // Orientation = the 3rd value (degrees). The firmware turns the photodiode
+  // directions by Omega0 = R(-theta), so on this map (+X right, +Y up) a larger
+  // angle turns the robot clockwise, and 0 deg = photodiode 1 facing +X.
+  // If the real robot turns the other way, set HEADING_SIGN = 1; if it faces
+  // another way at 0 deg, set HEADING_OFFSET (deg, counter-clockwise).
+  var HEADING_SIGN = -1;
+  var HEADING_OFFSET = 0;
+  // firmware angle -> map angle, counter-clockwise from +X
+  function mapHeading(deg) { return wrapDeg(HEADING_SIGN * deg + HEADING_OFFSET); }
+
   // Fixed map half-width (cm): the LED square plus a margin. The map never
   // rescales; a robot outside the view is pinned to the edge.
   var MAP_RANGE = LED_SPACING * 0.75;
@@ -317,6 +335,7 @@
     statusDot: $('statusDot'), statusText: $('statusText'), rate: $('rate'), notice: $('notice'),
     map: $('map'),
     valX: $('valX'), valY: $('valY'), valQ: $('valQ'), valR: $('valR'),
+    valH: $('valH'), cNeedle: $('cNeedle'), headingNote: $('headingNote'),
     qMini: $('qMini'), mmX: $('mmX'), mmY: $('mmY'), mmR: $('mmR'), lastTime: $('lastTime'),
     btnRecord: $('btnRecord'), recCount: $('recCount'), btnCsv: $('btnCsv'), btnClearLog: $('btnClearLog'),
     tableDetails: $('tableDetails'), tableBody: $('tableBody'),
@@ -527,7 +546,9 @@
       // firmware frame: the LED square is x in [-50, 0], y in [0, 50]
       var x = -25 + 19 * Math.cos(t * 0.35) + (Math.random() - 0.5) * 1.2;
       var y = 25 + 15 * Math.sin(t * 0.55) + (Math.random() - 0.5) * 1.2;
-      var a = wrapDeg(t * 20) + (Math.random() - 0.5) * 0.6;
+      // face the direction of travel (derivative of the path above)
+      var mh = Math.atan2(15 * 0.55 * Math.cos(t * 0.55), -19 * 0.35 * Math.sin(t * 0.35)) * 180 / Math.PI;
+      var a = wrapDeg((mh - HEADING_OFFSET) * HEADING_SIGN) + (Math.random() - 0.5) * 0.6;
       var q = quadrantOf(x, y);
       var line = 'Quadrant ' + q + ': ' + x.toFixed(2) + ', ' + y.toFixed(2) + ', ' + a.toFixed(2) + '\r\n';
       var cut = Math.floor(Math.random() * line.length); // arrive in two chunks, like real serial
@@ -597,7 +618,7 @@
 
   function updateTiles() {
     var s = state.latest;
-    var values = [el.valX, el.valY, el.valQ, el.valR];
+    var values = [el.valX, el.valY, el.valQ, el.valR, el.valH];
     for (var i = 0; i < values.length; i++) {
       values[i].classList.toggle('empty', !s);
       if (!s) values[i].textContent = t('waiting');
@@ -608,6 +629,7 @@
     if (!s) {
       el.mmX.textContent = el.mmY.textContent = el.mmR.textContent = '';
       el.lastTime.textContent = '—';
+      el.cNeedle.style.visibility = 'hidden';
       return;
     }
     var st = state.stats;
@@ -620,6 +642,12 @@
     el.valY.textContent = fmtLen(s.y);
     el.valQ.textContent = 'Q' + s.quadrant;
     el.valR.textContent = fmtLen(Math.hypot(s.x, s.y));
+
+    // Compass: the value is the firmware's raw angle; the needle points the way
+    // the robot faces on the map (SVG rotates clockwise, so negate).
+    el.valH.textContent = s.angle.toFixed(2) + '°';
+    el.cNeedle.style.visibility = 'visible';
+    el.cNeedle.setAttribute('transform', 'rotate(' + (-mapHeading(s.angle)).toFixed(2) + ' 70 70)');
   }
 
   function clockTime(ms) {
@@ -683,22 +711,33 @@
    * 2D map (top view): 2x2 LED square centred on the origin, robot at (x, y)
    * ===================================================================== */
 
-  function drawRobot(ctx, x, y, scale) {
-    var s = 14;
+  // Top view of the triangular pyramid: one photodiode per side face, face
+  // normals at 0 and ±120 deg. Photodiode 1's face points along `heading`
+  // (map degrees, counter-clockwise from +X) and carries the arrow.
+  function drawRobot(ctx, x, y, scale, heading) {
+    var r = 17, c60 = 0.5, s60 = Math.sqrt(3) / 2;
     ctx.save();
     ctx.translate(x, y);
     ctx.scale(scale, scale);
-    ctx.fillStyle = C.surface; // surface ring so it stays legible over grid lines
-    ctx.beginPath(); ctx.roundRect(-s - 6, -s - 3, 2 * s + 12, 2 * s + 6, 8); ctx.fill();
-    ctx.fillStyle = C.text2;   // wheels
-    ctx.beginPath(); ctx.roundRect(-s - 4, -9, 6, 18, 2); ctx.fill();
-    ctx.beginPath(); ctx.roundRect(s - 2, -9, 6, 18, 2); ctx.fill();
-    ctx.fillStyle = C.text;    // body
-    ctx.beginPath(); ctx.roundRect(-s + 1, -s, 2 * s - 2, 2 * s, 6); ctx.fill();
-    ctx.fillStyle = C.surface; // photodiode sensor on top
-    ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = C.s3;
-    ctx.beginPath(); ctx.arc(0, 0, 2.5, 0, Math.PI * 2); ctx.fill();
+    ctx.rotate(-heading * Math.PI / 180); // canvas y points down
+    function body() {
+      ctx.beginPath();
+      ctx.moveTo(r * c60, -r * s60); ctx.lineTo(r * c60, r * s60); ctx.lineTo(-r, 0);
+      ctx.closePath();
+    }
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = C.surface; ctx.lineWidth = 7; body(); ctx.stroke(); // halo over grid lines
+    ctx.fillStyle = C.text; body(); ctx.fill();
+    // heading arrow from the front face
+    ctx.strokeStyle = C.s3; ctx.fillStyle = C.s3; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(r * c60, 0); ctx.lineTo(r + 9, 0); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(r + 16, 0); ctx.lineTo(r + 7, -6); ctx.lineTo(r + 7, 6); ctx.closePath(); ctx.fill();
+    // photodiodes at the face centres; photodiode 1 (front) highlighted
+    for (var p = 0; p < 3; p++) {
+      var ang = p * 2 * Math.PI / 3, d = r * c60 * 0.62;
+      ctx.fillStyle = p === 0 ? C.s3 : C.surface;
+      ctx.beginPath(); ctx.arc(d * Math.cos(ang), -d * Math.sin(ang), 2.6, 0, Math.PI * 2); ctx.fill();
+    }
     ctx.restore();
   }
 
@@ -850,7 +889,7 @@
       var rx = Math.max(L, Math.min(Rt, rpx)), ry = Math.max(T, Math.min(B, rpy));
       var outside = rx !== rpx || ry !== rpy;
       if (outside) ctx.globalAlpha = 0.45;
-      drawRobot(ctx, rx, ry, mk);
+      drawRobot(ctx, rx, ry, mk, mapHeading(s.angle));
       ctx.globalAlpha = 1;
       var label = '(' + fmtLen(s.x) + ', ' + fmtLen(s.y) + ')';
       ctx.font = '600 12px ' + C.font;
@@ -1351,6 +1390,8 @@
   var savedTheme = null;
   try { savedTheme = localStorage.getItem('ra.theme'); } catch (e) { /* storage unavailable */ }
   setTheme(savedTheme, false);
+  // the compass note follows the sign convention above
+  el.headingNote.setAttribute('data-i18n', HEADING_SIGN < 0 ? 'headingCW' : 'headingCCW');
   el.unit.value = state.unit;
   el.trailN.value = String(state.trailN);
   setChartRange(state.chartRange);

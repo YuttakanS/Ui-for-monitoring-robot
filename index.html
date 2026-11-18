@@ -127,6 +127,30 @@
         <div class="tiles-foot"><span data-i18n="lastReading">ค่าล่าสุดเมื่อ</span> <span id="lastTime">—</span></div>
       </section>
 
+      <section class="card compass-card">
+        <div class="tile-label"><span class="key" style="--k:var(--s3)"></span><span data-i18n="orientation">ทิศของหุ่น (Orientation)</span></div>
+        <div class="gauge-row">
+          <div>
+            <div class="tile-value" id="valH">—</div>
+            <div class="tile-sub" id="headingNote" data-i18n="headingCW">0° = หันไป +X · ค่าบวก = หมุนตามเข็มนาฬิกา</div>
+          </div>
+          <svg class="compass" viewBox="0 0 140 140" role="img" data-i18n-aria="compassAria" aria-label="เข็มทิศแสดงทิศที่หุ่นหัน">
+            <circle class="g-arc" cx="70" cy="70" r="44"/>
+            <path class="g-tick" d="M114.0 70.0L106.0 70.0M108.1 92.0L103.8 89.5M92.0 108.1L89.5 103.8M70.0 114.0L70.0 106.0M48.0 108.1L50.5 103.8M31.9 92.0L36.2 89.5M26.0 70.0L34.0 70.0M31.9 48.0L36.2 50.5M48.0 31.9L50.5 36.2M70.0 26.0L70.0 34.0M92.0 31.9L89.5 36.2M108.1 48.0L103.8 50.5"/>
+            <!-- same directions as the map -->
+            <text class="g-text" x="138" y="74" text-anchor="end">+X</text>
+            <text class="g-text" x="2" y="74" text-anchor="start">−X</text>
+            <text class="g-text" x="70" y="16" text-anchor="middle">+Y</text>
+            <text class="g-text" x="70" y="136" text-anchor="middle">−Y</text>
+            <g id="cNeedle" style="visibility:hidden">
+              <line class="g-needle" x1="70" y1="70" x2="100" y2="70"/>
+              <path class="c-head" d="M112 70L98 62L98 78Z"/>
+            </g>
+            <circle class="g-hub" cx="70" cy="70" r="4"/>
+          </svg>
+        </div>
+      </section>
+
       <section class="card rec-card">
         <div class="rec-head">
           <div class="tile-label" data-i18n="recTitle">บันทึกข้อมูล</div>
