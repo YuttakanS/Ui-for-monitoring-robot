@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Position Monitor</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="bar">
+    <h1>Position Monitor</h1>
+    <div class="controls">
+      <button id="btnConnect" class="btn primary" type="button">เชื่อมต่อ Serial</button>
+      <button id="btnDemo" class="btn secondary" type="button">Demo</button>
+      <label class="field"><span data-i18n="unitField">หน่วยพิกัด</span>
+        <select id="unit">
+          <option value="cm" selected>cm</option>
+          <option value="mm">mm</option>
+          <option value="m">m</option>
+        </select>
+      </label>
+      <div class="settings">
+        <button id="btnSettings" class="btn secondary" type="button" aria-expanded="false" aria-controls="settingsPanel">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span data-i18n="settings">ตั้งค่า</span>
+        </button>
+        <div id="settingsPanel" class="settings-panel" role="group" data-i18n-aria="settings" aria-label="ตั้งค่า" hidden>
+          <label class="field">Baud rate
+            <select id="baud">
+              <option>9600</option>
+              <option>57600</option>
+              <option selected>115200</option>
+              <option>230400</option>
+              <option>921600</option>
+            </select>
+          </label>
+          <label class="field"><span data-i18n="langField">ภาษา</span>
+            <select id="lang">
+              <option value="th" lang="th">ไทย</option>
+              <option value="en" lang="en">English</option>
+            </select>
+          </label>
+          <label class="field"><span data-i18n="themeField">ธีม</span>
+            <select id="theme">
+              <option value="auto" data-i18n="themeAuto">ตามระบบ</option>
+              <option value="light" data-i18n="themeLight">สว่าง</option>
+              <option value="dark" data-i18n="themeDark">มืด</option>
+            </select>
+          </label>
+        </div>
+      </div>
+    </div>
+    <div class="status">
+      <span class="status-main" role="status">
+        <span id="statusDot" class="dot"></span>
+        <span id="statusText">ยังไม่เชื่อมต่อ</span>
+      </span>
+      <span id="recHeader" class="rec-badge" hidden><span class="rec-dot"></span>REC <span id="recHeaderTime">00:00</span></span>
+      <dl class="stats">
+        <div><dt data-i18n="statRate">อัตรา</dt><dd id="rate">0 Hz</dd></div>
+        <div><dt data-i18n="statErr">อ่านไม่ได้</dt><dd id="errCount">0</dd></div>
+        <div><dt data-i18n="statLast">ข้อมูลล่าสุด</dt><dd id="lastAge">—</dd></div>
+      </dl>
+    </div>
+  </header>
+
+  <div id="notice" class="notice" role="alert" hidden>
+    <span id="noticeText"></span>
+    <button id="noticeAction" class="btn small primary" type="button" hidden></button>
+  </div>
+
+  <main>
+    <section class="card map-card">
+      <div class="card-head">
+        <h2><span data-i18n="mapTitle">แผนที่ตำแหน่ง (มุมมองบน)</span> <span class="unit" data-unit></span></h2>
+        <div class="card-tools">
+          <label class="field small"><span data-i18n="trail">เส้นทาง</span>
+            <select id="trailN">
+              <option value="0" data-i18n="off">ปิด</option>
+              <option value="50">50</option>
+              <option value="100" selected>100</option>
+              <option value="250">250</option>
+              <option value="500">500</option>
+              <option value="1000">1000</option>
+            </select>
+          </label>
+        </div>
+      </div>
+      <div class="map-wrap"><canvas id="map" data-i18n-aria="mapAria" aria-label="แผนที่ 2 มิติแสดงตำแหน่งหุ่นยนต์เทียบกับ LED 9 ดวง"></canvas></div>
+      <ul class="legend map-legend">
+        <li><span class="sw sw-led"></span>LED</li>
+        <li><span class="sw sw-led-off"></span>LED <span data-i18n="ledOff">ปิด</span></li>
+        <li><span class="sw sw-robot"></span><span data-i18n="legRobot">หุ่นยนต์</span></li>
+        <li><span class="key" style="--k:var(--text2)"></span><span data-i18n="legTrail">เส้นทาง</span></li>
+        <li><span class="sw sw-quad"></span><span data-i18n="legQuad">ควอดรันต์ปัจจุบัน</span></li>
+      </ul>
+    </section>
+
+    <aside class="side">
+      <section class="card tiles">
+        <div class="tile">
+          <div class="tile-label"><span class="key" style="--k:var(--s1)"></span>X <span class="unit" data-unit></span></div>
+          <div class="tile-value" id="valX">—</div>
+          <div class="tile-sub" id="mmX"></div>
+        </div>
+        <div class="tile">
+          <div class="tile-label"><span class="key" style="--k:var(--s2)"></span>Y <span class="unit" data-unit></span></div>
+          <div class="tile-value" id="valY">—</div>
+          <div class="tile-sub" id="mmY"></div>
+        </div>
+        <div class="tile">
+          <div class="tile-label">Quadrant</div>
+          <div class="q-row">
+            <div class="tile-value" id="valQ">—</div>
+            <svg id="qMini" class="q-mini" viewBox="0 0 24 24" aria-hidden="true">
+              <rect data-q="2" x="1" y="1" width="10" height="10" rx="2"/>
+              <rect data-q="1" x="13" y="1" width="10" height="10" rx="2"/>
+              <rect data-q="3" x="1" y="13" width="10" height="10" rx="2"/>
+              <rect data-q="4" x="13" y="13" width="10" height="10" rx="2"/>
+            </svg>
+          </div>
+        </div>
+        <div class="tile">
+          <div class="tile-label"><span data-i18n="distLed">ระยะจาก LED 4 (origin)</span> <span class="unit" data-unit></span></div>
+          <div class="tile-value" id="valR">—</div>
+          <div class="tile-sub" id="mmR"></div>
+        </div>
+        <div class="tiles-foot"><span data-i18n="lastReading">ค่าล่าสุดเมื่อ</span> <span id="lastTime">—</span></div>
+      </section>
+
+      <section class="card compass-card">
+        <div class="tile-label"><span class="key" style="--k:var(--s3)"></span><span data-i18n="orientation">ทิศของหุ่น (Orientation)</span></div>
+        <div class="gauge-row">
+          <div>
+            <div class="tile-value" id="valH">—</div>
+            <div class="tile-sub" id="headingNote" data-i18n="headingCW">0° = หันไป +X · ค่าบวก = หมุนตามเข็มนาฬิกา</div>
+          </div>
+          <svg class="compass" viewBox="0 0 140 140" role="img" data-i18n-aria="compassAria" aria-label="เข็มทิศแสดงทิศที่หุ่นหัน">
+            <circle class="g-arc" cx="70" cy="70" r="44"/>
+            <path class="g-tick" d="M114.0 70.0L106.0 70.0M108.1 92.0L103.8 89.5M92.0 108.1L89.5 103.8M70.0 114.0L70.0 106.0M48.0 108.1L50.5 103.8M31.9 92.0L36.2 89.5M26.0 70.0L34.0 70.0M31.9 48.0L36.2 50.5M48.0 31.9L50.5 36.2M70.0 26.0L70.0 34.0M92.0 31.9L89.5 36.2M108.1 48.0L103.8 50.5"/>
+            <!-- same directions as the map -->
+            <text class="g-text" x="138" y="74" text-anchor="end">+X</text>
+            <text class="g-text" x="2" y="74" text-anchor="start">−X</text>
+            <text class="g-text" x="70" y="16" text-anchor="middle">+Y</text>
+            <text class="g-text" x="70" y="136" text-anchor="middle">−Y</text>
+            <g id="cNeedle" style="visibility:hidden">
+              <line class="g-needle" x1="70" y1="70" x2="100" y2="70"/>
+              <path class="c-head" d="M112 70L98 62L98 78Z"/>
+            </g>
+            <circle class="g-hub" cx="70" cy="70" r="4"/>
+          </svg>
+        </div>
+      </section>
+
+      <section class="card led-card">
+        <div class="tile-label" data-i18n="ledTitle">เปิด/ปิด LED</div>
+        <!-- buttons are built from LEDS in app.js, laid out like the map -->
+        <div class="led-grid" id="ledGrid"></div>
+        <div class="tile-sub" id="ledNote" role="status"></div>
+      </section>
+
+      <section class="card rec-card">
+        <div class="rec-head">
+          <div class="tile-label" data-i18n="recTitle">บันทึกข้อมูล</div>
+          <span id="recBadge" class="rec-badge" hidden><span class="rec-dot"></span>REC <span id="recTime">00:00</span></span>
+        </div>
+        <div class="rec-row">
+          <button id="btnRecord" class="btn" type="button">● เริ่มบันทึก</button>
+          <span id="recCount" class="rec-count">0 แถว</span>
+        </div>
+        <div class="rec-row">
+          <button id="btnCsv" class="btn" type="button" data-i18n="csv" disabled>ดาวน์โหลด CSV</button>
+          <button id="btnClearLog" class="btn" type="button" data-i18n="clear" disabled>ล้าง</button>
+        </div>
+      </section>
+    </aside>
+
+    <section class="chart-toolbar" data-i18n-aria="chartControls" aria-label="ตัวควบคุมกราฟเวลา">
+      <div class="seg" role="radiogroup" aria-labelledby="rangeLabel">
+        <span id="rangeLabel" class="seg-label" data-i18n="range">ช่วงเวลา</span>
+        <label><input type="radio" name="range" value="10000"><span>10 s</span></label>
+        <label><input type="radio" name="range" value="60000" checked><span>60 s</span></label>
+        <label><input type="radio" name="range" value="all"><span data-i18n="all">ทั้งหมด</span></label>
+      </div>
+      <button id="btnPause" class="btn secondary small" type="button" aria-pressed="false">หยุดกราฟชั่วคราว</button>
+    </section>
+
+    <section class="card chart-card">
+      <div class="card-head">
+        <h2><span data-i18n="chartXYTitle">ตำแหน่งตามเวลา</span> <span class="unit" data-unit></span></h2>
+        <ul class="legend">
+          <li><span class="key" style="--k:var(--s1)"></span>X</li>
+          <li><span class="key" style="--k:var(--s2)"></span>Y</li>
+        </ul>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="chartXY" data-i18n-aria="chartXYAria" aria-label="กราฟ X และ Y ย้อนหลัง 30 วินาที"></canvas>
+        <div class="tooltip" id="tipXY" hidden></div>
+      </div>
+    </section>
+
+    <section class="card table-card">
+      <details id="tableDetails">
+        <summary data-i18n="tableTitle">ตารางค่าล่าสุด (20 แถว)</summary>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr><th data-i18n="thTime">เวลา</th><th>Quadrant</th><th>X <span class="unit" data-unit></span></th><th>Y <span class="unit" data-unit></span></th></tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+          </table>
+        </div>
+      </details>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span data-i18n="lastRaw">บรรทัดล่าสุดจาก serial:</span>
+    <code id="lastRaw">—</code>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
