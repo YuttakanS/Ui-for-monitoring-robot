@@ -778,11 +778,16 @@
     ctx.strokeStyle = C.axis;
     if (x0 >= L && x0 <= Rt) vline(ctx, x0, T, B);
     if (y0 >= T && y0 <= B) hline(ctx, L, Rt, y0);
+    // direction labels at both ends of each axis
     ctx.fillStyle = C.text2;
-    ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
-    ctx.fillText('X', Rt - 6, oy - 5);
-    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-    ctx.fillText('Y', ox + 6, T + 6);
+    ctx.font = '600 12px ' + C.font;
+    ctx.textBaseline = 'bottom';
+    ctx.textAlign = 'right'; ctx.fillText('+X', Rt - 6, oy - 5);
+    ctx.textAlign = 'left'; ctx.fillText('−X', L + 6, oy - 5);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top'; ctx.fillText('+Y', ox + 6, T + 6);
+    ctx.textBaseline = 'bottom'; ctx.fillText('−Y', ox + 6, B - 6);
+    ctx.font = '11px ' + C.font;
 
     // Quadrant labels in the outer corners
     // smaller labels tucked further into the corners on small maps, clear of the corner LEDs
