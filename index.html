@@ -116,6 +116,11 @@
           <div class="tile-sub" id="mmY"></div>
         </div>
         <div class="tile">
+          <div class="tile-label"><span class="key" style="--k:var(--s3)"></span>Z <span class="unit" data-unit></span></div>
+          <div class="tile-value" id="valZ">—</div>
+          <div class="tile-sub" id="mmZ"></div>
+        </div>
+        <div class="tile">
           <div class="tile-label">Quadrant</div>
           <div class="q-row">
             <div class="tile-value" id="valQ">—</div>
@@ -127,7 +132,7 @@
             </svg>
           </div>
         </div>
-        <div class="tile">
+        <div class="tile wide">
           <div class="tile-label"><span data-i18n="distLed">ระยะจาก LED 4 (origin)</span> <span class="unit" data-unit></span></div>
           <div class="tile-value" id="valR">—</div>
           <div class="tile-sub" id="mmR"></div>
@@ -198,6 +203,7 @@
         <ul class="legend">
           <li><span class="key" style="--k:var(--s1)"></span>X</li>
           <li><span class="key" style="--k:var(--s2)"></span>Y</li>
+          <li><span class="key" style="--k:var(--s3)"></span>Z</li>
         </ul>
       </div>
       <div class="chart-wrap">
@@ -212,7 +218,7 @@
         <div class="table-scroll">
           <table>
             <thead>
-              <tr><th data-i18n="thTime">เวลา</th><th>Quadrant</th><th>X <span class="unit" data-unit></span></th><th>Y <span class="unit" data-unit></span></th></tr>
+              <tr><th data-i18n="thTime">เวลา</th><th>Quadrant</th><th>X <span class="unit" data-unit></span></th><th>Y <span class="unit" data-unit></span></th><th>Z <span class="unit" data-unit></span></th></tr>
             </thead>
             <tbody id="tableBody"></tbody>
           </table>

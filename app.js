@@ -6,13 +6,16 @@
    * ===================================================================== */
 
   // Firmware line format:  Quadrant 3: -33.84, -47.30, -23.71
-  //                        Quadrant <n>: <x>, <y>, <incidence angle>
-  var LINE_RE = /^Quadrant\s*(\d+)\s*:\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/i;
+  //                        Quadrant <n>: <x>, <y>, <incidence angle>[, <z>]
+  // z (cm, up) is optional: 0 = the robot on the floor. The current firmware
+  // does not send it; Demo does. hasZ tells the two apart.
+  var LINE_RE = /^Quadrant\s*(\d+)\s*:\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)(?:\s*,\s*(-?\d+(?:\.\d+)?))?$/i;
 
   function parseLine(raw) {
     var m = LINE_RE.exec(String(raw).trim());
     if (!m) return null;
-    return { quadrant: +m[1], x: +m[2], y: +m[3], angle: +m[4] };
+    var hasZ = m[5] !== undefined;
+    return { quadrant: +m[1], x: +m[2], y: +m[3], angle: +m[4], z: hasZ ? +m[5] : 0, hasZ: hasZ };
   }
 
   // Standard numbering: Q1 = +x,+y, then counter-clockwise.
@@ -60,13 +63,15 @@
   }
 
   function toCsv(rows) {
-    var out = ['timestamp_iso,t_ms,quadrant,x,y,incidence_angle_deg,source'];
+    // z is the last column so the earlier columns keep their place; it is
+    // empty when the board did not send z (not 0, so the CSV stays raw)
+    var out = ['timestamp_iso,t_ms,quadrant,x,y,incidence_angle_deg,source,z'];
     var t0 = rows.length ? rows[0].t : 0;
     for (var i = 0; i < rows.length; i++) {
       var r = rows[i];
       out.push([
         new Date(r.wall).toISOString(), Math.round(r.t - t0),
-        r.quadrant, r.x, r.y, r.angle, r.source
+        r.quadrant, r.x, r.y, r.angle, r.source, r.hasZ ? r.z : ''
       ].join(','));
     }
     return out.join('\r\n') + '\r\n';
@@ -120,6 +125,7 @@
       hintWait1: 'ตรวจว่า baud rate ในเมนูตั้งค่าตรงกับที่บอร์ดใช้',
       hintWait2: 'บอร์ดต้องส่งบรรทัดแบบ  Quadrant 1: x, y, มุม',
       distLed: 'ระยะจาก LED 4 (origin)',
+      zNone: 'บอร์ดยังไม่ส่งค่า z (ถือว่าอยู่บนพื้น)',
       orientation: 'ทิศของหุ่น (Orientation)',
       compassAria: 'เข็มทิศแสดงทิศที่หุ่นหัน',
       headingCW: '0° = หันไป +X · ค่าบวก = หมุนตามเข็มนาฬิกา',
@@ -209,6 +215,7 @@
       hintWait1: 'Check that the baud rate in Settings matches the board',
       hintWait2: 'The board must send lines like  Quadrant 1: x, y, angle',
       distLed: 'Distance from LED 4 (origin)',
+      zNone: 'The board sends no z yet (taken as on the floor)',
       orientation: 'Orientation',
       compassAria: 'Compass showing where the robot faces',
       headingCW: '0° = facing +X · positive = clockwise',
@@ -367,7 +374,7 @@
     map: $('map'), map2dWrap: $('map2dWrap'), map3d: $('map3d'), btnReset3d: $('btnReset3d'),
     viewRadios: document.querySelectorAll('input[name=mapView]'), legQuad: $('legQuad'),
     mapTitle: document.querySelector('[data-i18n=mapTitle]'),
-    valX: $('valX'), valY: $('valY'), valQ: $('valQ'), valR: $('valR'),
+    valX: $('valX'), valY: $('valY'), valZ: $('valZ'), mmZ: $('mmZ'), valQ: $('valQ'), valR: $('valR'),
     valH: $('valH'), cNeedle: $('cNeedle'), headingNote: $('headingNote'),
     qMini: $('qMini'), mmX: $('mmX'), mmY: $('mmY'), mmR: $('mmR'), lastTime: $('lastTime'),
     btnRecord: $('btnRecord'), recCount: $('recCount'), btnCsv: $('btnCsv'), btnClearLog: $('btnClearLog'),
@@ -418,7 +425,8 @@
 
     if (state.recording) {
       state.log.push({
-        wall: s.wall, t: s.t, quadrant: s.quadrant, x: s.x, y: s.y, angle: s.angle, source: state.source
+        wall: s.wall, t: s.t, quadrant: s.quadrant, x: s.x, y: s.y, angle: s.angle, source: state.source,
+        z: s.z, hasZ: s.hasZ
       });
       state.logSaved = false;
     }
@@ -426,7 +434,7 @@
   }
 
   function addStats(s) {
-    var v = { x: s.x, y: s.y, r: Math.hypot(s.x, s.y), angle: s.angle };
+    var v = { x: s.x, y: s.y, z: s.z, r: Math.hypot(s.x, s.y), angle: s.angle };
     if (!state.stats) {
       state.stats = {};
       for (var k0 in v) state.stats[k0] = { min: v[k0], max: v[k0] };
@@ -633,11 +641,12 @@
       // firmware frame: the LED area is x and y in [-50, 50]
       var x = 40 * Math.cos(t * 0.35) + (Math.random() - 0.5) * 1.2;
       var y = 40 * Math.sin(t * 0.55) + (Math.random() - 0.5) * 1.2;
+      var z = 15 - 15 * Math.cos(t * 0.4) + Math.random() * 0.4; // 0..30 cm, up and down
       // face the direction of travel (derivative of the path above)
       var mh = Math.atan2(40 * 0.55 * Math.cos(t * 0.55), -40 * 0.35 * Math.sin(t * 0.35)) * 180 / Math.PI;
       var a = wrapDeg((mh - HEADING_OFFSET) * HEADING_SIGN) + (Math.random() - 0.5) * 0.6;
       var q = quadrantOf(x, y);
-      var line = 'Quadrant ' + q + ': ' + x.toFixed(2) + ', ' + y.toFixed(2) + ', ' + a.toFixed(2) + '\r\n';
+      var line = 'Quadrant ' + q + ': ' + x.toFixed(2) + ', ' + y.toFixed(2) + ', ' + a.toFixed(2) + ', ' + z.toFixed(2) + '\r\n';
       var cut = Math.floor(Math.random() * line.length); // arrive in two chunks, like real serial
       split(line.slice(0, cut));
       split(line.slice(cut));
@@ -705,7 +714,7 @@
 
   function updateTiles() {
     var s = state.latest;
-    var values = [el.valX, el.valY, el.valQ, el.valR, el.valH];
+    var values = [el.valX, el.valY, el.valZ, el.valQ, el.valR, el.valH];
     for (var i = 0; i < values.length; i++) {
       values[i].classList.toggle('empty', !s);
       if (!s) values[i].textContent = t('waiting');
@@ -714,7 +723,7 @@
     for (i = 0; i < cells.length; i++) cells[i].classList.toggle('on', !!s && +cells[i].dataset.q === s.quadrant);
     el.qMini.style.visibility = s ? 'visible' : 'hidden';
     if (!s) {
-      el.mmX.textContent = el.mmY.textContent = el.mmR.textContent = '';
+      el.mmX.textContent = el.mmY.textContent = el.mmZ.textContent = el.mmR.textContent = '';
       el.lastTime.textContent = '—';
       el.cNeedle.style.visibility = 'hidden';
       return;
@@ -724,9 +733,11 @@
     el.mmX.textContent = mm(fmtLen(st.x.min), fmtLen(st.x.max));
     el.mmY.textContent = mm(fmtLen(st.y.min), fmtLen(st.y.max));
     el.mmR.textContent = mm(fmtLen(st.r.min), fmtLen(st.r.max));
+    el.mmZ.textContent = s.hasZ ? mm(fmtLen(st.z.min), fmtLen(st.z.max)) : t('zNone');
     el.lastTime.textContent = clockTime(s.wall) + '.' + String(s.wall % 1000).padStart(3, '0');
     el.valX.textContent = fmtLen(s.x);
     el.valY.textContent = fmtLen(s.y);
+    el.valZ.textContent = fmtLen(s.z);
     el.valQ.textContent = 'Q' + s.quadrant;
     el.valR.textContent = fmtLen(Math.hypot(s.x, s.y));
 
@@ -747,7 +758,7 @@
     for (var i = S.length - 1; i >= 0 && i >= S.length - 20; i--) {
       var s = S[i], tr = document.createElement('tr');
       [clockTime(s.wall) + '.' + String(s.wall % 1000).padStart(3, '0'),
-        s.quadrant, fmtLen(s.x), fmtLen(s.y)].forEach(function (v) {
+        s.quadrant, fmtLen(s.x), fmtLen(s.y), s.hasZ ? fmtLen(s.z) : '—'].forEach(function (v) {
         var td = document.createElement('td');
         td.textContent = v;
         tr.appendChild(td);
@@ -1338,7 +1349,8 @@
 
   var chartXY = makeChart($('chartXY'), $('tipXY'), [
     { key: 'x', color: 's1', label: 'X' },
-    { key: 'y', color: 's2', label: 'Y' }
+    { key: 'y', color: 's2', label: 'Y' },
+    { key: 'z', color: 's3', label: 'Z' }
   ], true);
   // The incidence angle is still parsed, kept in samples and exported to CSV,
   // but not shown on screen for now.
@@ -1463,7 +1475,19 @@
     toOrigin.frustumCulled = false;
     scene.add(toOrigin);
 
-    v3 = { renderer: renderer, scene: scene, camera: camera, controls: controls, statics: statics,
+    // when the robot is off the floor: dashed line straight down and its spot on the floor
+    var dg = new T.BufferGeometry();
+    dg.setAttribute('position', new T.BufferAttribute(new Float32Array(6), 3));
+    var drop = new T.Line(dg, new T.LineDashedMaterial({ dashSize: 2, gapSize: 2 }));
+    drop.frustumCulled = false;
+    drop.visible = false;
+    scene.add(drop);
+    var shadow = new T.Mesh(new T.CircleGeometry(ROBOT_R * 0.8, 24),
+      new T.MeshBasicMaterial({ transparent: true, opacity: 0.18, depthWrite: false }));
+    shadow.visible = false;
+    scene.add(shadow);
+
+    v3 = { renderer: renderer, scene: scene, camera: camera, controls: controls, statics: statics, drop: drop, shadow: shadow,
       robot: robot, arrow: arrow, trail: trail, toOrigin: toOrigin, labels: [], parts: parts,
       sig: '', w: 0, h: 0, needs: true };
     controls.addEventListener('change', function () { v3.needs = true; });
@@ -1665,6 +1689,8 @@
     v3.arrow.setColor(color3(C.s3));
     v3.trail.material.color = color3(C.text2);
     v3.toOrigin.material.color = color3(C.text2);
+    v3.drop.material.color = color3(C.s3);
+    v3.shadow.material.color = color3(C.text);
   }
 
   function render3d() {
@@ -1684,8 +1710,16 @@
 
     var s = state.latest;
     v3.robot.visible = v3.toOrigin.visible = !!s;
+    if (!s) v3.drop.visible = v3.shadow.visible = false;
     if (s) {
-      v3.robot.position.set(s.x, s.y, 0);
+      v3.robot.position.set(s.x, s.y, s.z);
+      var dp = v3.drop.geometry.attributes.position;
+      dp.setXYZ(0, s.x, s.y, s.z);
+      dp.setXYZ(1, s.x, s.y, 0.1);
+      dp.needsUpdate = true;
+      v3.drop.computeLineDistances();
+      v3.drop.visible = v3.shadow.visible = s.z > 0.5;
+      v3.shadow.position.set(s.x, s.y, 0.08);
       v3.robot.rotation.z = mapHeading(s.angle) * Math.PI / 180;
       var op = v3.toOrigin.geometry.attributes.position;
       op.setXYZ(0, 0, 0, 0.1);
@@ -1696,7 +1730,7 @@
     var tp = v3.trail.geometry.attributes.position;
     for (var i = 0; i < n; i++) {
       var q = S[S.length - n + i];
-      tp.setXYZ(i, q.x, q.y, 0.1);
+      tp.setXYZ(i, q.x, q.y, q.z + 0.1);
     }
     tp.needsUpdate = true;
     v3.trail.geometry.setDrawRange(0, n);

@@ -205,6 +205,7 @@ main {
 
 /* ---------- value tiles ---------- */
 .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 12px; }
+.tile.wide { grid-column: 1 / -1; }
 /* block (not flex) so a long label wraps as one sentence with its unit */
 .tile-label { color: var(--text2); font-size: 13px; }
 .tile-label .key { vertical-align: middle; margin-right: 6px; }
