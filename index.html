@@ -128,25 +128,6 @@
         <div class="tiles-foot"><span data-i18n="lastReading">ค่าล่าสุดเมื่อ</span> <span id="lastTime">—</span></div>
       </section>
 
-      <section class="card gauge-card">
-        <div class="tile-label"><span class="key" style="--k:var(--s3)"></span><span data-i18n="angle">มุมตกกระทบ</span></div>
-        <div class="gauge-row">
-          <div class="tile-value" id="valA">—</div>
-          <svg class="gauge" viewBox="0 0 200 124" role="img" data-i18n-aria="gaugeAria" aria-label="หน้าปัดมุมตกกระทบ">
-            <path class="g-arc" d="M20 105 A80 80 0 0 1 180 105"/>
-            <path class="g-tick" d="M20 105H28 M43.43 48.43L49.09 54.09 M100 25V33 M156.57 48.43L150.91 54.09 M180 105H172"/>
-            <path class="g-normal" d="M100 105V33"/>
-            <path class="g-wedge" id="gWedge" d=""/>
-            <line class="g-needle" id="gNeedle" x1="100" y1="105" x2="100" y2="37"/>
-            <circle class="g-hub" cx="100" cy="105" r="4"/>
-            <text class="g-text" x="100" y="16" text-anchor="middle">0°</text>
-            <text class="g-text" x="20" y="120" text-anchor="middle">−90°</text>
-            <text class="g-text" x="180" y="120" text-anchor="middle">90°</text>
-          </svg>
-        </div>
-        <div class="tile-sub" id="mmA"></div>
-      </section>
-
       <section class="card rec-card">
         <div class="rec-head">
           <div class="tile-label" data-i18n="recTitle">บันทึกข้อมูล</div>
@@ -187,26 +168,13 @@
       </div>
     </section>
 
-    <section class="card chart-card">
-      <div class="card-head">
-        <h2><span data-i18n="chartATitle">มุมตกกระทบตามเวลา</span> <span class="unit">(°)</span></h2>
-        <ul class="legend">
-          <li><span class="key" style="--k:var(--s3)"></span><span data-i18n="angle">มุมตกกระทบ</span></li>
-        </ul>
-      </div>
-      <div class="chart-wrap">
-        <canvas id="chartA" data-i18n-aria="chartAAria" aria-label="กราฟมุมตกกระทบย้อนหลัง 30 วินาที"></canvas>
-        <div class="tooltip" id="tipA" hidden></div>
-      </div>
-    </section>
-
     <section class="card table-card">
       <details id="tableDetails">
         <summary data-i18n="tableTitle">ตารางค่าล่าสุด (20 แถว)</summary>
         <div class="table-scroll">
           <table>
             <thead>
-              <tr><th data-i18n="thTime">เวลา</th><th>Quadrant</th><th>X <span class="unit" data-unit></span></th><th>Y <span class="unit" data-unit></span></th><th data-i18n="thAngle">มุมตกกระทบ (°)</th></tr>
+              <tr><th data-i18n="thTime">เวลา</th><th>Quadrant</th><th>X <span class="unit" data-unit></span></th><th>Y <span class="unit" data-unit></span></th></tr>
             </thead>
             <tbody id="tableBody"></tbody>
           </table>

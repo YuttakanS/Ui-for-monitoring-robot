@@ -311,9 +311,8 @@
     btnPause: $('btnPause'), rangeRadios: document.querySelectorAll('input[name=range]'),
     statusDot: $('statusDot'), statusText: $('statusText'), rate: $('rate'), notice: $('notice'),
     map: $('map'), btnResetScale: $('btnResetScale'),
-    valX: $('valX'), valY: $('valY'), valQ: $('valQ'), valR: $('valR'), valA: $('valA'),
-    qMini: $('qMini'), mmX: $('mmX'), mmY: $('mmY'), mmR: $('mmR'), mmA: $('mmA'), lastTime: $('lastTime'),
-    gNeedle: $('gNeedle'), gWedge: $('gWedge'),
+    valX: $('valX'), valY: $('valY'), valQ: $('valQ'), valR: $('valR'),
+    qMini: $('qMini'), mmX: $('mmX'), mmY: $('mmY'), mmR: $('mmR'), lastTime: $('lastTime'),
     btnRecord: $('btnRecord'), recCount: $('recCount'), btnCsv: $('btnCsv'), btnClearLog: $('btnClearLog'),
     tableDetails: $('tableDetails'), tableBody: $('tableBody'),
     lastRaw: $('lastRaw'), errCount: $('errCount'), lastAge: $('lastAge'),
@@ -596,7 +595,7 @@
 
   function updateTiles() {
     var s = state.latest;
-    var values = [el.valX, el.valY, el.valQ, el.valR, el.valA];
+    var values = [el.valX, el.valY, el.valQ, el.valR];
     for (var i = 0; i < values.length; i++) {
       values[i].classList.toggle('empty', !s);
       if (!s) values[i].textContent = t('waiting');
@@ -605,10 +604,8 @@
     for (i = 0; i < cells.length; i++) cells[i].classList.toggle('on', !!s && +cells[i].dataset.q === s.quadrant);
     el.qMini.style.visibility = s ? 'visible' : 'hidden';
     if (!s) {
-      el.mmX.textContent = el.mmY.textContent = el.mmR.textContent = el.mmA.textContent = '';
+      el.mmX.textContent = el.mmY.textContent = el.mmR.textContent = '';
       el.lastTime.textContent = '—';
-      el.gNeedle.style.visibility = 'hidden';
-      el.gWedge.setAttribute('d', '');
       return;
     }
     var st = state.stats;
@@ -616,22 +613,11 @@
     el.mmX.textContent = mm(fmtLen(st.x.min), fmtLen(st.x.max));
     el.mmY.textContent = mm(fmtLen(st.y.min), fmtLen(st.y.max));
     el.mmR.textContent = mm(fmtLen(st.r.min), fmtLen(st.r.max));
-    el.mmA.textContent = mm(st.angle.min.toFixed(2) + '°', st.angle.max.toFixed(2) + '°');
     el.lastTime.textContent = clockTime(s.wall) + '.' + String(s.wall % 1000).padStart(3, '0');
-    el.gNeedle.style.visibility = 'visible';
     el.valX.textContent = fmtLen(s.x);
     el.valY.textContent = fmtLen(s.y);
     el.valQ.textContent = 'Q' + s.quadrant;
     el.valR.textContent = fmtLen(Math.hypot(s.x, s.y));
-    el.valA.textContent = s.angle.toFixed(2) + '°';
-
-    // Dial: 0° is straight up, positive to the right, clamped to ±90° for drawing.
-    var a = Math.max(-90, Math.min(90, s.angle));
-    var rad = a * Math.PI / 180, r = 56;
-    el.gNeedle.setAttribute('transform', 'rotate(' + a.toFixed(2) + ' 100 105)');
-    el.gWedge.setAttribute('d',
-      'M100 105 L100 ' + (105 - r) + ' A' + r + ' ' + r + ' 0 0 ' + (a >= 0 ? 1 : 0) + ' ' +
-      (100 + r * Math.sin(rad)).toFixed(2) + ' ' + (105 - r * Math.cos(rad)).toFixed(2) + ' Z');
   }
 
   function clockTime(ms) {
@@ -644,7 +630,7 @@
     for (var i = S.length - 1; i >= 0 && i >= S.length - 20; i--) {
       var s = S[i], tr = document.createElement('tr');
       [clockTime(s.wall) + '.' + String(s.wall % 1000).padStart(3, '0'),
-        s.quadrant, fmtLen(s.x), fmtLen(s.y), s.angle.toFixed(2)].forEach(function (v) {
+        s.quadrant, fmtLen(s.x), fmtLen(s.y)].forEach(function (v) {
         var td = document.createElement('td');
         td.textContent = v;
         tr.appendChild(td);
@@ -1191,9 +1177,8 @@
     { key: 'x', color: 's1', label: 'X' },
     { key: 'y', color: 's2', label: 'Y' }
   ], true);
-  var chartA = makeChart($('chartA'), $('tipA'), [
-    { key: 'angle', color: 's3', labelKey: 'tipAngle', suffix: '°' }
-  ]);
+  // The incidence angle is still parsed, kept in samples and exported to CSV,
+  // but not shown on screen for now.
 
   /* ---------- language ---------- */
   function applyLang() {
@@ -1203,7 +1188,7 @@
     for (i = 0; i < nodes.length; i++) nodes[i].textContent = t(nodes[i].getAttribute('data-i18n'));
     nodes = document.querySelectorAll('[data-i18n-aria]');
     for (i = 0; i < nodes.length; i++) nodes[i].setAttribute('aria-label', t(nodes[i].getAttribute('data-i18n-aria')));
-    [chartXY, chartA].forEach(function (ch) {
+    [chartXY].forEach(function (ch) {
       ch.series.forEach(function (d, j) { if (d.labelKey) ch.names[j].textContent = t(d.labelKey); });
     });
     updateButtons();
@@ -1237,7 +1222,6 @@
     if (state.dirty || live) {
       if (state.dirty) drawMap();
       drawChart(chartXY);
-      drawChart(chartA);
       state.dirty = false;
     }
     if (state.tilesDirty) { updateTiles(); state.tilesDirty = false; }
@@ -1354,7 +1338,7 @@
   }
   if (window.ResizeObserver) {
     var ro = new ResizeObserver(function () { state.dirty = true; });
-    ro.observe(el.map); ro.observe(chartXY.cv); ro.observe(chartA.cv);
+    ro.observe(el.map); ro.observe(chartXY.cv);
   }
   window.addEventListener('resize', function () { state.dirty = true; });
 
