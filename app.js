@@ -121,6 +121,7 @@
       headingCCW: '0° = หันไป +X · ค่าบวก = หมุนทวนเข็มนาฬิกา',
       lastReading: 'ค่าล่าสุดเมื่อ',
       legRobot: 'หุ่นยนต์',
+      ledOff: 'ปิด',
       legTrail: 'เส้นทาง',
       legQuad: 'ควอดรันต์ปัจจุบัน',
       min: 'ต่ำสุด',
@@ -200,6 +201,7 @@
       headingCCW: '0° = facing +X · positive = counter-clockwise',
       lastReading: 'Last reading at',
       legRobot: 'Robot',
+      ledOff: 'off',
       legTrail: 'Trail',
       legQuad: 'Current quadrant',
       min: 'min',
@@ -275,13 +277,15 @@
   // Break the line only on a real dropout. Must stay well above 1000 ms: a hidden
   // tab throttles the Demo timer to ~1 sample/s, which must still draw as one line.
   var GAP_MS = 2500;
-  // LEDs in firmware coordinates [x, y, label]: 2 columns x 3 rows covering Q2
-  // and Q3, with LED 4 at the origin. Change LED_SPACING if the layout changes.
+  // LEDs in firmware coordinates [x, y, label, on]: 2 columns x 3 rows covering
+  // Q2 and Q3, with LED 4 at the origin. Change LED_SPACING if the layout changes.
+  // on = false draws the LED as switched off; keep it in step with the
+  // firmware's LED_ON.
   var LED_SPACING = 50;    // cm between neighbouring LEDs
   var LEDS = [
-    [-LED_SPACING, LED_SPACING, '8'], [0, LED_SPACING, '7'],
-    [-LED_SPACING, 0, '5'], [0, 0, '4'],
-    [-LED_SPACING, -LED_SPACING, '2'], [0, -LED_SPACING, '1']
+    [-LED_SPACING, LED_SPACING, '8', true], [0, LED_SPACING, '7', true],
+    [-LED_SPACING, 0, '5', false], [0, 0, '4', false], // LED 4, 5 off for now
+    [-LED_SPACING, -LED_SPACING, '2', true], [0, -LED_SPACING, '1', true]
   ];
   // the map is centred on the LED area (firmware coordinates), not on the origin
   var VIEW_C = [-LED_SPACING / 2, 0];
@@ -872,16 +876,21 @@
     // LEDs with their numbers, placed outward from the square's centre
     ctx.font = '600 ' + (mk < 0.8 ? 11 : 12) + 'px ' + C.font;
     for (var li = 0; li < LEDS.length; li++) {
-      var ex = PX(LEDS[li][0] * f), ey = PY(LEDS[li][1] * f);
+      var ex = PX(LEDS[li][0] * f), ey = PY(LEDS[li][1] * f), on = LEDS[li][3];
       ctx.fillStyle = C.surface;
       ctx.beginPath(); ctx.arc(ex, ey, 9 * mk, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = C.led;
-      ctx.beginPath(); ctx.arc(ex, ey, 7 * mk, 0, Math.PI * 2); ctx.fill();
+      if (on) {
+        ctx.fillStyle = C.led;
+        ctx.beginPath(); ctx.arc(ex, ey, 7 * mk, 0, Math.PI * 2); ctx.fill();
+      } else { // switched off: hollow grey ring
+        ctx.strokeStyle = C.muted; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(ex, ey, 6 * mk, 0, Math.PI * 2); ctx.stroke();
+      }
       var dx = LEDS[li][0] < VIEW_C[0] ? -1 : 1, dy = LEDS[li][1] < VIEW_C[1] ? -1 : 1;
-      ctx.fillStyle = C.text2;
+      ctx.fillStyle = on ? C.text2 : C.muted;
       ctx.textAlign = dx < 0 ? 'right' : 'left';
       ctx.textBaseline = dy < 0 ? 'top' : 'bottom';
-      ctx.fillText('LED ' + LEDS[li][2], ex + dx * 9 * mk, ey - dy * 9 * mk);
+      ctx.fillText('LED ' + LEDS[li][2] + (on ? '' : ' (' + t('ledOff') + ')'), ex + dx * 9 * mk, ey - dy * 9 * mk);
     }
 
     // Robot + coordinate label

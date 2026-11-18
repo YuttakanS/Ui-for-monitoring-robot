@@ -295,6 +295,7 @@ main {
 .map-legend { flex-wrap: wrap; justify-content: center; gap: 6px 18px; margin-top: 8px; }
 .sw { display: inline-block; width: 12px; height: 12px; flex: none; }
 .sw-led { border-radius: 50%; background: var(--led); }
+.sw-led-off { border-radius: 50%; box-shadow: inset 0 0 0 2px var(--muted); }
 /* triangle like the robot on the map, flat front face to the right */
 .sw-robot { background: var(--text); clip-path: polygon(100% 0, 100% 100%, 0 50%); }
 .sw-quad { border-radius: 2px; background: var(--wash); border: 2px solid var(--text2); }
