@@ -20,11 +20,6 @@
 
   function wrapDeg(a) { return ((a + 180) % 360 + 360) % 360 - 180; }
 
-  // All numbers use the firmware's own frame. Only the map drawing turns it so
-  // it looks like the real room: firmware +x points up, +y points left.
-  // Returns [right, up] screen-frame coordinates.
-  function toScreen(x, y) { return [0 - y, x]; } // 0 - y avoids -0
-
   // Turns arbitrary text chunks into complete lines.
   function createLineSplitter(onLine) {
     var buf = '';
@@ -253,7 +248,7 @@
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       parseLine: parseLine, createLineSplitter: createLineSplitter,
-      quadrantOf: quadrantOf, wrapDeg: wrapDeg, toScreen: toScreen,
+      quadrantOf: quadrantOf, wrapDeg: wrapDeg,
       niceStep: niceStep, niceCeil: niceCeil, fmtTick: fmtTick,
       fileStamp: fileStamp, toCsv: toCsv, I18N: I18N, translate: translate, UNITS: UNITS
     };
@@ -721,9 +716,8 @@
     var f = unitInfo().f;
     var R = MAP_RANGE * f;
     var k = half / R;
-    // PX/PY take screen-frame values (right, up; see toScreen) in the display unit.
-    var vc = toScreen(VIEW_C[0], VIEW_C[1]);
-    var vx = vc[0] * f, vy = vc[1] * f; // view centre
+    // Firmware coordinates as on paper: +X right, +Y up (viewed from the Q3/Q4 side).
+    var vx = VIEW_C[0] * f, vy = VIEW_C[1] * f; // view centre in the display unit
     var s = state.latest;
     function PX(x) { return cx + (x - vx) * k; }
     function PY(y) { return cy - (y - vy) * k; }
@@ -732,11 +726,10 @@
     // origin clamped to the frame, for quadrant areas and axis labels
     var ox = Math.max(L, Math.min(Rt, x0)), oy = Math.max(T, Math.min(B, y0));
 
-    // Firmware quadrant of the latest sample, clipped to the view. With +x up and
-    // +y left: Q1 top-left, Q4 top-right, Q2 bottom-left, Q3 bottom-right.
+    // Quadrant of the latest sample (standard numbering), clipped to the view.
     var qRect = {
-      1: [L, T, ox - L, oy - T], 4: [ox, T, Rt - ox, oy - T],
-      2: [L, oy, ox - L, B - oy], 3: [ox, oy, Rt - ox, B - oy]
+      1: [ox, T, Rt - ox, oy - T], 2: [L, T, ox - L, oy - T],
+      3: [L, oy, ox - L, B - oy], 4: [ox, oy, Rt - ox, B - oy]
     };
     var qr = s && qRect[s.quadrant];
     if (qr && (qr[2] < 2 || qr[3] < 2)) qr = null; // quadrant out of view
@@ -762,7 +755,7 @@
       v = i * step;
       if (i !== 0) vline(ctx, PX(v), T, B);
       ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-      ctx.fillText(fmtTick(0 - v, step), PX(v), B + 7); // horizontal axis shows firmware y
+      ctx.fillText(fmtTick(v, step), PX(v), B + 7);
     }
     for (i = Math.ceil((vy - R) / step - 1e-9); i <= Math.floor((vy + R) / step + 1e-9); i++) {
       v = i * step;
@@ -780,26 +773,25 @@
     ctx.fillStyle = C.text2;
     ctx.font = '600 12px ' + C.font;
     ctx.textBaseline = 'bottom';
-    ctx.textAlign = 'right'; ctx.fillText('−Y', Rt - 6, oy - 5);
-    ctx.textAlign = 'left'; ctx.fillText('+Y', L + 6, oy - 5);
+    ctx.textAlign = 'right'; ctx.fillText('+X', Rt - 6, oy - 5);
+    ctx.textAlign = 'left'; ctx.fillText('−X', L + 6, oy - 5);
     ctx.textAlign = 'left';
-    ctx.textBaseline = 'top'; ctx.fillText('+X', ox + 6, T + 6);
-    ctx.textBaseline = 'bottom'; ctx.fillText('−X', ox + 6, B - 6);
+    ctx.textBaseline = 'top'; ctx.fillText('+Y', ox + 6, T + 6);
+    ctx.textBaseline = 'bottom'; ctx.fillText('−Y', ox + 6, B - 6);
     ctx.font = '11px ' + C.font;
 
     // Quadrant labels in the outer corners
     // smaller labels tucked further into the corners on small maps, clear of the corner LEDs
     var qi = mk < 0.8 ? 6 : 10, qf = mk < 0.8 ? 11 : 13;
     var qPos = {
-      4: [cx + half - qi, cy - half + qi, 'right', 'top'],
-      1: [cx - half + qi, cy - half + qi, 'left', 'top'],
-      2: [cx - half + qi, cy + half - qi, 'left', 'bottom'],
-      3: [cx + half - qi, cy + half - qi, 'right', 'bottom']
+      1: [cx + half - qi, cy - half + qi, 'right', 'top'],
+      2: [cx - half + qi, cy - half + qi, 'left', 'top'],
+      3: [cx - half + qi, cy + half - qi, 'left', 'bottom'],
+      4: [cx + half - qi, cy + half - qi, 'right', 'bottom']
     };
-    // screen-frame corners; firmware x = up, y = -right
-    var corner = { 4: [vx + R, vy + R], 1: [vx - R, vy + R], 2: [vx - R, vy - R], 3: [vx + R, vy - R] };
+    var corner = { 1: [vx + R, vy + R], 2: [vx - R, vy + R], 3: [vx - R, vy - R], 4: [vx + R, vy - R] };
     for (var q = 1; q <= 4; q++) {
-      if (quadrantOf(corner[q][1], 0 - corner[q][0]) !== q) continue; // corner lies in another quadrant
+      if (quadrantOf(corner[q][0], corner[q][1]) !== q) continue; // corner lies in another quadrant
       var active = s && s.quadrant === q;
       ctx.font = (active ? '600 ' : '') + qf + 'px ' + C.font;
       ctx.textAlign = qPos[q][2]; ctx.textBaseline = qPos[q][3];
@@ -827,8 +819,7 @@
     ctx.beginPath(); ctx.rect(L, T, half * 2, half * 2); ctx.clip(); // keep marks inside the frame
     if (s) drawTrail(ctx, PX, PY, f);
 
-    // robot position on screen (firmware +x up, +y left)
-    var rpx = s ? PX(-s.y * f) : 0, rpy = s ? PY(s.x * f) : 0;
+    var rpx = s ? PX(s.x * f) : 0, rpy = s ? PY(s.y * f) : 0; // robot on screen
 
     // origin -> robot line (the distance shown in the side panel)
     if (s) {
@@ -841,13 +832,12 @@
     // LEDs with their numbers, placed outward from the square's centre
     ctx.font = '600 ' + (mk < 0.8 ? 11 : 12) + 'px ' + C.font;
     for (var li = 0; li < LEDS.length; li++) {
-      var ls = toScreen(LEDS[li][0], LEDS[li][1]);
-      var ex = PX(ls[0] * f), ey = PY(ls[1] * f);
+      var ex = PX(LEDS[li][0] * f), ey = PY(LEDS[li][1] * f);
       ctx.fillStyle = C.surface;
       ctx.beginPath(); ctx.arc(ex, ey, 9 * mk, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = C.led;
       ctx.beginPath(); ctx.arc(ex, ey, 7 * mk, 0, Math.PI * 2); ctx.fill();
-      var dx = ls[0] < vc[0] ? -1 : 1, dy = ls[1] < vc[1] ? -1 : 1;
+      var dx = LEDS[li][0] < VIEW_C[0] ? -1 : 1, dy = LEDS[li][1] < VIEW_C[1] ? -1 : 1;
       ctx.fillStyle = C.text2;
       ctx.textAlign = dx < 0 ? 'right' : 'left';
       ctx.textBaseline = dy < 0 ? 'top' : 'bottom';
@@ -896,9 +886,7 @@
     hline(ctx, cx - half, cx + half, p.y);
     ctx.setLineDash([]);
 
-    // screen right/up back to firmware x (= up) and y (= -right)
-    var right = (p.x - cx) / k + vx, up = (cy - p.y) / k + vy;
-    var label = 'X ' + up.toFixed(u.d) + '   Y ' + (0 - right).toFixed(u.d) +
+    var label = 'X ' + ((p.x - cx) / k + vx).toFixed(u.d) + '   Y ' + ((cy - p.y) / k + vy).toFixed(u.d) +
       (state.unit ? '  ' + state.unit : '');
     ctx.font = '600 12px ' + C.font;
     var tw = ctx.measureText(label).width, bw = tw + 16, bh = 24;
@@ -926,9 +914,8 @@
       if (S[i].t - S[i - 1].t > GAP_MS) continue;
       ctx.globalAlpha = 0.05 + 0.6 * (i - i0) / (n - 1);
       ctx.beginPath();
-      // firmware +x up, +y left (see toScreen)
-      ctx.moveTo(PX(-S[i - 1].y * f), PY(S[i - 1].x * f));
-      ctx.lineTo(PX(-S[i].y * f), PY(S[i].x * f));
+      ctx.moveTo(PX(S[i - 1].x * f), PY(S[i - 1].y * f));
+      ctx.lineTo(PX(S[i].x * f), PY(S[i].y * f));
       ctx.stroke();
     }
     ctx.restore();
