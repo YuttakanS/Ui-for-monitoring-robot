@@ -20,13 +20,10 @@
 
   function wrapDeg(a) { return ((a + 180) % 360 + 360) % 360 - 180; }
 
-  // The firmware's frame is turned 90° from the room / map: its +x points up the
-  // map and its +y points left. So map X = -y_fw, map Y = +x_fw, heading + 90°.
-  // Only the screen uses the map frame; the CSV keeps the firmware's raw values.
-  function toMapFrame(raw) {
-    var x = 0 - raw.y, y = raw.x; // 0 - y avoids -0
-    return { quadrant: quadrantOf(x, y), x: x, y: y, angle: wrapDeg(raw.angle + 90), raw: raw };
-  }
+  // All numbers use the firmware's own frame. Only the map drawing turns it so
+  // it looks like the real room: firmware +x points up, +y points left.
+  // Returns [right, up] screen-frame coordinates.
+  function toScreen(x, y) { return [0 - y, x]; } // 0 - y avoids -0
 
   // Turns arbitrary text chunks into complete lines.
   function createLineSplitter(onLine) {
@@ -256,7 +253,7 @@
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       parseLine: parseLine, createLineSplitter: createLineSplitter,
-      quadrantOf: quadrantOf, wrapDeg: wrapDeg, toMapFrame: toMapFrame,
+      quadrantOf: quadrantOf, wrapDeg: wrapDeg, toScreen: toScreen,
       niceStep: niceStep, niceCeil: niceCeil, fmtTick: fmtTick,
       fileStamp: fileStamp, toCsv: toCsv, I18N: I18N, translate: translate, UNITS: UNITS
     };
@@ -275,15 +272,15 @@
   // Break the line only on a real dropout. Must stay well above 1000 ms: a hidden
   // tab throttles the Demo timer to ~1 sample/s, which must still draw as one line.
   var GAP_MS = 2500;
-  // LEDs in the map frame (see toMapFrame): a square in Q3 with LED 4 at the
-  // origin. [x, y, label]. Change LED_SPACING if the physical layout changes.
+  // LEDs in firmware coordinates [x, y, label] (same as the firmware's matrix p):
+  // a square in Q2 with LED 4 at the origin. Change LED_SPACING if the layout changes.
   var LED_SPACING = 50;    // cm between neighbouring LEDs
   var LEDS = [
-    [0, 0, '4'], [-LED_SPACING, 0, '7'],
-    [0, -LED_SPACING, '5'], [-LED_SPACING, -LED_SPACING, '8']
+    [0, 0, '4'], [-LED_SPACING, 0, '5'],
+    [0, LED_SPACING, '7'], [-LED_SPACING, LED_SPACING, '8']
   ];
-  // the map is centred on the LED square, not on the origin
-  var VIEW_C = [-LED_SPACING / 2, -LED_SPACING / 2];
+  // the map is centred on the LED square (firmware coordinates), not on the origin
+  var VIEW_C = [-LED_SPACING / 2, LED_SPACING / 2];
   // Fixed map half-width (cm): the LED square plus a margin. The map never
   // rescales; a robot outside the view is pinned to the edge.
   var MAP_RANGE = LED_SPACING * 0.75;
@@ -352,9 +349,8 @@
     var line = String(raw).trim();
     if (!line) return;
     state.lastRaw = line.length > 120 ? line.slice(0, 120) + '…' : line;
-    var raw = parseLine(line);
-    if (!raw) { state.parseErrors++; return; }
-    var s = toMapFrame(raw);
+    var s = parseLine(line);
+    if (!s) { state.parseErrors++; return; }
 
     s.t = performance.now();
     s.wall = Date.now();
@@ -368,8 +364,7 @@
 
     if (state.recording) {
       state.log.push({
-        // raw firmware values, not the map frame
-        wall: s.wall, t: s.t, quadrant: raw.quadrant, x: raw.x, y: raw.y, angle: raw.angle, source: state.source
+        wall: s.wall, t: s.t, quadrant: s.quadrant, x: s.x, y: s.y, angle: s.angle, source: state.source
       });
       state.logSaved = false;
     }
@@ -726,7 +721,9 @@
     var f = unitInfo().f;
     var R = MAP_RANGE * f;
     var k = half / R;
-    var vx = VIEW_C[0] * f, vy = VIEW_C[1] * f; // view centre in the display unit
+    // PX/PY take screen-frame values (right, up; see toScreen) in the display unit.
+    var vc = toScreen(VIEW_C[0], VIEW_C[1]);
+    var vx = vc[0] * f, vy = vc[1] * f; // view centre
     var s = state.latest;
     function PX(x) { return cx + (x - vx) * k; }
     function PY(y) { return cy - (y - vy) * k; }
@@ -735,10 +732,11 @@
     // origin clamped to the frame, for quadrant areas and axis labels
     var ox = Math.max(L, Math.min(Rt, x0)), oy = Math.max(T, Math.min(B, y0));
 
-    // Quadrant of the latest sample (standard numbering), clipped to the view.
+    // Firmware quadrant of the latest sample, clipped to the view. With +x up and
+    // +y left: Q1 top-left, Q4 top-right, Q2 bottom-left, Q3 bottom-right.
     var qRect = {
-      1: [ox, T, Rt - ox, oy - T], 2: [L, T, ox - L, oy - T],
-      3: [L, oy, ox - L, B - oy], 4: [ox, oy, Rt - ox, B - oy]
+      1: [L, T, ox - L, oy - T], 4: [ox, T, Rt - ox, oy - T],
+      2: [L, oy, ox - L, B - oy], 3: [ox, oy, Rt - ox, B - oy]
     };
     var qr = s && qRect[s.quadrant];
     if (qr && (qr[2] < 2 || qr[3] < 2)) qr = null; // quadrant out of view
@@ -764,7 +762,7 @@
       v = i * step;
       if (i !== 0) vline(ctx, PX(v), T, B);
       ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-      ctx.fillText(fmtTick(v, step), PX(v), B + 7);
+      ctx.fillText(fmtTick(0 - v, step), PX(v), B + 7); // horizontal axis shows firmware y
     }
     for (i = Math.ceil((vy - R) / step - 1e-9); i <= Math.floor((vy + R) / step + 1e-9); i++) {
       v = i * step;
@@ -782,25 +780,26 @@
     ctx.fillStyle = C.text2;
     ctx.font = '600 12px ' + C.font;
     ctx.textBaseline = 'bottom';
-    ctx.textAlign = 'right'; ctx.fillText('+X', Rt - 6, oy - 5);
-    ctx.textAlign = 'left'; ctx.fillText('−X', L + 6, oy - 5);
+    ctx.textAlign = 'right'; ctx.fillText('−Y', Rt - 6, oy - 5);
+    ctx.textAlign = 'left'; ctx.fillText('+Y', L + 6, oy - 5);
     ctx.textAlign = 'left';
-    ctx.textBaseline = 'top'; ctx.fillText('+Y', ox + 6, T + 6);
-    ctx.textBaseline = 'bottom'; ctx.fillText('−Y', ox + 6, B - 6);
+    ctx.textBaseline = 'top'; ctx.fillText('+X', ox + 6, T + 6);
+    ctx.textBaseline = 'bottom'; ctx.fillText('−X', ox + 6, B - 6);
     ctx.font = '11px ' + C.font;
 
     // Quadrant labels in the outer corners
     // smaller labels tucked further into the corners on small maps, clear of the corner LEDs
     var qi = mk < 0.8 ? 6 : 10, qf = mk < 0.8 ? 11 : 13;
     var qPos = {
-      1: [cx + half - qi, cy - half + qi, 'right', 'top'],
-      2: [cx - half + qi, cy - half + qi, 'left', 'top'],
-      3: [cx - half + qi, cy + half - qi, 'left', 'bottom'],
-      4: [cx + half - qi, cy + half - qi, 'right', 'bottom']
+      4: [cx + half - qi, cy - half + qi, 'right', 'top'],
+      1: [cx - half + qi, cy - half + qi, 'left', 'top'],
+      2: [cx - half + qi, cy + half - qi, 'left', 'bottom'],
+      3: [cx + half - qi, cy + half - qi, 'right', 'bottom']
     };
-    var corner = { 1: [vx + R, vy + R], 2: [vx - R, vy + R], 3: [vx - R, vy - R], 4: [vx + R, vy - R] };
+    // screen-frame corners; firmware x = up, y = -right
+    var corner = { 4: [vx + R, vy + R], 1: [vx - R, vy + R], 2: [vx - R, vy - R], 3: [vx + R, vy - R] };
     for (var q = 1; q <= 4; q++) {
-      if (quadrantOf(corner[q][0], corner[q][1]) !== q) continue; // corner lies in another quadrant
+      if (quadrantOf(corner[q][1], 0 - corner[q][0]) !== q) continue; // corner lies in another quadrant
       var active = s && s.quadrant === q;
       ctx.font = (active ? '600 ' : '') + qf + 'px ' + C.font;
       ctx.textAlign = qPos[q][2]; ctx.textBaseline = qPos[q][3];
@@ -828,23 +827,27 @@
     ctx.beginPath(); ctx.rect(L, T, half * 2, half * 2); ctx.clip(); // keep marks inside the frame
     if (s) drawTrail(ctx, PX, PY, f);
 
+    // robot position on screen (firmware +x up, +y left)
+    var rpx = s ? PX(-s.y * f) : 0, rpy = s ? PY(s.x * f) : 0;
+
     // origin -> robot line (the distance shown in the side panel)
     if (s) {
       ctx.strokeStyle = C.text2;
       ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(PX(s.x * f), PY(s.y * f)); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(rpx, rpy); ctx.stroke();
     }
     ctx.restore();
 
     // LEDs with their numbers, placed outward from the square's centre
     ctx.font = '600 ' + (mk < 0.8 ? 11 : 12) + 'px ' + C.font;
     for (var li = 0; li < LEDS.length; li++) {
-      var ex = PX(LEDS[li][0] * f), ey = PY(LEDS[li][1] * f);
+      var ls = toScreen(LEDS[li][0], LEDS[li][1]);
+      var ex = PX(ls[0] * f), ey = PY(ls[1] * f);
       ctx.fillStyle = C.surface;
       ctx.beginPath(); ctx.arc(ex, ey, 9 * mk, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = C.led;
       ctx.beginPath(); ctx.arc(ex, ey, 7 * mk, 0, Math.PI * 2); ctx.fill();
-      var dx = LEDS[li][0] < VIEW_C[0] ? -1 : 1, dy = LEDS[li][1] < VIEW_C[1] ? -1 : 1;
+      var dx = ls[0] < vc[0] ? -1 : 1, dy = ls[1] < vc[1] ? -1 : 1;
       ctx.fillStyle = C.text2;
       ctx.textAlign = dx < 0 ? 'right' : 'left';
       ctx.textBaseline = dy < 0 ? 'top' : 'bottom';
@@ -854,8 +857,8 @@
     // Robot + coordinate label
     if (s) {
       // pinned to the frame edge (and faded) when it is outside the fixed view
-      var rx = Math.max(L, Math.min(Rt, PX(s.x * f))), ry = Math.max(T, Math.min(B, PY(s.y * f)));
-      var outside = rx !== PX(s.x * f) || ry !== PY(s.y * f);
+      var rx = Math.max(L, Math.min(Rt, rpx)), ry = Math.max(T, Math.min(B, rpy));
+      var outside = rx !== rpx || ry !== rpy;
       if (outside) ctx.globalAlpha = 0.45;
       drawRobot(ctx, rx, ry, mk);
       ctx.globalAlpha = 1;
@@ -893,7 +896,9 @@
     hline(ctx, cx - half, cx + half, p.y);
     ctx.setLineDash([]);
 
-    var label = 'X ' + ((p.x - cx) / k + vx).toFixed(u.d) + '   Y ' + ((cy - p.y) / k + vy).toFixed(u.d) +
+    // screen right/up back to firmware x (= up) and y (= -right)
+    var right = (p.x - cx) / k + vx, up = (cy - p.y) / k + vy;
+    var label = 'X ' + up.toFixed(u.d) + '   Y ' + (0 - right).toFixed(u.d) +
       (state.unit ? '  ' + state.unit : '');
     ctx.font = '600 12px ' + C.font;
     var tw = ctx.measureText(label).width, bw = tw + 16, bh = 24;
@@ -921,8 +926,9 @@
       if (S[i].t - S[i - 1].t > GAP_MS) continue;
       ctx.globalAlpha = 0.05 + 0.6 * (i - i0) / (n - 1);
       ctx.beginPath();
-      ctx.moveTo(PX(S[i - 1].x * f), PY(S[i - 1].y * f));
-      ctx.lineTo(PX(S[i].x * f), PY(S[i].y * f));
+      // firmware +x up, +y left (see toScreen)
+      ctx.moveTo(PX(-S[i - 1].y * f), PY(S[i - 1].x * f));
+      ctx.lineTo(PX(-S[i].y * f), PY(S[i].x * f));
       ctx.stroke();
     }
     ctx.restore();
