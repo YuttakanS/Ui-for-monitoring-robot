@@ -96,7 +96,7 @@
       fitScale: 'ปรับสเกลให้พอดี',
       trail: 'เส้นทาง (จุด)',
       off: 'ปิด',
-      mapAria: 'แผนที่ 2 มิติแสดงตำแหน่งหุ่นยนต์เทียบกับ LED 9 ดวง',
+      mapAria: 'แผนที่ 2 มิติแสดงตำแหน่งหุ่นยนต์เทียบกับ LED 4 ดวง',
       waiting: 'รอข้อมูล…',
       hintTitle: 'ยังไม่มีข้อมูล',
       hintStep1: '1. ต่อบอร์ดเข้ากับคอมพิวเตอร์ผ่าน USB',
@@ -106,7 +106,7 @@
       hintWaitTitle: 'เชื่อมต่อแล้ว — กำลังรอข้อมูล',
       hintWait1: 'ตรวจว่า baud rate ในเมนูตั้งค่าตรงกับที่บอร์ดใช้',
       hintWait2: 'บอร์ดต้องส่งบรรทัดแบบ  Quadrant 1: x, y, มุม',
-      distLed: 'ระยะจาก LED กลาง',
+      distLed: 'ระยะจากจุดกึ่งกลาง',
       lastReading: 'ค่าล่าสุดเมื่อ',
       legRobot: 'หุ่นยนต์',
       legTrail: 'เส้นทาง',
@@ -168,7 +168,7 @@
       fitScale: 'Fit scale',
       trail: 'Trail (points)',
       off: 'Off',
-      mapAria: '2D map of the robot position relative to the 9 LEDs',
+      mapAria: '2D map of the robot position relative to the 4 LEDs',
       waiting: 'Waiting for data…',
       hintTitle: 'No data yet',
       hintStep1: '1. Plug the board in over USB',
@@ -178,7 +178,7 @@
       hintWaitTitle: 'Connected — waiting for data',
       hintWait1: 'Check that the baud rate in Settings matches the board',
       hintWait2: 'The board must send lines like  Quadrant 1: x, y, angle',
-      distLed: 'Distance from centre LED',
+      distLed: 'Distance from centre',
       lastReading: 'Last reading at',
       legRobot: 'Robot',
       legTrail: 'Trail',
@@ -256,14 +256,14 @@
   // Break the line only on a real dropout. Must stay well above 1000 ms: a hidden
   // tab throttles the Demo timer to ~1 sample/s, which must still draw as one line.
   var GAP_MS = 2500;
-  // LEDs: 3x3 grid centred on the origin (the centre LED is (0, 0), which is
-  // also where the firmware's x, y are measured from). Change LED_SPACING if
-  // the physical layout changes.
+  // LEDs: 2x2 square centred on the origin. The firmware's x, y are measured
+  // from the centre of the square, which has no LED of its own. Change
+  // LED_SPACING if the physical layout changes.
   var LED_SPACING = 100;   // cm between neighbouring LEDs
-  var LEDS = [];
-  for (var gx = -1; gx <= 1; gx++) for (var gy = -1; gy <= 1; gy++) LEDS.push([gx * LED_SPACING, gy * LED_SPACING]);
-  // the map never zooms in past the LED grid, so all 9 LEDs stay in view
-  var MIN_RANGE = LED_SPACING * 1.25;
+  var LED_HALF = LED_SPACING / 2;
+  var LEDS = [[-LED_HALF, LED_HALF], [LED_HALF, LED_HALF], [-LED_HALF, -LED_HALF], [LED_HALF, -LED_HALF]];
+  // the map never zooms in past the LED square, so all 4 LEDs stay in view
+  var MIN_RANGE = LED_HALF * 1.25;
   var DEFAULT_RANGE = MIN_RANGE; // cm
 
   var state = {
@@ -516,8 +516,8 @@
     var t0 = performance.now();
     demoTimer = setInterval(function () {
       var t = (performance.now() - t0) / 1000 + 4.2;
-      var x = 62 * Math.cos(t * 0.35) + (Math.random() - 0.5) * 1.2;
-      var y = 48 * Math.sin(t * 0.55) + (Math.random() - 0.5) * 1.2;
+      var x = 38 * Math.cos(t * 0.35) + (Math.random() - 0.5) * 1.2;
+      var y = 30 * Math.sin(t * 0.55) + (Math.random() - 0.5) * 1.2;
       var a = Math.atan2(x, 150) * 180 / Math.PI + (Math.random() - 0.5) * 0.6;
       var q = x >= 0 ? (y >= 0 ? 1 : 4) : (y >= 0 ? 2 : 3);
       var line = 'Quadrant ' + q + ': ' + x.toFixed(2) + ', ' + y.toFixed(2) + ', ' + a.toFixed(2) + '\r\n';
@@ -684,7 +684,7 @@
   }
 
   /* =====================================================================
-   * 2D map (top view): 3x3 LED grid, centre LED at the origin, robot at (x, y)
+   * 2D map (top view): 2x2 LED square centred on the origin, robot at (x, y)
    * ===================================================================== */
 
   function drawRobot(ctx, x, y, scale) {
@@ -736,6 +736,9 @@
 
     // Grid + tick labels
     var step = niceStep(2 * R, 10);
+    // keep the LEDs (±LED_HALF) on grid lines while the view is zoomed in on them
+    var ledTicks = LED_HALF * f / step;
+    if (R < 4 * LED_HALF * f && Math.abs(ledTicks - Math.round(ledTicks)) > 1e-6) step /= 2;
     ctx.lineWidth = 1;
     ctx.font = '11px ' + C.font;
     ctx.fillStyle = C.muted;
@@ -799,7 +802,7 @@
 
     if (s) drawTrail(ctx, PX, PY, f);
 
-    // LED -> robot line
+    // centre -> robot line (the distance shown in the side panel)
     if (s) {
       ctx.strokeStyle = C.text2;
       ctx.lineWidth = 1.5;
