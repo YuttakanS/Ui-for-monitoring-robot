@@ -20,8 +20,10 @@
   --critical: #d03b3b;
 }
 
+/* Dark palette. Theme setting: Auto follows the OS; Light/Dark set
+   data-theme on <html>, which wins in both directions. Keep both blocks equal. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     color-scheme: dark;
     --page: #0d0d0d;
     --surface: #1a1a19;
@@ -39,6 +41,24 @@
     --good: #0ca30c;
     --critical: #e66767;
   }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d;
+  --surface: #1a1a19;
+  --text: #f0efec;
+  --text2: #c3c2b7;
+  --muted: #898781;
+  --grid: #2c2c2a;
+  --axis: #383835;
+  --border: rgba(255, 255, 255, 0.10);
+  --wash: rgba(255, 255, 255, 0.06);
+  --s1: #3987e5;
+  --s2: #d95926;
+  --s3: #199e70;
+  --led: #c98500;
+  --good: #0ca30c;
+  --critical: #e66767;
 }
 
 * { box-sizing: border-box; }

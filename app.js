@@ -87,6 +87,10 @@
       demoStop: 'หยุด Demo',
       unitField: 'หน่วยพิกัด',
       langField: 'ภาษา',
+      themeField: 'ธีม',
+      themeAuto: 'ตามระบบ',
+      themeLight: 'สว่าง',
+      themeDark: 'มืด',
       settings: 'ตั้งค่า',
       statusIdle: 'ยังไม่เชื่อมต่อ',
       statusDemo: 'Demo (ข้อมูลจำลอง)',
@@ -159,6 +163,10 @@
       demoStop: 'Stop demo',
       unitField: 'Unit',
       langField: 'Language',
+      themeField: 'Theme',
+      themeAuto: 'System',
+      themeLight: 'Light',
+      themeDark: 'Dark',
       settings: 'Settings',
       statusIdle: 'Not connected',
       statusDemo: 'Demo (simulated data)',
@@ -298,7 +306,7 @@
   function fmtLen(cm) { var u = unitInfo(); return (cm * u.f).toFixed(u.d); }
 
   var el = {
-    btnConnect: $('btnConnect'), btnDemo: $('btnDemo'), baud: $('baud'), unit: $('unit'), lang: $('lang'),
+    btnConnect: $('btnConnect'), btnDemo: $('btnDemo'), baud: $('baud'), unit: $('unit'), lang: $('lang'), theme: $('theme'),
     btnSettings: $('btnSettings'), settingsPanel: $('settingsPanel'), trailN: $('trailN'),
     btnPause: $('btnPause'), rangeRadios: document.querySelectorAll('input[name=range]'),
     statusDot: $('statusDot'), statusText: $('statusText'), rate: $('rate'), notice: $('notice'),
@@ -1211,6 +1219,19 @@
     applyLang();
   }
 
+  /* ---------- theme: auto (follow the OS) | light | dark ---------- */
+  var THEMES = ['auto', 'light', 'dark'];
+  function setTheme(theme, save) {
+    if (THEMES.indexOf(theme) < 0) theme = 'auto';
+    if (theme === 'auto') document.documentElement.removeAttribute('data-theme');
+    else document.documentElement.setAttribute('data-theme', theme);
+    el.theme.value = theme;
+    if (save) {
+      try { localStorage.setItem('ra.theme', theme); } catch (e) { /* storage unavailable */ }
+    }
+    readColors(); // canvases take their colours from the CSS variables
+  }
+
   function frame() {
     var live = state.source !== 'idle';
     if (state.dirty || live) {
@@ -1281,6 +1302,7 @@
     try { localStorage.setItem('ra.baud', el.baud.value); } catch (e) { /* storage unavailable */ }
   });
   el.lang.addEventListener('change', function () { setLang(el.lang.value); });
+  el.theme.addEventListener('change', function () { setTheme(el.theme.value, true); });
 
   /* ---------- settings menu (baud, language) ---------- */
   function setSettingsOpen(open, returnFocus) {
@@ -1316,6 +1338,9 @@
       if (el.trailN.options[oi].value === savedTrail) state.trailN = +savedTrail;
     }
   } catch (e) { /* storage unavailable */ }
+  var savedTheme = null;
+  try { savedTheme = localStorage.getItem('ra.theme'); } catch (e) { /* storage unavailable */ }
+  setTheme(savedTheme, false);
   el.unit.value = state.unit;
   el.trailN.value = String(state.trailN);
   setChartRange(state.chartRange);
