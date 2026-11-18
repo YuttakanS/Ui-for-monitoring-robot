@@ -122,6 +122,10 @@
       lastReading: 'ค่าล่าสุดเมื่อ',
       legRobot: 'หุ่นยนต์',
       ledOff: 'ปิด',
+      ledTitle: 'เปิด/ปิด LED',
+      ledNoteOffline: 'ยังไม่ได้ต่อบอร์ด — มีผลกับแผนที่เท่านั้น จะส่งให้บอร์ดตอนเชื่อมต่อ',
+      ledSynced: 'บอร์ดรับคำสั่งแล้ว',
+      ledPending: 'รอบอร์ดยืนยัน… (firmware ต้องรองรับคำสั่ง LED)',
       legTrail: 'เส้นทาง',
       legQuad: 'ควอดรันต์ปัจจุบัน',
       min: 'ต่ำสุด',
@@ -202,6 +206,10 @@
       lastReading: 'Last reading at',
       legRobot: 'Robot',
       ledOff: 'off',
+      ledTitle: 'LED on/off',
+      ledNoteOffline: 'Board not connected — affects the map only; sent to the board on connect',
+      ledSynced: 'Board confirmed',
+      ledPending: 'Waiting for the board to confirm… (needs firmware with LED commands)',
       legTrail: 'Trail',
       legQuad: 'Current quadrant',
       min: 'min',
@@ -287,6 +295,11 @@
     [-LED_SPACING, 0, '5', false], [0, 0, '4', false], // LED 4, 5 off for now
     [-LED_SPACING, -LED_SPACING, '2', true], [0, -LED_SPACING, '1', true]
   ];
+  // LED on/off as chosen on the page (label -> bool). Starts from the `on`
+  // flags above, then the saved choice; sent to the board as "LED <n> <0|1>".
+  var ledOn = {};
+  var ledFw = {}; // what the board last confirmed ("# LED <n> <0|1>")
+  LEDS.forEach(function (L) { ledOn[L[2]] = L[3]; });
   // the map is centred on the LED area (firmware coordinates), not on the origin
   var VIEW_C = [-LED_SPACING / 2, 0];
   // Orientation = the 3rd value (degrees). The firmware turns the photodiode
@@ -346,7 +359,8 @@
     tableDetails: $('tableDetails'), tableBody: $('tableBody'),
     lastRaw: $('lastRaw'), errCount: $('errCount'), lastAge: $('lastAge'),
     noticeText: $('noticeText'), noticeAction: $('noticeAction'),
-    recBadge: $('recBadge'), recTime: $('recTime'), recHeader: $('recHeader'), recHeaderTime: $('recHeaderTime')
+    recBadge: $('recBadge'), recTime: $('recTime'), recHeader: $('recHeader'), recHeaderTime: $('recHeaderTime'),
+    ledGrid: $('ledGrid'), ledNote: $('ledNote')
   };
 
   /* ---------- theme colors for canvas ---------- */
@@ -368,6 +382,12 @@
     var line = String(raw).trim();
     if (!line) return;
     state.lastRaw = line.length > 120 ? line.slice(0, 120) + '…' : line;
+    // "#" lines are replies from the board, not data (not counted as errors)
+    if (line.charAt(0) === '#') {
+      var ack = /^#\s*LED\s+(\d+)\s+([01])\b/i.exec(line);
+      if (ack) { ledFw[ack[1]] = ack[2] === '1'; updateLedUI(); }
+      return;
+    }
     var s = parseLine(line);
     if (!s) { state.parseErrors++; return; }
 
@@ -445,6 +465,51 @@
     el.baud.disabled = src === 'serial';
     state.dirty = true;
     updateStatus();
+    updateLedUI();
+  }
+
+  /* ---------- LED on/off: page -> board ---------- */
+  // Writes are chained so two quick toggles never fight over the writer lock.
+  var sendChain = Promise.resolve();
+  function sendSerial(text) {
+    var p = port;
+    if (!p || !p.writable) return;
+    sendChain = sendChain.then(async function () {
+      var w = p.writable.getWriter();
+      try { await w.write(new TextEncoder().encode(text)); } finally { w.releaseLock(); }
+    }).catch(function () { /* port gone; the read loop reports it */ });
+  }
+  function sendLed(label) { sendSerial('LED ' + label + ' ' + (ledOn[label] ? 1 : 0) + '\n'); }
+  function sendAllLeds() { LEDS.forEach(function (L) { sendLed(L[2]); }); }
+
+  function buildLedButtons() {
+    LEDS.forEach(function (L) { // LEDS order is the grid order: 8 7 / 5 4 / 2 1
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'btn led-btn';
+      b.dataset.led = L[2];
+      b.innerHTML = '<span class="led-dot" aria-hidden="true"></span>LED ' + L[2];
+      b.addEventListener('click', function () { toggleLed(L[2]); });
+      el.ledGrid.appendChild(b);
+    });
+  }
+
+  function toggleLed(label) {
+    ledOn[label] = !ledOn[label];
+    try { localStorage.setItem('ra.leds', JSON.stringify(ledOn)); } catch (e) { /* storage unavailable */ }
+    sendLed(label);
+    updateLedUI();
+    state.dirty = true;
+  }
+
+  function updateLedUI() {
+    var btns = el.ledGrid.querySelectorAll('.led-btn'), synced = true;
+    for (var i = 0; i < btns.length; i++) {
+      var label = btns[i].dataset.led;
+      btns[i].setAttribute('aria-pressed', ledOn[label] ? 'true' : 'false');
+      if (ledFw[label] !== ledOn[label]) synced = false;
+    }
+    el.ledNote.textContent = t(state.source !== 'serial' ? 'ledNoteOffline' : synced ? 'ledSynced' : 'ledPending');
   }
 
   async function connectSerial() {
@@ -495,8 +560,10 @@
     clearData();
     port = p;
     keepReading = true;
+    ledFw = {}; // nothing confirmed by this board yet
     setSource('serial');
     readLoop();
+    sendAllLeds(); // bring the board in line with the switches on the page
   }
 
   async function readLoop() {
@@ -876,7 +943,7 @@
     // LEDs with their numbers, placed outward from the square's centre
     ctx.font = '600 ' + (mk < 0.8 ? 11 : 12) + 'px ' + C.font;
     for (var li = 0; li < LEDS.length; li++) {
-      var ex = PX(LEDS[li][0] * f), ey = PY(LEDS[li][1] * f), on = LEDS[li][3];
+      var ex = PX(LEDS[li][0] * f), ey = PY(LEDS[li][1] * f), on = ledOn[LEDS[li][2]];
       ctx.fillStyle = C.surface;
       ctx.beginPath(); ctx.arc(ex, ey, 9 * mk, 0, Math.PI * 2); ctx.fill();
       if (on) {
@@ -1271,6 +1338,7 @@
     if (state.notice) showNotice(state.notice.key, state.notice.arg, state.notice.action);
     if (!HAS_SERIAL) el.btnConnect.title = t('connectDisabled');
     updateStatus();
+    updateLedUI();
     state.dirty = state.tilesDirty = true; // canvas text, "waiting" placeholders
   }
 
@@ -1400,6 +1468,11 @@
   var savedTheme = null;
   try { savedTheme = localStorage.getItem('ra.theme'); } catch (e) { /* storage unavailable */ }
   setTheme(savedTheme, false);
+  try {
+    var savedLeds = JSON.parse(localStorage.getItem('ra.leds') || 'null');
+    if (savedLeds) LEDS.forEach(function (L) { if (typeof savedLeds[L[2]] === 'boolean') ledOn[L[2]] = savedLeds[L[2]]; });
+  } catch (e) { /* storage unavailable or bad JSON */ }
+  buildLedButtons();
   // the compass note follows the sign convention above
   el.headingNote.setAttribute('data-i18n', HEADING_SIGN < 0 ? 'headingCW' : 'headingCCW');
   el.unit.value = state.unit;

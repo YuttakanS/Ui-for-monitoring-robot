@@ -296,6 +296,13 @@ main {
 .sw { display: inline-block; width: 12px; height: 12px; flex: none; }
 .sw-led { border-radius: 50%; background: var(--led); }
 .sw-led-off { border-radius: 50%; box-shadow: inset 0 0 0 2px var(--muted); }
+
+/* LED on/off switches */
+.led-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0 8px; }
+.led-btn { display: flex; align-items: center; justify-content: flex-start; gap: 8px; }
+.led-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--led); flex: none; }
+.led-btn[aria-pressed="false"] { color: var(--muted); }
+.led-btn[aria-pressed="false"] .led-dot { background: transparent; box-shadow: inset 0 0 0 2px var(--muted); }
 /* triangle like the robot on the map, flat front face to the right */
 .sw-robot { background: var(--text); clip-path: polygon(100% 0, 100% 100%, 0 50%); }
 .sw-quad { border-radius: 2px; background: var(--wash); border: 2px solid var(--text2); }
