@@ -105,6 +105,11 @@
       trail: 'เส้นทาง (จุด)',
       off: 'ปิด',
       mapAria: 'แผนที่ 2 มิติแสดงตำแหน่งหุ่นยนต์เทียบกับ LED 9 ดวง',
+      mapTitle3d: 'แผนที่ตำแหน่ง (3 มิติ)',
+      map3dAria: 'ภาพ 3 มิติของ LED 9 ดวงที่ความสูงจริงและหุ่นยนต์บนพื้น',
+      viewLabel: 'มุมมองแผนที่',
+      resetView: 'รีเซ็ตมุมมอง',
+      no3d: 'เบราว์เซอร์นี้แสดง 3D (WebGL) ไม่ได้',
       waiting: 'รอข้อมูล…',
       hintTitle: 'ยังไม่มีข้อมูล',
       hintStep1: '1. ต่อบอร์ดเข้ากับคอมพิวเตอร์ผ่าน USB',
@@ -189,6 +194,11 @@
       trail: 'Trail (points)',
       off: 'Off',
       mapAria: '2D map of the robot position relative to the 9 LEDs',
+      mapTitle3d: 'Position map (3D)',
+      map3dAria: '3D view of the 9 LEDs at their real height and the robot on the floor',
+      viewLabel: 'Map view',
+      resetView: 'Reset view',
+      no3d: 'This browser cannot show 3D (WebGL)',
       waiting: 'Waiting for data…',
       hintTitle: 'No data yet',
       hintStep1: '1. Plug the board in over USB',
@@ -324,6 +334,7 @@
     latest: null,
     unit: DEFAULT_UNIT,    // display unit only (key of UNITS)
     trailN: 100,           // map trail length in samples; 0 = off
+    mapView: '2d',         // '2d' | '3d'
     mapHover: null,        // pointer position over the map canvas (CSS px) or null
     stats: null,           // session min/max per field, reset with the data
     chartRange: 60000,     // one of CHART_RANGES
@@ -353,7 +364,9 @@
     btnSettings: $('btnSettings'), settingsPanel: $('settingsPanel'), trailN: $('trailN'),
     btnPause: $('btnPause'), rangeRadios: document.querySelectorAll('input[name=range]'),
     statusDot: $('statusDot'), statusText: $('statusText'), rate: $('rate'), notice: $('notice'),
-    map: $('map'),
+    map: $('map'), map2dWrap: $('map2dWrap'), map3d: $('map3d'), btnReset3d: $('btnReset3d'),
+    viewRadios: document.querySelectorAll('input[name=mapView]'), legQuad: $('legQuad'),
+    mapTitle: document.querySelector('[data-i18n=mapTitle]'),
     valX: $('valX'), valY: $('valY'), valQ: $('valQ'), valR: $('valR'),
     valH: $('valH'), cNeedle: $('cNeedle'), headingNote: $('headingNote'),
     qMini: $('qMini'), mmX: $('mmX'), mmY: $('mmY'), mmR: $('mmR'), lastTime: $('lastTime'),
@@ -1368,14 +1381,298 @@
     readColors(); // canvases take their colours from the CSS variables
   }
 
+  /* =====================================================================
+   * 3D view (three.js): the LED grid at its real height, the robot on the
+   * floor. Firmware coordinates in cm with +Z up. Built on first use.
+   * ===================================================================== */
+
+  var LED_HEIGHT = 92;     // cm above the photodiodes (firmware p(k, 2) = 0.920 m)
+  var ROBOT_R = 10;        // drawn size of the robot (cm); not used in any calculation
+  var ROBOT_H = 12;
+  var TRAIL_MAX = 1000;    // largest trail option
+  var HAS_3D = (function () {
+    if (!window.THREE || !THREE.OrbitControls) return false;
+    try {
+      var c = document.createElement('canvas');
+      return !!(c.getContext('webgl2') || c.getContext('webgl'));
+    } catch (e) { return false; }
+  })();
+  var v3 = null;
+
+  function init3d() {
+    var T = THREE;
+    var renderer = new T.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    el.map3d.appendChild(renderer.domElement);
+    var scene = new T.Scene();
+    var camera = new T.PerspectiveCamera(40, 1, 1, 5000);
+    camera.up.set(0, 0, 1); // +Z up, like the real room
+    var controls = new T.OrbitControls(camera, renderer.domElement);
+    controls.maxPolarAngle = Math.PI * 0.495; // stay above the floor
+    controls.minDistance = 60;
+    controls.maxDistance = 900;
+    scene.add(new T.AmbientLight(0xffffff, 0.7));
+    var sun = new T.DirectionalLight(0xffffff, 0.6);
+    sun.position.set(-80, -120, 200);
+    scene.add(sun);
+
+    // grid, axes and LEDs; rebuilt when colours, unit, language or LEDs change
+    var statics = new T.Group();
+    scene.add(statics);
+
+    // robot: triangular pyramid, one face per photodiode. Face normals at 0
+    // and +-120 deg (local); photodiode 1's face looks along local +X (= heading).
+    var robot = new T.Group();
+    var base = [60, 180, 300].map(function (d) {
+      var a = d * Math.PI / 180;
+      return [ROBOT_R * Math.cos(a), ROBOT_R * Math.sin(a), 0];
+    });
+    var apex = [0, 0, ROBOT_H], tri = [], i;
+    for (i = 0; i < 3; i++) tri.push(base[i], base[(i + 1) % 3], apex); // sides
+    tri.push(base[0], base[2], base[1]);                                // bottom
+    var flat = [];
+    tri.forEach(function (p) { flat.push(p[0], p[1], p[2]); });
+    var g = new T.BufferGeometry();
+    g.setAttribute('position', new T.Float32BufferAttribute(flat, 3));
+    g.computeVertexNormals();
+    var body = new T.Mesh(g, new T.MeshLambertMaterial({ flatShading: true }));
+    robot.add(body);
+    var arrow = new T.ArrowHelper(new T.Vector3(1, 0, 0), new T.Vector3(ROBOT_R * 0.5, 0, ROBOT_H * 0.3), 16, 0x000000, 6, 5);
+    robot.add(arrow);
+    robot.visible = false;
+    scene.add(robot);
+
+    var tg = new T.BufferGeometry();
+    tg.setAttribute('position', new T.BufferAttribute(new Float32Array(TRAIL_MAX * 3), 3));
+    var trail = new T.Line(tg, new T.LineBasicMaterial({ transparent: true, opacity: 0.8 }));
+    trail.frustumCulled = false;
+    scene.add(trail);
+
+    // origin -> robot line on the floor (the distance shown in the side panel)
+    var rg = new T.BufferGeometry();
+    rg.setAttribute('position', new T.BufferAttribute(new Float32Array(6), 3));
+    var toOrigin = new T.Line(rg, new T.LineBasicMaterial());
+    toOrigin.frustumCulled = false;
+    scene.add(toOrigin);
+
+    v3 = { renderer: renderer, scene: scene, camera: camera, controls: controls, statics: statics,
+      robot: robot, body: body, arrow: arrow, trail: trail, toOrigin: toOrigin, labels: [],
+      sig: '', w: 0, h: 0, needs: true };
+    controls.addEventListener('change', function () { v3.needs = true; });
+    reset3dView();
+  }
+
+  function reset3dView() {
+    // looking in from the -Y side (Q3/Q4), the side the 2D map is drawn from
+    v3.camera.position.set(110, -240, 175);
+    v3.controls.target.set(0, 0, 35);
+    v3.controls.update();
+    v3.needs = true;
+  }
+
+  function color3(css) { return new THREE.Color(css || '#888888'); }
+
+  // Text label that always faces the camera and keeps the same size on screen
+  // (px = text height in CSS px; see size3dLabels). Anchored at its bottom
+  // centre when `above` is set, otherwise at its centre.
+  function label3(text, css, px, weight, above) {
+    var h = px;
+    var fpx = 48, cv = document.createElement('canvas'), ctx = cv.getContext('2d');
+    var font = (weight || '600') + ' ' + fpx + 'px ' + C.font;
+    ctx.font = font;
+    cv.width = Math.ceil(ctx.measureText(text).width) + 16;
+    cv.height = fpx + 16;
+    ctx.font = font; // resizing the canvas resets the context
+    ctx.fillStyle = css;
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, 8, cv.height / 2);
+    var tex = new THREE.CanvasTexture(cv);
+    tex.minFilter = THREE.LinearFilter;
+    var sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true, sizeAttenuation: false }));
+    sp.userData.px = h * cv.height / fpx; // canvas has padding around the text
+    sp.userData.aspect = cv.width / cv.height;
+    if (above) sp.center.set(0.5, 0);
+    sp.renderOrder = 10;
+    v3.labels.push(sp);
+    return sp;
+  }
+
+  // Without size attenuation a sprite of scale s is s * P[1][1] / 2 of the
+  // viewport height tall, so s = 2 * px / (P[1][1] * viewport height).
+  function size3dLabels() {
+    var k = 2 / (v3.camera.projectionMatrix.elements[5] * v3.h);
+    v3.labels.forEach(function (sp) {
+      var s = sp.userData.px * k;
+      sp.scale.set(s * sp.userData.aspect, s, 1);
+    });
+  }
+
+  function lines3(pts, css, dashed) {
+    var g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    var m = dashed
+      ? new THREE.LineDashedMaterial({ color: color3(css), dashSize: 3, gapSize: 3, transparent: true, opacity: 0.7 })
+      : new THREE.LineBasicMaterial({ color: color3(css) });
+    var l = new THREE.LineSegments(g, m);
+    if (dashed) l.computeLineDistances();
+    return l;
+  }
+
+  function dispose3(obj) {
+    obj.traverse(function (o) {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) {
+        if (o.material.map) o.material.map.dispose();
+        o.material.dispose();
+      }
+    });
+  }
+
+  function build3dStatics() {
+    var T = THREE, G = v3.statics, R = MAP_RANGE, f = unitInfo().f, i, v, pts;
+    for (i = G.children.length - 1; i >= 0; i--) { dispose3(G.children[i]); G.remove(G.children[i]); }
+    v3.labels = [];
+
+    // floor grid every 10 cm over the same area as the 2D map
+    pts = [];
+    for (v = -R; v <= R + 1e-9; v += 10) {
+      if (Math.abs(v) < 1e-9) continue; // the axes are drawn on their own
+      pts.push(v, -R, 0, v, R, 0, -R, v, 0, R, v, 0);
+    }
+    G.add(lines3(pts, C.grid));
+
+    // axes: X and Y on the floor, Z up past the LEDs (colours match the X/Y series)
+    var zTop = LED_HEIGHT + 20;
+    G.add(lines3([-R, 0, 0, R, 0, 0], C.s1));
+    G.add(lines3([0, -R, 0, 0, R, 0], C.s2));
+    G.add(lines3([0, 0, 0, 0, 0, zTop], C.s3));
+    var off = 8;
+    [['+X', R + off, 0, 0, C.s1], ['−X', -R - off, 0, 0, C.s1],
+     ['+Y', 0, R + off, 0, C.s2], ['−Y', 0, -R - off, 0, C.s2],
+     ['+Z', 0, 0, zTop + off, C.s3]].forEach(function (a) {
+      var sp = label3(a[0], a[4], 15, '700');
+      sp.position.set(a[1], a[2], a[3]);
+      G.add(sp);
+    });
+
+    // ticks in the display unit: +-50 on the floor axes, every 25 cm up Z
+    pts = [];
+    function tick(text, x, y, z, css) {
+      var sp = label3(text, css || C.muted, 11, '500');
+      sp.position.set(x, y, z);
+      G.add(sp);
+    }
+    [-50, 50].forEach(function (d) {
+      pts.push(d, -2, 0, d, 2, 0, -2, d, 0, 2, d, 0);
+      tick(fmtTick(d * f, 25 * f), d, -6, 0);
+      tick(fmtTick(d * f, 25 * f), -7, d, 0);
+    });
+    for (v = 25; v < LED_HEIGHT; v += 25) {
+      pts.push(-2, 0, v, 2, 0, v);
+      tick(fmtTick(v * f, 25 * f), -7, 0, v);
+    }
+    pts.push(-2, 0, LED_HEIGHT, 2, 0, LED_HEIGHT);
+    tick(fmtTick(LED_HEIGHT * f, f), -7, 0, LED_HEIGHT, C.led); // LED height
+    G.add(lines3(pts, C.muted));
+
+    // the LED grid's wiring at z = LED_HEIGHT (8--7--6 / 5--4--3 / 2--1--0)
+    pts = [];
+    for (v = -LED_SPACING; v <= LED_SPACING; v += LED_SPACING) {
+      pts.push(-LED_SPACING, v, LED_HEIGHT, LED_SPACING, v, LED_HEIGHT);
+      pts.push(v, -LED_SPACING, LED_HEIGHT, v, LED_SPACING, LED_HEIGHT);
+    }
+    G.add(lines3(pts, C.axis));
+
+    // LEDs: solid when on, grey wireframe when off; dashed drop line to the floor
+    var drop = [];
+    LEDS.forEach(function (L) {
+      var on = ledOn[L[2]];
+      var m = new T.Mesh(new T.SphereGeometry(on ? 3.2 : 2.8, 20, 14),
+        new T.MeshBasicMaterial(on ? { color: color3(C.led) } : { color: color3(C.muted), wireframe: true }));
+      m.position.set(L[0], L[1], LED_HEIGHT);
+      G.add(m);
+      var sp = label3('LED ' + L[2] + (on ? '' : ' (' + t('ledOff') + ')'), on ? C.text2 : C.muted, 12, '600', true);
+      sp.position.set(L[0], L[1], LED_HEIGHT + 4);
+      G.add(sp);
+      drop.push(L[0], L[1], LED_HEIGHT - 3, L[0], L[1], 0);
+      var dot = new T.Mesh(new T.RingGeometry(1.2, 2, 20), new T.MeshBasicMaterial({ color: color3(C.muted), side: T.DoubleSide }));
+      dot.position.set(L[0], L[1], 0.05);
+      G.add(dot);
+    });
+    G.add(lines3(drop, C.muted, true));
+
+    v3.body.material.color = color3(C.text);
+    v3.arrow.setColor(color3(C.s3));
+    v3.trail.material.color = color3(C.text2);
+    v3.toOrigin.material.color = color3(C.text2);
+  }
+
+  function render3d() {
+    var box = el.map3d.getBoundingClientRect(), w = Math.round(box.width), h = Math.round(box.height);
+    if (w < 10 || h < 10) return;
+    var relabel = false;
+    if (w !== v3.w || h !== v3.h) {
+      v3.renderer.setSize(w, h, false);
+      v3.camera.aspect = w / h;
+      v3.camera.updateProjectionMatrix();
+      v3.w = w; v3.h = h;
+      relabel = true;
+    }
+    var sig = JSON.stringify([C, state.unit, state.lang, ledOn]);
+    if (sig !== v3.sig) { build3dStatics(); v3.sig = sig; relabel = true; }
+    if (relabel) size3dLabels();
+
+    var s = state.latest;
+    v3.robot.visible = v3.toOrigin.visible = !!s;
+    if (s) {
+      v3.robot.position.set(s.x, s.y, 0);
+      v3.robot.rotation.z = mapHeading(s.angle) * Math.PI / 180;
+      var op = v3.toOrigin.geometry.attributes.position;
+      op.setXYZ(0, 0, 0, 0.1);
+      op.setXYZ(1, s.x, s.y, 0.1);
+      op.needsUpdate = true;
+    }
+    var S = state.samples, n = Math.min(state.trailN, S.length, TRAIL_MAX);
+    var tp = v3.trail.geometry.attributes.position;
+    for (var i = 0; i < n; i++) {
+      var q = S[S.length - n + i];
+      tp.setXYZ(i, q.x, q.y, 0.1);
+    }
+    tp.needsUpdate = true;
+    v3.trail.geometry.setDrawRange(0, n);
+    v3.renderer.render(v3.scene, v3.camera);
+    v3.needs = false;
+  }
+
+  function setMapView(view, save) {
+    if (view === '3d' && !HAS_3D) view = '2d';
+    state.mapView = view === '3d' ? '3d' : '2d';
+    var is3d = state.mapView === '3d';
+    if (is3d && !v3) init3d();
+    el.map2dWrap.hidden = is3d;
+    el.map3d.hidden = !is3d;
+    el.btnReset3d.hidden = !is3d;
+    el.legQuad.hidden = is3d; // the quadrant highlight is 2D only
+    el.mapTitle.setAttribute('data-i18n', is3d ? 'mapTitle3d' : 'mapTitle');
+    el.mapTitle.textContent = t(is3d ? 'mapTitle3d' : 'mapTitle');
+    for (var i = 0; i < el.viewRadios.length; i++) el.viewRadios[i].checked = el.viewRadios[i].value === state.mapView;
+    if (v3) v3.needs = true;
+    state.dirty = true;
+    if (save) {
+      try { localStorage.setItem('ra.mapView', state.mapView); } catch (e) { /* storage unavailable */ }
+    }
+  }
+
   function frame() {
     var live = state.source !== 'idle';
     if (state.dirty || live) {
-      if (state.dirty) drawMap();
+      if (state.dirty && state.mapView === '2d') drawMap();
       drawChart(chartXY);
+      if (v3 && state.dirty) v3.needs = true;
       state.dirty = false;
     }
     if (state.tilesDirty) { updateTiles(); state.tilesDirty = false; }
+    if (v3 && state.mapView === '3d' && v3.needs) render3d();
     requestAnimationFrame(frame);
   }
 
@@ -1467,6 +1764,7 @@
     }
     var savedRange = localStorage.getItem('ra.range');
     if (savedRange !== null && CHART_RANGES.indexOf(+savedRange) >= 0) state.chartRange = +savedRange;
+    if (localStorage.getItem('ra.mapView') === '3d') state.mapView = '3d';
     var savedTrail = localStorage.getItem('ra.trail');
     for (oi = 0; oi < el.trailN.options.length; oi++) {
       if (el.trailN.options[oi].value === savedTrail) state.trailN = +savedTrail;
@@ -1485,6 +1783,14 @@
   el.unit.value = state.unit;
   el.trailN.value = String(state.trailN);
   setChartRange(state.chartRange);
+  for (var vi = 0; vi < el.viewRadios.length; vi++) {
+    el.viewRadios[vi].addEventListener('change', function (e) { if (e.target.checked) setMapView(e.target.value, true); });
+    if (el.viewRadios[vi].value === '3d' && !HAS_3D) {
+      el.viewRadios[vi].disabled = true;
+      el.viewRadios[vi].parentNode.title = t('no3d');
+    }
+  }
+  el.btnReset3d.addEventListener('click', function () { if (v3) reset3dView(); });
 
   window.addEventListener('beforeunload', function (e) {
     if (state.log.length && !state.logSaved) { e.preventDefault(); e.returnValue = ''; }
@@ -1495,7 +1801,7 @@
   }
   if (window.ResizeObserver) {
     var ro = new ResizeObserver(function () { state.dirty = true; });
-    ro.observe(el.map); ro.observe(chartXY.cv);
+    ro.observe(el.map); ro.observe(el.map3d); ro.observe(chartXY.cv);
   }
   window.addEventListener('resize', function () { state.dirty = true; });
 
@@ -1511,6 +1817,7 @@
   readColors();
   updateUnitLabels();
   applyLang();
+  setMapView(state.mapView, false); // after applyLang, so the title is in the right language
   setInterval(updateStatus, 500);
   requestAnimationFrame(frame);
 
