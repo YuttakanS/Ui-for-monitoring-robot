@@ -110,7 +110,6 @@
       statusStale: 'เชื่อมต่อแล้ว — ยังไม่มีข้อมูลที่อ่านได้',
       statusOn: 'เชื่อมต่อ Serial แล้ว',
       mapTitle: 'แผนที่ตำแหน่ง (มุมมองบน)',
-      fitScale: 'ปรับสเกลให้พอดี',
       trail: 'เส้นทาง (จุด)',
       off: 'ปิด',
       mapAria: 'แผนที่ 2 มิติแสดงตำแหน่งหุ่นยนต์เทียบกับ LED 4 ดวง',
@@ -186,7 +185,6 @@
       statusStale: 'Connected — no readable data yet',
       statusOn: 'Serial connected',
       mapTitle: 'Position map (top view)',
-      fitScale: 'Fit scale',
       trail: 'Trail (points)',
       off: 'Off',
       mapAria: '2D map of the robot position relative to the 4 LEDs',
@@ -274,7 +272,6 @@
   // History kept for the whole session, capped so a long run can't exhaust
   // memory: ~1 h at 20 Hz. Oldest samples go first.
   var MAX_SAMPLES = 72000;
-  var FIT_MS = 30000;      // "Fit scale" looks at this much recent history
   // Break the line only on a real dropout. Must stay well above 1000 ms: a hidden
   // tab throttles the Demo timer to ~1 sample/s, which must still draw as one line.
   var GAP_MS = 2500;
@@ -287,15 +284,14 @@
   ];
   // the map is centred on the LED square, not on the origin
   var VIEW_C = [-LED_SPACING / 2, -LED_SPACING / 2];
-  // the map never zooms in past the LED square, so all 4 LEDs stay in view
-  var MIN_RANGE = LED_SPACING * 0.75;
-  var DEFAULT_RANGE = MIN_RANGE; // cm
+  // Fixed map half-width (cm): the LED square plus a margin. The map never
+  // rescales; a robot outside the view is pinned to the edge.
+  var MAP_RANGE = LED_SPACING * 0.75;
 
   var state = {
     source: 'idle',        // idle | serial | demo
     samples: [],
     latest: null,
-    range: null,           // map half-width in cm; null = not fitted yet
     unit: DEFAULT_UNIT,    // display unit only (key of UNITS)
     trailN: 100,           // map trail length in samples; 0 = off
     mapHover: null,        // pointer position over the map canvas (CSS px) or null
@@ -327,7 +323,7 @@
     btnSettings: $('btnSettings'), settingsPanel: $('settingsPanel'), trailN: $('trailN'),
     btnPause: $('btnPause'), rangeRadios: document.querySelectorAll('input[name=range]'),
     statusDot: $('statusDot'), statusText: $('statusText'), rate: $('rate'), notice: $('notice'),
-    map: $('map'), btnResetScale: $('btnResetScale'),
+    map: $('map'),
     valX: $('valX'), valY: $('valY'), valQ: $('valQ'), valR: $('valR'),
     qMini: $('qMini'), mmX: $('mmX'), mmY: $('mmY'), mmR: $('mmR'), lastTime: $('lastTime'),
     btnRecord: $('btnRecord'), recCount: $('recCount'), btnCsv: $('btnCsv'), btnClearLog: $('btnClearLog'),
@@ -369,9 +365,6 @@
     // trim in chunks of 1000 so the array copy happens rarely
     if (state.samples.length > MAX_SAMPLES + 1000) state.samples.splice(0, state.samples.length - MAX_SAMPLES);
 
-    var m = Math.max(Math.abs(s.x - VIEW_C[0]), Math.abs(s.y - VIEW_C[1]));
-    if (state.range === null) state.range = Math.max(MIN_RANGE, niceCeil(Math.max(m * 1.5, 1e-6)));
-    else if (m > state.range * 0.92) state.range = Math.max(MIN_RANGE, niceCeil(m * 1.2));
 
     if (state.recording) {
       state.log.push({
@@ -401,7 +394,6 @@
     state.latest = null;
     state.stats = null;
     if (state.paused) setPaused(false);
-    state.range = null;
     state.parseErrors = 0;
     state.lastRaw = '';
     state.dirty = state.tilesDirty = true;
@@ -732,7 +724,7 @@
     // Grid and ticks work in the display unit; sample values (cm) go through f.
     // Factors are powers of 10, so a "nice" cm range stays nice in mm and m.
     var f = unitInfo().f;
-    var R = (state.range === null ? DEFAULT_RANGE : state.range) * f;
+    var R = MAP_RANGE * f;
     var k = half / R;
     var vx = VIEW_C[0] * f, vy = VIEW_C[1] * f; // view centre in the display unit
     var s = state.latest;
@@ -856,8 +848,12 @@
 
     // Robot + coordinate label
     if (s) {
-      var rx = PX(s.x * f), ry = PY(s.y * f);
+      // pinned to the frame edge (and faded) when it is outside the fixed view
+      var rx = Math.max(L, Math.min(Rt, PX(s.x * f))), ry = Math.max(T, Math.min(B, PY(s.y * f)));
+      var outside = rx !== PX(s.x * f) || ry !== PY(s.y * f);
+      if (outside) ctx.globalAlpha = 0.45;
       drawRobot(ctx, rx, ry, mk);
+      ctx.globalAlpha = 1;
       var label = '(' + fmtLen(s.x) + ', ' + fmtLen(s.y) + ')';
       ctx.font = '600 12px ' + C.font;
       var tw = ctx.measureText(label).width;
@@ -951,15 +947,6 @@
       ctx.fillStyle = i === 0 ? C.text : C.text2;
       ctx.fillText(lines[i], x, top + lh * (i + 0.5));
     }
-  }
-
-  function fitScale() {
-    var S = state.samples, t0 = chartWindow().tNow - FIT_MS, m = 0;
-    for (var i = lowerBound(S, t0); i < S.length; i++) {
-      m = Math.max(m, Math.abs(S[i].x - VIEW_C[0]), Math.abs(S[i].y - VIEW_C[1]));
-    }
-    state.range = m > 0 ? Math.max(MIN_RANGE, niceCeil(m * 1.2)) : null;
-    state.dirty = true;
   }
 
   /* =====================================================================
@@ -1285,7 +1272,6 @@
       if (state.source === 'idle' && state.notice && state.notice.key === 'errLost') showNotice('errLostBack', undefined, 'reconnect');
     });
   }
-  el.btnResetScale.addEventListener('click', fitScale);
   el.map.addEventListener('pointermove', function (e) {
     var b = el.map.getBoundingClientRect();
     state.mapHover = { x: e.clientX - b.left, y: e.clientY - b.top };
