@@ -15,6 +15,19 @@
     return { quadrant: +m[1], x: +m[2], y: +m[3], angle: +m[4] };
   }
 
+  // Standard numbering: Q1 = +x,+y, then counter-clockwise.
+  function quadrantOf(x, y) { return x >= 0 ? (y >= 0 ? 1 : 4) : (y >= 0 ? 2 : 3); }
+
+  function wrapDeg(a) { return ((a + 180) % 360 + 360) % 360 - 180; }
+
+  // The firmware's frame is turned 90° from the room / map: its +x points up the
+  // map and its +y points left. So map X = -y_fw, map Y = +x_fw, heading + 90°.
+  // Only the screen uses the map frame; the CSV keeps the firmware's raw values.
+  function toMapFrame(raw) {
+    var x = 0 - raw.y, y = raw.x; // 0 - y avoids -0
+    return { quadrant: quadrantOf(x, y), x: x, y: y, angle: wrapDeg(raw.angle + 90), raw: raw };
+  }
+
   // Turns arbitrary text chunks into complete lines.
   function createLineSplitter(onLine) {
     var buf = '';
@@ -110,7 +123,7 @@
       hintWaitTitle: 'เชื่อมต่อแล้ว — กำลังรอข้อมูล',
       hintWait1: 'ตรวจว่า baud rate ในเมนูตั้งค่าตรงกับที่บอร์ดใช้',
       hintWait2: 'บอร์ดต้องส่งบรรทัดแบบ  Quadrant 1: x, y, มุม',
-      distLed: 'ระยะจากจุดกึ่งกลาง',
+      distLed: 'ระยะจาก LED 4 (origin)',
       lastReading: 'ค่าล่าสุดเมื่อ',
       legRobot: 'หุ่นยนต์',
       legTrail: 'เส้นทาง',
@@ -186,7 +199,7 @@
       hintWaitTitle: 'Connected — waiting for data',
       hintWait1: 'Check that the baud rate in Settings matches the board',
       hintWait2: 'The board must send lines like  Quadrant 1: x, y, angle',
-      distLed: 'Distance from centre',
+      distLed: 'Distance from LED 4 (origin)',
       lastReading: 'Last reading at',
       legRobot: 'Robot',
       legTrail: 'Trail',
@@ -245,6 +258,7 @@
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
       parseLine: parseLine, createLineSplitter: createLineSplitter,
+      quadrantOf: quadrantOf, wrapDeg: wrapDeg, toMapFrame: toMapFrame,
       niceStep: niceStep, niceCeil: niceCeil, fmtTick: fmtTick,
       fileStamp: fileStamp, toCsv: toCsv, I18N: I18N, translate: translate, UNITS: UNITS
     };
@@ -264,14 +278,17 @@
   // Break the line only on a real dropout. Must stay well above 1000 ms: a hidden
   // tab throttles the Demo timer to ~1 sample/s, which must still draw as one line.
   var GAP_MS = 2500;
-  // LEDs: 2x2 square centred on the origin. The firmware's x, y are measured
-  // from the centre of the square, which has no LED of its own. Change
-  // LED_SPACING if the physical layout changes.
-  var LED_SPACING = 200;   // cm between neighbouring LEDs (LEDs at ±100 cm)
-  var LED_HALF = LED_SPACING / 2;
-  var LEDS = [[-LED_HALF, LED_HALF], [LED_HALF, LED_HALF], [-LED_HALF, -LED_HALF], [LED_HALF, -LED_HALF]];
+  // LEDs in the map frame (see toMapFrame): a square in Q3 with LED 4 at the
+  // origin. [x, y, label]. Change LED_SPACING if the physical layout changes.
+  var LED_SPACING = 50;    // cm between neighbouring LEDs
+  var LEDS = [
+    [0, 0, '4'], [-LED_SPACING, 0, '7'],
+    [0, -LED_SPACING, '5'], [-LED_SPACING, -LED_SPACING, '8']
+  ];
+  // the map is centred on the LED square, not on the origin
+  var VIEW_C = [-LED_SPACING / 2, -LED_SPACING / 2];
   // the map never zooms in past the LED square, so all 4 LEDs stay in view
-  var MIN_RANGE = LED_HALF * 1.25;
+  var MIN_RANGE = LED_SPACING * 0.75;
   var DEFAULT_RANGE = MIN_RANGE; // cm
 
   var state = {
@@ -339,8 +356,9 @@
     var line = String(raw).trim();
     if (!line) return;
     state.lastRaw = line.length > 120 ? line.slice(0, 120) + '…' : line;
-    var s = parseLine(line);
-    if (!s) { state.parseErrors++; return; }
+    var raw = parseLine(line);
+    if (!raw) { state.parseErrors++; return; }
+    var s = toMapFrame(raw);
 
     s.t = performance.now();
     s.wall = Date.now();
@@ -351,13 +369,14 @@
     // trim in chunks of 1000 so the array copy happens rarely
     if (state.samples.length > MAX_SAMPLES + 1000) state.samples.splice(0, state.samples.length - MAX_SAMPLES);
 
-    var m = Math.max(Math.abs(s.x), Math.abs(s.y));
+    var m = Math.max(Math.abs(s.x - VIEW_C[0]), Math.abs(s.y - VIEW_C[1]));
     if (state.range === null) state.range = Math.max(MIN_RANGE, niceCeil(Math.max(m * 1.5, 1e-6)));
     else if (m > state.range * 0.92) state.range = Math.max(MIN_RANGE, niceCeil(m * 1.2));
 
     if (state.recording) {
       state.log.push({
-        wall: s.wall, t: s.t, quadrant: s.quadrant, x: s.x, y: s.y, angle: s.angle, source: state.source
+        // raw firmware values, not the map frame
+        wall: s.wall, t: s.t, quadrant: raw.quadrant, x: raw.x, y: raw.y, angle: raw.angle, source: state.source
       });
       state.logSaved = false;
     }
@@ -523,10 +542,11 @@
     var t0 = performance.now();
     demoTimer = setInterval(function () {
       var t = (performance.now() - t0) / 1000 + 4.2;
-      var x = 76 * Math.cos(t * 0.35) + (Math.random() - 0.5) * 1.2;
-      var y = 60 * Math.sin(t * 0.55) + (Math.random() - 0.5) * 1.2;
-      var a = Math.atan2(x, 150) * 180 / Math.PI + (Math.random() - 0.5) * 0.6;
-      var q = x >= 0 ? (y >= 0 ? 1 : 4) : (y >= 0 ? 2 : 3);
+      // firmware frame: the LED square is x in [-50, 0], y in [0, 50]
+      var x = -25 + 19 * Math.cos(t * 0.35) + (Math.random() - 0.5) * 1.2;
+      var y = 25 + 15 * Math.sin(t * 0.55) + (Math.random() - 0.5) * 1.2;
+      var a = wrapDeg(t * 20) + (Math.random() - 0.5) * 0.6;
+      var q = quadrantOf(x, y);
       var line = 'Quadrant ' + q + ': ' + x.toFixed(2) + ', ' + y.toFixed(2) + ', ' + a.toFixed(2) + '\r\n';
       var cut = Math.floor(Math.random() * line.length); // arrive in two chunks, like real serial
       split(line.slice(0, cut));
@@ -714,52 +734,63 @@
     var f = unitInfo().f;
     var R = (state.range === null ? DEFAULT_RANGE : state.range) * f;
     var k = half / R;
+    var vx = VIEW_C[0] * f, vy = VIEW_C[1] * f; // view centre in the display unit
     var s = state.latest;
-    function PX(x) { return cx + x * k; }
-    function PY(y) { return cy - y * k; }
+    function PX(x) { return cx + (x - vx) * k; }
+    function PY(y) { return cy - (y - vy) * k; }
+    var L = cx - half, Rt = cx + half, T = cy - half, B = cy + half;
+    var x0 = PX(0), y0 = PY(0);
+    // origin clamped to the frame, for quadrant areas and axis labels
+    var ox = Math.max(L, Math.min(Rt, x0)), oy = Math.max(T, Math.min(B, y0));
 
-    // Quadrant reported by the firmware (standard numbering: Q1 = +x,+y, counter-clockwise).
-    var qRect = { 1: [cx, cy - half], 2: [cx - half, cy - half], 3: [cx - half, cy], 4: [cx, cy] };
-    if (s && qRect[s.quadrant]) {
+    // Quadrant of the latest sample (standard numbering), clipped to the view.
+    var qRect = {
+      1: [ox, T, Rt - ox, oy - T], 2: [L, T, ox - L, oy - T],
+      3: [L, oy, ox - L, B - oy], 4: [ox, oy, Rt - ox, B - oy]
+    };
+    var qr = s && qRect[s.quadrant];
+    if (qr && (qr[2] < 2 || qr[3] < 2)) qr = null; // quadrant out of view
+    if (qr) {
       ctx.save();
       ctx.globalAlpha = 0.09;
       ctx.fillStyle = C.text;
-      ctx.fillRect(qRect[s.quadrant][0], qRect[s.quadrant][1], half, half);
+      ctx.fillRect(qr[0], qr[1], qr[2], qr[3]);
       ctx.restore();
     }
 
     // Grid + tick labels
     var step = niceStep(2 * R, 10);
-    // keep the LEDs (±LED_HALF) on grid lines while the view is zoomed in on them
-    var ledTicks = LED_HALF * f / step;
-    if (R < 4 * LED_HALF * f && Math.abs(ledTicks - Math.round(ledTicks)) > 1e-6) step /= 2;
+    // keep the LEDs on grid lines while the view is zoomed in on them
+    var ledTicks = LED_SPACING * f / step;
+    if (R < 4 * LED_SPACING * f && Math.abs(ledTicks - Math.round(ledTicks)) > 1e-6) step /= 2;
     ctx.lineWidth = 1;
     ctx.font = '11px ' + C.font;
     ctx.fillStyle = C.muted;
     ctx.strokeStyle = C.grid;
-    var n = Math.floor(R / step + 1e-9);
-    for (var i = -n; i <= n; i++) {
-      var v = i * step;
-      if (i !== 0) {
-        vline(ctx, PX(v), cy - half, cy + half);
-        hline(ctx, cx - half, cx + half, PY(v));
-      }
+    var i, v;
+    for (i = Math.ceil((vx - R) / step - 1e-9); i <= Math.floor((vx + R) / step + 1e-9); i++) {
+      v = i * step;
+      if (i !== 0) vline(ctx, PX(v), T, B);
       ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-      ctx.fillText(fmtTick(v, step), PX(v), cy + half + 7);
-      ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-      ctx.fillText(fmtTick(v, step), cx - half - 7, PY(v));
+      ctx.fillText(fmtTick(v, step), PX(v), B + 7);
     }
-    ctx.strokeRect(Math.round(cx - half) + 0.5, Math.round(cy - half) + 0.5, Math.round(half * 2), Math.round(half * 2));
+    for (i = Math.ceil((vy - R) / step - 1e-9); i <= Math.floor((vy + R) / step + 1e-9); i++) {
+      v = i * step;
+      if (i !== 0) hline(ctx, L, Rt, PY(v));
+      ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      ctx.fillText(fmtTick(v, step), L - 7, PY(v));
+    }
+    ctx.strokeRect(Math.round(L) + 0.5, Math.round(T) + 0.5, Math.round(half * 2), Math.round(half * 2));
 
-    // Axes through the origin
+    // Axes through the origin (when it is in view)
     ctx.strokeStyle = C.axis;
-    vline(ctx, cx, cy - half, cy + half);
-    hline(ctx, cx - half, cx + half, cy);
+    if (x0 >= L && x0 <= Rt) vline(ctx, x0, T, B);
+    if (y0 >= T && y0 <= B) hline(ctx, L, Rt, y0);
     ctx.fillStyle = C.text2;
     ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
-    ctx.fillText('X', cx + half - 6, cy - 5);
+    ctx.fillText('X', Rt - 6, oy - 5);
     ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-    ctx.fillText('Y', cx + 6, cy - half + 6);
+    ctx.fillText('Y', ox + 6, T + 6);
 
     // Quadrant labels in the outer corners
     // smaller labels tucked further into the corners on small maps, clear of the corner LEDs
@@ -770,7 +801,9 @@
       3: [cx - half + qi, cy + half - qi, 'left', 'bottom'],
       4: [cx + half - qi, cy + half - qi, 'right', 'bottom']
     };
+    var corner = { 1: [vx + R, vy + R], 2: [vx - R, vy + R], 3: [vx - R, vy - R], 4: [vx + R, vy - R] };
     for (var q = 1; q <= 4; q++) {
+      if (quadrantOf(corner[q][0], corner[q][1]) !== q) continue; // corner lies in another quadrant
       var active = s && s.quadrant === q;
       ctx.font = (active ? '600 ' : '') + qf + 'px ' + C.font;
       ctx.textAlign = qPos[q][2]; ctx.textBaseline = qPos[q][3];
@@ -787,29 +820,38 @@
     }
 
     // active quadrant outline, drawn over the grid
-    if (s && qRect[s.quadrant]) {
+    if (qr) {
       ctx.strokeStyle = C.text2;
       ctx.lineWidth = 2;
-      ctx.strokeRect(qRect[s.quadrant][0] + 1, qRect[s.quadrant][1] + 1, half - 2, half - 2);
+      ctx.strokeRect(qr[0] + 1, qr[1] + 1, qr[2] - 2, qr[3] - 2);
       ctx.lineWidth = 1;
     }
 
+    ctx.save();
+    ctx.beginPath(); ctx.rect(L, T, half * 2, half * 2); ctx.clip(); // keep marks inside the frame
     if (s) drawTrail(ctx, PX, PY, f);
 
-    // centre -> robot line (the distance shown in the side panel)
+    // origin -> robot line (the distance shown in the side panel)
     if (s) {
       ctx.strokeStyle = C.text2;
       ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(PX(s.x * f), PY(s.y * f)); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(PX(s.x * f), PY(s.y * f)); ctx.stroke();
     }
+    ctx.restore();
 
-    // LEDs (the legend below the map names them)
+    // LEDs with their numbers, placed outward from the square's centre
+    ctx.font = '600 ' + (mk < 0.8 ? 11 : 12) + 'px ' + C.font;
     for (var li = 0; li < LEDS.length; li++) {
       var ex = PX(LEDS[li][0] * f), ey = PY(LEDS[li][1] * f);
       ctx.fillStyle = C.surface;
       ctx.beginPath(); ctx.arc(ex, ey, 9 * mk, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = C.led;
       ctx.beginPath(); ctx.arc(ex, ey, 7 * mk, 0, Math.PI * 2); ctx.fill();
+      var dx = LEDS[li][0] < VIEW_C[0] ? -1 : 1, dy = LEDS[li][1] < VIEW_C[1] ? -1 : 1;
+      ctx.fillStyle = C.text2;
+      ctx.textAlign = dx < 0 ? 'right' : 'left';
+      ctx.textBaseline = dy < 0 ? 'top' : 'bottom';
+      ctx.fillText('LED ' + LEDS[li][2], ex + dx * 9 * mk, ey - dy * 9 * mk);
     }
 
     // Robot + coordinate label
@@ -834,11 +876,11 @@
       drawHint(ctx, cx, cy + half * 0.5);
     }
 
-    drawMapCrosshair(ctx, cx, cy, half, k, w, h);
+    drawMapCrosshair(ctx, cx, cy, half, k, w, h, vx, vy);
   }
 
   // Hover: dashed crosshair and the X, Y (selected unit) under the pointer.
-  function drawMapCrosshair(ctx, cx, cy, half, k, w, h) {
+  function drawMapCrosshair(ctx, cx, cy, half, k, w, h, vx, vy) {
     var p = state.mapHover;
     if (!p || Math.abs(p.x - cx) > half || Math.abs(p.y - cy) > half) return;
     var u = unitInfo();
@@ -850,7 +892,7 @@
     hline(ctx, cx - half, cx + half, p.y);
     ctx.setLineDash([]);
 
-    var label = 'X ' + ((p.x - cx) / k).toFixed(u.d) + '   Y ' + ((cy - p.y) / k).toFixed(u.d) +
+    var label = 'X ' + ((p.x - cx) / k + vx).toFixed(u.d) + '   Y ' + ((cy - p.y) / k + vy).toFixed(u.d) +
       (state.unit ? '  ' + state.unit : '');
     ctx.font = '600 12px ' + C.font;
     var tw = ctx.measureText(label).width, bw = tw + 16, bh = 24;
@@ -914,7 +956,7 @@
   function fitScale() {
     var S = state.samples, t0 = chartWindow().tNow - FIT_MS, m = 0;
     for (var i = lowerBound(S, t0); i < S.length; i++) {
-      m = Math.max(m, Math.abs(S[i].x), Math.abs(S[i].y));
+      m = Math.max(m, Math.abs(S[i].x - VIEW_C[0]), Math.abs(S[i].y - VIEW_C[1]));
     }
     state.range = m > 0 ? Math.max(MIN_RANGE, niceCeil(m * 1.2)) : null;
     state.dirty = true;
