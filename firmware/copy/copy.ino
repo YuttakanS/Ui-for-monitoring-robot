@@ -9,7 +9,7 @@ const int samplingFreq = 25000;
 const int N_PD = 3;
 const int N_LED = 9;
 const int N_Z = N_LED * N_PD;  // number of RSS measurements (was 12 with 4 LEDs, 18 with 6)
-const int N_STATE = 6;
+const int N_STATE = 8;  // x, vx, y, vy, theta, omega, z, vz (was 6 without z)
 const int pins[N_PD] = { 28, 27, 26 };
 
 // Same order as p:           LED4     LED5     LED7     LED8     LED1     LED2     LED0     LED3     LED6
@@ -51,59 +51,46 @@ BLA::Matrix<3, 1> uk = { 0.0, 0.0, -1.0 };
 BLA::Matrix<3, 3> v = { cos(be) * cos(al[0]), -cos(be) * sin(al[0]), sin(be),
                         cos(be) * cos(al[1]), -cos(be) * sin(al[1]), sin(be),
                         cos(be) * cos(al[2]), -cos(be) * sin(al[2]), sin(be) };
-BLA::Matrix<6, 1> xHnm1nm1 = { 0.0 };
-BLA::Matrix<6, 1> xHnnm1 = { 0.0 };
+// EKF state (N_STATE = 8): x, vx, y, vy, theta, omega, z, vz  (m, rad, per s).
+// z is the robot's height above its place on the floor: the photodiodes are at
+// z = 0 when it sits on the floor, the LEDs at p(k, 2). z and vz were added at
+// the end so x (0), y (2) and theta (4) keep their index.
+const int IX = 0, IY = 2, ITH = 4, IZ = 6;
+// false = keep z at 0 (robot always on the floor), as before z was added.
+const bool ESTIMATE_Z = true;
+// z is kept in this range (m): a little below the floor for noise, and well
+// below the LEDs, where the path-loss model blows up (distance -> 0).
+const float Z_MIN = -0.05f, Z_MAX = 0.80f;
+
+BLA::Matrix<N_STATE, 1> xHnm1nm1 = { 0.0 };
+BLA::Matrix<N_STATE, 1> xHnnm1 = { 0.0 };
 BLA::Matrix<N_Z, 1> zn = { 0.0 };
 BLA::Matrix<N_Z, 1> zHn = { 0.0 };
-BLA::Matrix<6, 6> A = { 1, T, 0, 0, 0, 0,
-                        0, 1, 0, 0, 0, 0,
-                        0, 0, 1, T, 0, 0,
-                        0, 0, 0, 1, 0, 0,
-                        0, 0, 0, 0, 1, T,
-                        0, 0, 0, 0, 0, 1 };
-BLA::Matrix<N_Z, 6> Jn = { 0.0 };
-BLA::Matrix<6, N_Z> Kn = { 0.0 };
-BLA::Matrix<6, 6> Pnm1nm1 = { 0.01, 0, 0, 0, 0, 0,
-                              0, 1, 0, 0, 0, 0,
-                              0, 0, 0.01, 0, 0, 0,
-                              0, 0, 0, 1, 0, 0,
-                              0, 0, 0, 0, 0.01, 0,
-                              0, 0, 0, 0, 0, 1 };
-// BLA::Matrix<6, 6> Pnm1nm1 = { 0.01, 0, 0, 0, 0, 0,
-//                               0, 0.01, 0, 0, 0, 0,
-//                               0, 0, 0.01, 0, 0, 0,
-//                               0, 0, 0, 0.01, 0, 0,
-//                               0, 0, 0, 0, 0.01, 0,
-//                               0, 0, 0, 0, 0, 0.01
-//                             };
-BLA::Matrix<6, 6> Pnnm1 = { 0.0 };
-// BLA::Matrix<6, 6> Q = { 0.01, 0, 0, 0, 0, 0,
-//                         0, 0.01, 0, 0, 0, 0,
-//                         0, 0, 0.01, 0, 0, 0,
-//                         0, 0, 0, 0.01, 0, 0,
-//                         0, 0, 0, 0, 0.01, 0,
-//                         0, 0, 0, 0, 0, 0.01 };
-BLA::Matrix<6, 6> Q = { 1e-6, 0, 0, 0, 0, 0,
-                        0, 1e-6, 0, 0, 0, 0,
-                        0, 0, 1e-6, 0, 0, 0,
-                        0, 0, 0, 1e-6, 0, 0,
-                        0, 0, 0, 0, 1e-2, 0,
-                        0, 0, 0, 0, 0, 1e-2};
-// BLA::Matrix<6, 6> Q = { 1e-10, 0, 0, 0, 0, 0,
-//                         0, 1e-6, 0, 0, 0, 0,
-//                         0, 0, 1e-10, 0, 0, 0,
-//                         0, 0, 0, 1e-6, 0, 0,
-//                         0, 0, 0, 0, 1e-2, 0,
-//                         0, 0, 0, 0, 0, 1e-2
-//                       };
+// A, P, Q, R and I are filled in initEkf() so they follow N_STATE.
+BLA::Matrix<N_STATE, N_STATE> A = { 0.0 };
+BLA::Matrix<N_Z, N_STATE> Jn = { 0.0 };
+BLA::Matrix<N_STATE, N_Z> Kn = { 0.0 };
+BLA::Matrix<N_STATE, N_STATE> Pnm1nm1 = { 0.0 };
+BLA::Matrix<N_STATE, N_STATE> Pnnm1 = { 0.0 };
+BLA::Matrix<N_STATE, N_STATE> Q = { 0.0 };
 BLA::Matrix<N_Z, N_Z> R = { 0.0 };
-BLA::Matrix<6, 6> I6 = { 1.0, 0, 0, 0, 0, 0,
-                        0, 1.0, 0, 0, 0, 0,
-                        0, 0, 1.0, 0, 0, 0,
-                        0, 0, 0, 1.0, 0, 0,
-                        0, 0, 0, 0, 1.0, 0,
-                        0, 0, 0, 0, 0, 1.0 };
-//BLA::Matrix<6, 6> I6 = { 0.0 };
+BLA::Matrix<N_STATE, N_STATE> I6 = { 0.0 };  // identity (name kept from the 6-state version)
+
+// Same values as the 6-state version for x, y and theta; z / vz use the same
+// as x / y. (Earlier tuning tries are in git history.)
+void initEkf() {
+  //                          x     vx    y     vy    th    om    z     vz
+  const float P0[N_STATE] = { 0.01, 1,    0.01, 1,    0.01, 1,    0.01, 1    };
+  const float Q0[N_STATE] = { 1e-6, 1e-6, 1e-6, 1e-6, 1e-2, 1e-2, 1e-6, 1e-6 };
+  for (int i = 0; i < N_STATE; i++) {
+    A(i, i) = 1.0;
+    I6(i, i) = 1.0;
+    Pnm1nm1(i, i) = P0[i];
+    Q(i, i) = Q0[i];
+  }
+  for (int i = 0; i < N_STATE; i += 2) A(i, i + 1) = T;  // position += T * velocity
+  for (int i = 0; i < N_Z; i++) R(i, i) = sigma2;
+}
 
 //----------------------------------------------------------------------
 // callback called every 40 microseconds
@@ -124,10 +111,10 @@ float vectorNorm(const BLA::Matrix<3, 1>& z) {
   return sqrt(z(0, 0) * z(0, 0) + z(1, 0) * z(1, 0) + z(2, 0) * z(2, 0));
 }
 
-float pathLossWithoutGamma(int k, int l, float x0, float y0, float t0) {
-  // k = LED index, l = PD index
+float pathLossWithoutGamma(int k, int l, float x0, float y0, float z0, float t0) {
+  // k = LED index, l = PD index; (x0, y0, z0) = robot position, t0 = heading
   float dk, cosPhikl, cosPsikl;
-  BLA::Matrix<3, 1> p0 = { x0, y0, 0 };
+  BLA::Matrix<3, 1> p0 = { x0, y0, z0 };  // z0 was fixed at 0 before z was estimated
   BLA::Matrix<3, 1> pk = { p(k, 0), p(k, 1), p(k, 2) };
   BLA::Matrix<3, 1> vl = { v(l, 0), v(l, 1), v(l, 2) };
   BLA::Matrix<3, 3> Omega0 = { cos(t0), sin(t0), 0.0, -sin(t0), cos(t0), 0.0, 0.0, 0.0, 1.0 };
@@ -150,7 +137,9 @@ float pathLossWithoutGamma(int k, int l, float x0, float y0, float t0) {
 void computeJacobian(const BLA::Matrix<N_STATE, 1>& xHnnm1) {
   float tmp1, tmp2;
   for (int j = 0; j < N_STATE; j++) {
-    if (j != 0 && j != 2 && j != 4)
+    // measurements depend on x, y, theta and z only (not on the velocities);
+    // with ESTIMATE_Z off the z column stays 0, so z is never corrected
+    if (j != IX && j != IY && j != ITH && !(ESTIMATE_Z && j == IZ))
       continue;
     BLA::Matrix<N_STATE, 1> xp = xHnnm1;
     BLA::Matrix<N_STATE, 1> xm = xHnnm1;
@@ -159,8 +148,8 @@ void computeJacobian(const BLA::Matrix<N_STATE, 1>& xHnnm1) {
     for (int k = 0; k < N_LED; k++)
       for (int l = 0; l < N_PD; l++) {
         if (!LED_ON[k]) { Jn(N_PD * k + l, j) = 0; continue; }  // LED off: no influence
-        tmp1 = PtxGamma[k] * pathLossWithoutGamma(k, l, xp(0), xp(2), xp(4));
-        tmp2 = PtxGamma[k] * pathLossWithoutGamma(k, l, xm(0), xm(2), xm(4));
+        tmp1 = PtxGamma[k] * pathLossWithoutGamma(k, l, xp(IX), xp(IY), xp(IZ), xp(ITH));
+        tmp2 = PtxGamma[k] * pathLossWithoutGamma(k, l, xm(IX), xm(IY), xm(IZ), xm(ITH));
         Jn(N_PD * k + l, j) = (tmp1 - tmp2) / (2.0f * eps);
       }
   }
@@ -203,8 +192,7 @@ void readCommands() {
 void setup() {
   Serial.begin(115200);
   analogReadResolution(10);
-  for (int i = 0; i < N_Z; i++)
-    R(i, i) = sigma2;
+  initEkf();
   hardware_alarm_claim(0);
   add_repeating_timer_us(-40, timer_callback, NULL, &timer);
 }
@@ -259,23 +247,34 @@ void loop() {
   for (int f = 0; f < N_LED; f++)
     for (int g = 0; g < N_PD; g++)
       // LED off: predicted = measured, so its innovation is 0
-      zHn(N_PD * f + g) = LED_ON[f] ? PtxGamma[f] * pathLossWithoutGamma(f, g, xHnnm1(0), xHnnm1(2), xHnnm1(4))
+      zHn(N_PD * f + g) = LED_ON[f] ? PtxGamma[f] * pathLossWithoutGamma(f, g, xHnnm1(IX), xHnnm1(IY), xHnnm1(IZ), xHnnm1(ITH))
                                     : zn(N_PD * f + g);
   xHnm1nm1 = xHnnm1 + Kn * (zn - zHn);
   // Pnm1nm1 = (I6 - Kn*Jn) * Pnnm1; 
   Pnm1nm1 = (I6 - Kn*Jn) * Pnnm1 * ~(I6 - Kn*Jn) + Kn * R * ~Kn;
-  xHnm1nm1(4) = boundAngle(xHnm1nm1(4)); 
+  xHnm1nm1(ITH) = boundAngle(xHnm1nm1(ITH));
+  if (ESTIMATE_Z) {
+    // keep z in the range where the model holds; stop vz pushing past a limit
+    if (xHnm1nm1(IZ) < Z_MIN) { xHnm1nm1(IZ) = Z_MIN; if (xHnm1nm1(IZ + 1) < 0) xHnm1nm1(IZ + 1) = 0; }
+    if (xHnm1nm1(IZ) > Z_MAX) { xHnm1nm1(IZ) = Z_MAX; if (xHnm1nm1(IZ + 1) > 0) xHnm1nm1(IZ + 1) = 0; }
+  } else {
+    xHnm1nm1(IZ) = 0;
+    xHnm1nm1(IZ + 1) = 0;
+  }
   //Serial.print("Covariance"); Serial.println(Pnm1nm1);
   if (mode == 2 || mode == 3){
-    // Web format:  Quadrant <n>: <x cm>, <y cm>, <angle deg>
-    float xcm = xHnm1nm1(0) * 100.0;
-    float ycm = xHnm1nm1(2) * 100.0;
-    float deg = xHnm1nm1(4) / M_PI * 180.0;
+    // Web format:  Quadrant <n>: <x cm>, <y cm>, <angle deg>, <z cm>
+    // (the page also accepts the old line without z, and then takes z = 0)
+    float xcm = xHnm1nm1(IX) * 100.0;
+    float ycm = xHnm1nm1(IY) * 100.0;
+    float deg = xHnm1nm1(ITH) / M_PI * 180.0;
+    float zcm = xHnm1nm1(IZ) * 100.0;
     int q = (xcm >= 0) ? (ycm >= 0 ? 1 : 4) : (ycm >= 0 ? 2 : 3);
     Serial.print("Quadrant "); Serial.print(q); Serial.print(": ");
     Serial.print(xcm); Serial.print(", ");
     Serial.print(ycm); Serial.print(", ");
-    Serial.println(deg);
+    Serial.print(deg); Serial.print(", ");
+    Serial.println(zcm);
   }
 // 
   unsigned long time2 = millis();
