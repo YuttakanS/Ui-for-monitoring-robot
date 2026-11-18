@@ -242,6 +242,12 @@ main {
 .g-text { fill: var(--muted); font-size: 13px; font-family: inherit; }
 .compass { width: 128px; flex: none; }
 .c-head { fill: var(--s3); }
+.c-vx, .c-vy { stroke-width: 3; stroke-linecap: round; }
+.c-vx { stroke: var(--s1); }
+.c-vy { stroke: var(--s2); }
+.c-dash { stroke: var(--muted); stroke-width: 1.2; stroke-dasharray: 3 3; }
+.vec-parts { margin-top: 6px; font-size: 13px; color: var(--text2); line-height: 1.5; font-variant-numeric: tabular-nums; }
+.vec-parts .key { margin-right: 4px; }
 
 .rec-card { display: flex; flex-direction: column; gap: 8px; }
 .rec-row { display: flex; align-items: center; gap: 8px; }

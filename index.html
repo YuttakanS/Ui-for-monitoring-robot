@@ -98,6 +98,8 @@
         <li><span class="sw sw-led"></span>LED</li>
         <li><span class="sw sw-led-off"></span>LED <span data-i18n="ledOff">ปิด</span></li>
         <li><span class="sw sw-robot"></span><span data-i18n="legRobot">หุ่นยนต์</span></li>
+        <li><span class="key" style="--k:var(--s3)"></span><span data-i18n="legVec">ทิศหุ่น</span>
+          = <span class="key" style="--k:var(--s1)"></span>X + <span class="key" style="--k:var(--s2)"></span>Y</li>
         <li><span class="key" style="--k:var(--text2)"></span><span data-i18n="legTrail">เส้นทาง</span></li>
         <li id="legQuad"><span class="sw sw-quad"></span><span data-i18n="legQuad">ควอดรันต์ปัจจุบัน</span></li>
       </ul>
@@ -146,6 +148,7 @@
           <div>
             <div class="tile-value" id="valH">—</div>
             <div class="tile-sub" id="headingNote" data-i18n="headingCW">0° = หันไป +X · ค่าบวก = หมุนตามเข็มนาฬิกา</div>
+            <div class="vec-parts" id="hComp" aria-live="off"></div>
           </div>
           <svg class="compass" viewBox="0 0 140 140" role="img" data-i18n-aria="compassAria" aria-label="เข็มทิศแสดงทิศที่หุ่นหัน">
             <circle class="g-arc" cx="70" cy="70" r="44"/>
@@ -155,6 +158,13 @@
             <text class="g-text" x="2" y="74" text-anchor="start">−X</text>
             <text class="g-text" x="70" y="16" text-anchor="middle">+Y</text>
             <text class="g-text" x="70" y="136" text-anchor="middle">−Y</text>
+            <!-- heading split into its X and Y parts (set from app.js) -->
+            <g id="cComp" style="visibility:hidden">
+              <line id="cDashX" class="c-dash" x1="70" y1="70" x2="70" y2="70"/>
+              <line id="cDashY" class="c-dash" x1="70" y1="70" x2="70" y2="70"/>
+              <line id="cVx" class="c-vx" x1="70" y1="70" x2="70" y2="70"/>
+              <line id="cVy" class="c-vy" x1="70" y1="70" x2="70" y2="70"/>
+            </g>
             <g id="cNeedle" style="visibility:hidden">
               <line class="g-needle" x1="70" y1="70" x2="100" y2="70"/>
               <path class="c-head" d="M112 70L98 62L98 78Z"/>
