@@ -104,7 +104,7 @@
       mapTitle: 'แผนที่ตำแหน่ง (มุมมองบน)',
       trail: 'เส้นทาง (จุด)',
       off: 'ปิด',
-      mapAria: 'แผนที่ 2 มิติแสดงตำแหน่งหุ่นยนต์เทียบกับ LED 6 ดวง',
+      mapAria: 'แผนที่ 2 มิติแสดงตำแหน่งหุ่นยนต์เทียบกับ LED 9 ดวง',
       waiting: 'รอข้อมูล…',
       hintTitle: 'ยังไม่มีข้อมูล',
       hintStep1: '1. ต่อบอร์ดเข้ากับคอมพิวเตอร์ผ่าน USB',
@@ -188,7 +188,7 @@
       mapTitle: 'Position map (top view)',
       trail: 'Trail (points)',
       off: 'Off',
-      mapAria: '2D map of the robot position relative to the 6 LEDs',
+      mapAria: '2D map of the robot position relative to the 9 LEDs',
       waiting: 'Waiting for data…',
       hintTitle: 'No data yet',
       hintStep1: '1. Plug the board in over USB',
@@ -285,23 +285,24 @@
   // Break the line only on a real dropout. Must stay well above 1000 ms: a hidden
   // tab throttles the Demo timer to ~1 sample/s, which must still draw as one line.
   var GAP_MS = 2500;
-  // LEDs in firmware coordinates [x, y, label, on]: 2 columns x 3 rows covering
-  // Q2 and Q3, with LED 4 at the origin. Change LED_SPACING if the layout changes.
+  // LEDs in firmware coordinates [x, y, label, on]: a 3x3 grid centred on
+  // LED 4 at the origin, numbered 8 7 6 / 5 4 3 / 2 1 0 from the top left.
+  // Change LED_SPACING if the layout changes.
   // on = false draws the LED as switched off; keep it in step with the
   // firmware's LED_ON.
   var LED_SPACING = 50;    // cm between neighbouring LEDs
   var LEDS = [
-    [-LED_SPACING, LED_SPACING, '8', true], [0, LED_SPACING, '7', true],
-    [-LED_SPACING, 0, '5', false], [0, 0, '4', false], // LED 4, 5 off for now
-    [-LED_SPACING, -LED_SPACING, '2', true], [0, -LED_SPACING, '1', true]
+    [-LED_SPACING, LED_SPACING, '8', true], [0, LED_SPACING, '7', true], [LED_SPACING, LED_SPACING, '6', true],
+    [-LED_SPACING, 0, '5', false], [0, 0, '4', false], [LED_SPACING, 0, '3', true], // LED 4, 5 off for now
+    [-LED_SPACING, -LED_SPACING, '2', true], [0, -LED_SPACING, '1', true], [LED_SPACING, -LED_SPACING, '0', true]
   ];
   // LED on/off as chosen on the page (label -> bool). Starts from the `on`
   // flags above, then the saved choice; sent to the board as "LED <n> <0|1>".
   var ledOn = {};
   var ledFw = {}; // what the board last confirmed ("# LED <n> <0|1>")
   LEDS.forEach(function (L) { ledOn[L[2]] = L[3]; });
-  // the map is centred on the LED area (firmware coordinates), not on the origin
-  var VIEW_C = [-LED_SPACING / 2, 0];
+  // centre of the map view (firmware coordinates): the middle of the LED grid
+  var VIEW_C = [0, 0];
   // Orientation = the 3rd value (degrees). The firmware turns the photodiode
   // directions by Omega0 = R(-theta), so on this map (+X right, +Y up) a larger
   // angle turns the robot clockwise, and 0 deg = photodiode 1 facing +X.
@@ -312,9 +313,10 @@
   // firmware angle -> map angle, counter-clockwise from +X
   function mapHeading(deg) { return wrapDeg(HEADING_SIGN * deg + HEADING_OFFSET); }
 
-  // Fixed map half-width (cm): the LED area (100 cm tall) plus a margin. The map
-  // never rescales; a robot outside the view is pinned to the edge.
-  var MAP_RANGE = LED_SPACING * 1.25;
+  // Fixed map half-width (cm): the LED area (100 x 100 cm) plus a 25 cm margin
+  // for the LED labels. The map never rescales; a robot outside the view is
+  // pinned to the edge.
+  var MAP_RANGE = LED_SPACING * 1.5;
 
   var state = {
     source: 'idle',        // idle | serial | demo
@@ -615,11 +617,11 @@
     var t0 = performance.now();
     demoTimer = setInterval(function () {
       var t = (performance.now() - t0) / 1000 + 4.2;
-      // firmware frame: the LED area is x in [-50, 0], y in [-50, 50]
-      var x = -25 + 19 * Math.cos(t * 0.35) + (Math.random() - 0.5) * 1.2;
+      // firmware frame: the LED area is x and y in [-50, 50]
+      var x = 40 * Math.cos(t * 0.35) + (Math.random() - 0.5) * 1.2;
       var y = 40 * Math.sin(t * 0.55) + (Math.random() - 0.5) * 1.2;
       // face the direction of travel (derivative of the path above)
-      var mh = Math.atan2(40 * 0.55 * Math.cos(t * 0.55), -19 * 0.35 * Math.sin(t * 0.35)) * 180 / Math.PI;
+      var mh = Math.atan2(40 * 0.55 * Math.cos(t * 0.55), -40 * 0.35 * Math.sin(t * 0.35)) * 180 / Math.PI;
       var a = wrapDeg((mh - HEADING_OFFSET) * HEADING_SIGN) + (Math.random() - 0.5) * 0.6;
       var q = quadrantOf(x, y);
       var line = 'Quadrant ' + q + ': ' + x.toFixed(2) + ', ' + y.toFixed(2) + ', ' + a.toFixed(2) + '\r\n';
@@ -780,7 +782,7 @@
   }
 
   /* =====================================================================
-   * 2D map (top view): 2x2 LED square centred on the origin, robot at (x, y)
+   * 2D map (top view): 3x3 LED grid centred on LED 4 (the origin), robot at (x, y)
    * ===================================================================== */
 
   // Top view of the triangular pyramid: one photodiode per side face, face
@@ -857,6 +859,8 @@
     // keep the LEDs on grid lines while the view is zoomed in on them
     var ledTicks = LED_SPACING * f / step;
     if (R < 4 * LED_SPACING * f && Math.abs(ledTicks - Math.round(ledTicks)) > 1e-6) step /= 2;
+    // phones: tick labels would run together, so step by half the LED spacing
+    if (w < 400 && R / step > 5) step = LED_SPACING * f / 2;
     ctx.lineWidth = 1;
     ctx.font = '11px ' + C.font;
     ctx.fillStyle = C.muted;
@@ -940,7 +944,9 @@
     }
     ctx.restore();
 
-    // LEDs with their numbers, placed outward from the square's centre
+    // LEDs with their numbers: corner LEDs label outward from the grid's centre;
+    // LEDs on the middle row or column get a centred label (above on the middle
+    // row) so it stays clear of the axis-end labels at the frame edge.
     ctx.font = '600 ' + (mk < 0.8 ? 11 : 12) + 'px ' + C.font;
     for (var li = 0; li < LEDS.length; li++) {
       var ex = PX(LEDS[li][0] * f), ey = PY(LEDS[li][1] * f), on = ledOn[LEDS[li][2]];
@@ -953,9 +959,10 @@
         ctx.strokeStyle = C.muted; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(ex, ey, 6 * mk, 0, Math.PI * 2); ctx.stroke();
       }
-      var dx = LEDS[li][0] < VIEW_C[0] ? -1 : 1, dy = LEDS[li][1] < VIEW_C[1] ? -1 : 1;
+      var dx = Math.sign(LEDS[li][0] - VIEW_C[0]), dy = LEDS[li][1] < VIEW_C[1] ? -1 : 1;
+      if (LEDS[li][1] === VIEW_C[1]) dx = 0;
       ctx.fillStyle = on ? C.text2 : C.muted;
-      ctx.textAlign = dx < 0 ? 'right' : 'left';
+      ctx.textAlign = dx < 0 ? 'right' : dx > 0 ? 'left' : 'center';
       ctx.textBaseline = dy < 0 ? 'top' : 'bottom';
       ctx.fillText('LED ' + LEDS[li][2] + (on ? '' : ' (' + t('ledOff') + ')'), ex + dx * 9 * mk, ey - dy * 9 * mk);
     }
