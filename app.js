@@ -104,7 +104,7 @@
       mapTitle: 'แผนที่ตำแหน่ง (มุมมองบน)',
       trail: 'เส้นทาง (จุด)',
       off: 'ปิด',
-      mapAria: 'แผนที่ 2 มิติแสดงตำแหน่งหุ่นยนต์เทียบกับ LED 4 ดวง',
+      mapAria: 'แผนที่ 2 มิติแสดงตำแหน่งหุ่นยนต์เทียบกับ LED 6 ดวง',
       waiting: 'รอข้อมูล…',
       hintTitle: 'ยังไม่มีข้อมูล',
       hintStep1: '1. ต่อบอร์ดเข้ากับคอมพิวเตอร์ผ่าน USB',
@@ -183,7 +183,7 @@
       mapTitle: 'Position map (top view)',
       trail: 'Trail (points)',
       off: 'Off',
-      mapAria: '2D map of the robot position relative to the 4 LEDs',
+      mapAria: '2D map of the robot position relative to the 6 LEDs',
       waiting: 'Waiting for data…',
       hintTitle: 'No data yet',
       hintStep1: '1. Plug the board in over USB',
@@ -275,15 +275,16 @@
   // Break the line only on a real dropout. Must stay well above 1000 ms: a hidden
   // tab throttles the Demo timer to ~1 sample/s, which must still draw as one line.
   var GAP_MS = 2500;
-  // LEDs in firmware coordinates [x, y, label] (same as the firmware's matrix p):
-  // a square in Q2 with LED 4 at the origin. Change LED_SPACING if the layout changes.
+  // LEDs in firmware coordinates [x, y, label]: 2 columns x 3 rows covering Q2
+  // and Q3, with LED 4 at the origin. Change LED_SPACING if the layout changes.
   var LED_SPACING = 50;    // cm between neighbouring LEDs
   var LEDS = [
-    [0, 0, '4'], [-LED_SPACING, 0, '5'],
-    [0, LED_SPACING, '7'], [-LED_SPACING, LED_SPACING, '8']
+    [-LED_SPACING, LED_SPACING, '8'], [0, LED_SPACING, '7'],
+    [-LED_SPACING, 0, '5'], [0, 0, '4'],
+    [-LED_SPACING, -LED_SPACING, '2'], [0, -LED_SPACING, '1']
   ];
-  // the map is centred on the LED square (firmware coordinates), not on the origin
-  var VIEW_C = [-LED_SPACING / 2, LED_SPACING / 2];
+  // the map is centred on the LED area (firmware coordinates), not on the origin
+  var VIEW_C = [-LED_SPACING / 2, 0];
   // Orientation = the 3rd value (degrees). The firmware turns the photodiode
   // directions by Omega0 = R(-theta), so on this map (+X right, +Y up) a larger
   // angle turns the robot clockwise, and 0 deg = photodiode 1 facing +X.
@@ -294,9 +295,9 @@
   // firmware angle -> map angle, counter-clockwise from +X
   function mapHeading(deg) { return wrapDeg(HEADING_SIGN * deg + HEADING_OFFSET); }
 
-  // Fixed map half-width (cm): the LED square plus a margin. The map never
-  // rescales; a robot outside the view is pinned to the edge.
-  var MAP_RANGE = LED_SPACING * 0.75;
+  // Fixed map half-width (cm): the LED area (100 cm tall) plus a margin. The map
+  // never rescales; a robot outside the view is pinned to the edge.
+  var MAP_RANGE = LED_SPACING * 1.25;
 
   var state = {
     source: 'idle',        // idle | serial | demo
@@ -543,11 +544,11 @@
     var t0 = performance.now();
     demoTimer = setInterval(function () {
       var t = (performance.now() - t0) / 1000 + 4.2;
-      // firmware frame: the LED square is x in [-50, 0], y in [0, 50]
+      // firmware frame: the LED area is x in [-50, 0], y in [-50, 50]
       var x = -25 + 19 * Math.cos(t * 0.35) + (Math.random() - 0.5) * 1.2;
-      var y = 25 + 15 * Math.sin(t * 0.55) + (Math.random() - 0.5) * 1.2;
+      var y = 40 * Math.sin(t * 0.55) + (Math.random() - 0.5) * 1.2;
       // face the direction of travel (derivative of the path above)
-      var mh = Math.atan2(15 * 0.55 * Math.cos(t * 0.55), -19 * 0.35 * Math.sin(t * 0.35)) * 180 / Math.PI;
+      var mh = Math.atan2(40 * 0.55 * Math.cos(t * 0.55), -19 * 0.35 * Math.sin(t * 0.35)) * 180 / Math.PI;
       var a = wrapDeg((mh - HEADING_OFFSET) * HEADING_SIGN) + (Math.random() - 0.5) * 0.6;
       var q = quadrantOf(x, y);
       var line = 'Quadrant ' + q + ': ' + x.toFixed(2) + ', ' + y.toFixed(2) + ', ' + a.toFixed(2) + '\r\n';
