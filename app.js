@@ -1386,9 +1386,15 @@
    * floor. Firmware coordinates in cm with +Z up. Built on first use.
    * ===================================================================== */
 
-  var LED_HEIGHT = 92;     // cm above the photodiodes (firmware p(k, 2) = 0.920 m)
-  var ROBOT_R = 10;        // drawn size of the robot (cm); not used in any calculation
-  var ROBOT_H = 12;
+  // Heights from the floor (z = 0), in cm. Photodiodes are 1 cm above the floor
+  // and the LEDs 92 cm above the photodiodes (firmware p(k, 2) = 0.920 m).
+  // The models come from Maya (models/build_models.py -> models/models.js).
+  var MODELS = window.RA_MODELS || null;
+  var PD_HEIGHT = MODELS ? MODELS.meta.pdHeight : 1;
+  var LED_HEIGHT = MODELS ? MODELS.meta.ledZ : PD_HEIGHT + 92;
+  // fallback robot when the models are missing (drawn size only)
+  var ROBOT_R = MODELS ? 2 * MODELS.meta.robotInradius : 10.4;
+  var ROBOT_H = MODELS ? MODELS.meta.robotHeight : 3;
   var TRAIL_MAX = 1000;    // largest trail option
   var HAS_3D = (function () {
     if (!window.THREE || !THREE.OrbitControls) return false;
@@ -1436,8 +1442,10 @@
     g.setAttribute('position', new T.Float32BufferAttribute(flat, 3));
     g.computeVertexNormals();
     var body = new T.Mesh(g, new T.MeshLambertMaterial({ flatShading: true }));
-    robot.add(body);
-    var arrow = new T.ArrowHelper(new T.Vector3(1, 0, 0), new T.Vector3(ROBOT_R * 0.5, 0, ROBOT_H * 0.3), 16, 0x000000, 6, 5);
+    body.material.name = 'ra_body';
+    var parts = loadModels3d();
+    robot.add(parts && parts.robot ? parts.robot : body);
+    var arrow = new T.ArrowHelper(new T.Vector3(1, 0, 0), new T.Vector3(ROBOT_R * 0.5, 0, PD_HEIGHT), 16, 0x000000, 6, 5);
     robot.add(arrow);
     robot.visible = false;
     scene.add(robot);
@@ -1456,15 +1464,49 @@
     scene.add(toOrigin);
 
     v3 = { renderer: renderer, scene: scene, camera: camera, controls: controls, statics: statics,
-      robot: robot, body: body, arrow: arrow, trail: trail, toOrigin: toOrigin, labels: [],
+      robot: robot, arrow: arrow, trail: trail, toOrigin: toOrigin, labels: [], parts: parts,
       sig: '', w: 0, h: 0, needs: true };
     controls.addEventListener('change', function () { v3.needs = true; });
     reset3dView();
   }
 
+  // Parse the Maya models (OBJ text). Their geometry is shared by every copy,
+  // so it is marked to survive dispose3(). Returns null if unavailable.
+  function loadModels3d() {
+    if (!MODELS || !THREE.OBJLoader) return null;
+    try {
+      var loader = new THREE.OBJLoader(), out = {};
+      ['robot', 'led', 'frame'].forEach(function (k) {
+        out[k] = loader.parse(MODELS.obj[k]);
+        out[k].traverse(function (o) { if (o.geometry) o.geometry.userData.shared = true; });
+      });
+      return out;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Give every mesh under obj a Lambert material coloured by the Maya
+  // material name (cols: name -> CSS colour); unknown names use `fallback`.
+  function paint3(obj, cols, fallback, opts) {
+    obj.traverse(function (o) {
+      if (!o.isMesh) return;
+      var list = Array.isArray(o.material) ? o.material : [o.material];
+      var mats = list.map(function (m) {
+        var nm = new THREE.MeshLambertMaterial({ color: color3(cols[m.name] || fallback) });
+        nm.name = m.name;
+        if (opts && opts.opacity < 1) { nm.transparent = true; nm.opacity = opts.opacity; }
+        if (opts && opts.emissive && opts.emissive[m.name]) nm.emissive = color3(opts.emissive[m.name]);
+        if (m.dispose) m.dispose();
+        return nm;
+      });
+      o.material = Array.isArray(o.material) ? mats : mats[0];
+    });
+  }
+
   function reset3dView() {
     // looking in from the -Y side (Q3/Q4), the side the 2D map is drawn from
-    v3.camera.position.set(110, -240, 175);
+    v3.camera.position.set(130, -285, 205);
     v3.controls.target.set(0, 0, 35);
     v3.controls.update();
     v3.needs = true;
@@ -1520,7 +1562,7 @@
 
   function dispose3(obj) {
     obj.traverse(function (o) {
-      if (o.geometry) o.geometry.dispose();
+      if (o.geometry && !o.geometry.userData.shared) o.geometry.dispose();
       if (o.material) {
         if (o.material.map) o.material.map.dispose();
         o.material.dispose();
@@ -1572,36 +1614,54 @@
       tick(fmtTick(v * f, 25 * f), -7, 0, v);
     }
     pts.push(-2, 0, LED_HEIGHT, 2, 0, LED_HEIGHT);
-    tick(fmtTick(LED_HEIGHT * f, f), -7, 0, LED_HEIGHT, C.led); // LED height
+    tick(fmtTick(LED_HEIGHT * f, f), -7, 0, LED_HEIGHT, C.led); // LED height above the floor
     G.add(lines3(pts, C.muted));
 
-    // the LED grid's wiring at z = LED_HEIGHT (8--7--6 / 5--4--3 / 2--1--0)
+    // the frame that holds the LEDs (Maya model); without it, thin lines
+    // join the LEDs at z = LED_HEIGHT (8--7--6 / 5--4--3 / 2--1--0)
+    var P = v3.parts;
+    if (P && P.frame) {
+      var fr = P.frame.clone();
+      paint3(fr, {}, C.muted, { opacity: 0.35 });
+      fr.traverse(function (o) { if (o.isMesh) o.material.depthWrite = false; }); // see-through
+      G.add(fr);
+    }
     pts = [];
     for (v = -LED_SPACING; v <= LED_SPACING; v += LED_SPACING) {
       pts.push(-LED_SPACING, v, LED_HEIGHT, LED_SPACING, v, LED_HEIGHT);
       pts.push(v, -LED_SPACING, LED_HEIGHT, v, LED_SPACING, LED_HEIGHT);
     }
-    G.add(lines3(pts, C.axis));
+    if (!(P && P.frame)) G.add(lines3(pts, C.axis));
 
-    // LEDs: solid when on, grey wireframe when off; dashed drop line to the floor
+    // LEDs (Maya model: housing + lens; lens lit when on, grey when off), or a
+    // sphere / grey wireframe without the model; dashed drop line to the floor
     var drop = [];
     LEDS.forEach(function (L) {
       var on = ledOn[L[2]];
-      var m = new T.Mesh(new T.SphereGeometry(on ? 3.2 : 2.8, 20, 14),
+      // the bulb (lit sphere / grey wireframe) shows on/off from any angle;
+      // the Maya housing sits on top of it
+      var m = new T.Mesh(new T.SphereGeometry(on ? 2.8 : 2.4, 20, 14),
         new T.MeshBasicMaterial(on ? { color: color3(C.led) } : { color: color3(C.muted), wireframe: true }));
       m.position.set(L[0], L[1], LED_HEIGHT);
+      if (P && P.led) {
+        var hs = P.led.clone();
+        paint3(hs, { ra_led_housing: C.axis, ra_led_lens: on ? C.led : C.muted }, C.muted);
+        hs.position.set(L[0], L[1], LED_HEIGHT + 1.2); // housing above the bulb
+        G.add(hs);
+      }
       G.add(m);
       var sp = label3('LED ' + L[2] + (on ? '' : ' (' + t('ledOff') + ')'), on ? C.text2 : C.muted, 12, '600', true);
-      sp.position.set(L[0], L[1], LED_HEIGHT + 4);
+      sp.position.set(L[0], L[1], LED_HEIGHT + 5);
       G.add(sp);
-      drop.push(L[0], L[1], LED_HEIGHT - 3, L[0], L[1], 0);
+      drop.push(L[0], L[1], LED_HEIGHT - 1.5, L[0], L[1], 0);
       var dot = new T.Mesh(new T.RingGeometry(1.2, 2, 20), new T.MeshBasicMaterial({ color: color3(C.muted), side: T.DoubleSide }));
       dot.position.set(L[0], L[1], 0.05);
       G.add(dot);
     });
     G.add(lines3(drop, C.muted, true));
 
-    v3.body.material.color = color3(C.text);
+    paint3(v3.robot, { ra_body: C.text, ra_pd: C.muted, ra_pd1: C.s3 }, C.text);
+    v3.robot.traverse(function (o) { if (o.isMesh) o.material.flatShading = true; });
     v3.arrow.setColor(color3(C.s3));
     v3.trail.material.color = color3(C.text2);
     v3.toOrigin.material.color = color3(C.text2);
