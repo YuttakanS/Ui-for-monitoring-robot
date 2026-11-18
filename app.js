@@ -259,7 +259,7 @@
   // LEDs: 2x2 square centred on the origin. The firmware's x, y are measured
   // from the centre of the square, which has no LED of its own. Change
   // LED_SPACING if the physical layout changes.
-  var LED_SPACING = 100;   // cm between neighbouring LEDs
+  var LED_SPACING = 200;   // cm between neighbouring LEDs (LEDs at ±100 cm)
   var LED_HALF = LED_SPACING / 2;
   var LEDS = [[-LED_HALF, LED_HALF], [LED_HALF, LED_HALF], [-LED_HALF, -LED_HALF], [LED_HALF, -LED_HALF]];
   // the map never zooms in past the LED square, so all 4 LEDs stay in view
@@ -516,8 +516,8 @@
     var t0 = performance.now();
     demoTimer = setInterval(function () {
       var t = (performance.now() - t0) / 1000 + 4.2;
-      var x = 38 * Math.cos(t * 0.35) + (Math.random() - 0.5) * 1.2;
-      var y = 30 * Math.sin(t * 0.55) + (Math.random() - 0.5) * 1.2;
+      var x = 76 * Math.cos(t * 0.35) + (Math.random() - 0.5) * 1.2;
+      var y = 60 * Math.sin(t * 0.55) + (Math.random() - 0.5) * 1.2;
       var a = Math.atan2(x, 150) * 180 / Math.PI + (Math.random() - 0.5) * 0.6;
       var q = x >= 0 ? (y >= 0 ? 1 : 4) : (y >= 0 ? 2 : 3);
       var line = 'Quadrant ' + q + ': ' + x.toFixed(2) + ', ' + y.toFixed(2) + ', ' + a.toFixed(2) + '\r\n';
