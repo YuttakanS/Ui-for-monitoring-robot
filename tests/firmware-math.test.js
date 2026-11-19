@@ -33,6 +33,15 @@ test('the demodulation table fits the LED frequencies and the sample window', fu
   assert.ok(LUT_SCALE <= 16384, 'sample (10 bit) * table must fit in int32, table in int16');
 });
 
+test('the ring buffer holds a window plus the slack the demodulation needs', function () {
+  assert.match(INO, /const int RING_N = 2 \* N;/);
+  var every = inoInt('UPDATE_EVERY'), ringN = 2 * N;
+  assert.ok(every > 0 && every <= N, 'windows should overlap or touch');
+  // the demodulation takes about 12 ms (300 samples); the slack is far larger
+  assert.ok(ringN - N >= 1000, 'slack before the oldest sample is overwritten');
+  assert.equal(FS / every, 20, 'update rate (Hz) the README states');
+});
+
 // the table as initDemod() builds it: first half rounded, second half negated
 function makeTables() {
   var s = new Int16Array(LUT_N), c = new Int16Array(LUT_N), half = LUT_N / 2;

@@ -14,9 +14,22 @@ const int pins[N_PD] = { 28, 27, 26 };
 
 // Same order as p:           LED4     LED5     LED7     LED8     LED1     LED2     LED0     LED3     LED6
 const float Fref[N_LED] = { 2300.0f, 2900.0f, 3700.0f, 4100.0f, 1300.0f, 1700.0f, 1100.0f, 1900.0f, 3100.0f };
-volatile int sampleTemp[N_PD][N];
-volatile int sampleIndex = 0;
-volatile bool isSampling = false;
+// Sampling runs all the time (2026-11-19, branch feature/task-2-continuous-
+// sampling): the timer writes every photodiode reading into a ring buffer and
+// loop() takes the newest N samples every UPDATE_EVERY samples. Windows
+// overlap (N = 2500 but a new one starts every 1250), so each RSS still
+// averages 0.1 s of signal and has the same noise as before, while the
+// position comes out 20 times a second instead of 8.4. Before, loop() filled a
+// buffer of N, waited for it (100 ms doing nothing) and computed afterwards.
+//
+// RING_N - N samples (100 ms) may pass between taking the snapshot of the
+// write position and finishing the demodulation before the oldest sample of
+// the window is overwritten; the demodulation takes about 12 ms.
+const int RING_N = 2 * N;                  // samples kept per photodiode (10 bit, so int16)
+const int UPDATE_EVERY = 1250;             // samples between updates: 50 ms = 20 Hz
+volatile int16_t ring[N_PD][RING_N];
+volatile int ringWrite = 0;                // next slot the timer writes
+volatile uint32_t sampleCount = 0;         // samples taken since power-up
 
 // Demodulation without sin() / cos() in the loop (2026-11-19, they took most
 // of the time on the Pico, which has no FPU). Every LED frequency is a
@@ -169,15 +182,11 @@ void initDemod() {
 //----------------------------------------------------------------------
 // callback called every 40 microseconds
 bool timer_callback(repeating_timer_t* t) {
-  if (isSampling) {
-    if (sampleIndex < N) {
-      for (int g = 0; g < N_PD; g++)
-        sampleTemp[g][sampleIndex] = analogRead(pins[g]);
-      sampleIndex++;
-    } else {
-      isSampling = false;  // Stop sampling when all 2500 sets are collected
-    }
-  }
+  const int w = ringWrite;
+  for (int g = 0; g < N_PD; g++)
+    ring[g][w] = (int16_t)analogRead(pins[g]);
+  ringWrite = (w + 1 == RING_N) ? 0 : w + 1;
+  sampleCount++;
   return true;
 }
 
@@ -351,11 +360,18 @@ void loop() {
 
   readCommands();  // apply any LED on/off commands from the web page
 
-  sampleIndex = 0;
-  isSampling = true;
-  while (isSampling) {
-    // Do nothing, wait for all samples to be updated.
-  }
+  // Wait until UPDATE_EVERY new samples have arrived since the last window
+  // (and, at power-up, until the ring holds a whole window). If the previous
+  // loop took longer than that, this returns at once: the rate drops instead
+  // of the windows falling behind the newest samples.
+  static uint32_t lastEnd = 0;
+  uint32_t end;
+  do {
+    end = sampleCount;  // one 32-bit read: atomic on the Cortex-M0+
+  } while (end < N || end < lastEnd + (uint32_t)UPDATE_EVERY);
+  lastEnd = end;
+  // the window is the N samples before slot `end`
+  const int winStart = (int)((end - (uint32_t)N) % (uint32_t)RING_N);
   unsigned long tSampled = micros();
 
   // Correlate each photodiode with sin and cos at each lit LED's frequency.
@@ -368,17 +384,18 @@ void loop() {
     if (!LED_ON[f]) continue;  // skip LEDs that are off (saves time; RSS stays 0)
     int64_t accSin[N_PD] = {}, accCos[N_PD] = {};
     const int step = lutStep[f];
-    int idx = 0;
+    int idx = 0, ri = winStart;
     for (int i = 0; i < N; i++) {
       const int32_t s = sinQ[idx];
       const int32_t c = cosQ[idx];
       for (int g = 0; g < N_PD; g++) {
-        const int32_t x = sampleTemp[g][i];  // 0..1023, so x * s fits in 32 bits
+        const int32_t x = ring[g][ri];  // 0..1023, so x * s fits in 32 bits
         accSin[g] += x * s;
         accCos[g] += x * c;
       }
       idx += step;
       if (idx >= LUT_N) idx -= LUT_N;
+      if (++ri == RING_N) ri = 0;
     }
     for (int g = 0; g < N_PD; g++) {
       const double cs = (double)accSin[g], cc = (double)accCos[g];
@@ -400,9 +417,9 @@ void loop() {
     Serial.println("");
   }
 
-  // Use the real time since the previous update as T (it was fixed at 0.2 s,
-  // but one loop takes about 0.33 s, so the velocity was off). The first
-  // loop keeps the default.
+  // Use the real time since the previous update as T (it was fixed at 0.2 s
+  // when a loop took about 0.33 s, so the velocity was off; now about 0.05 s).
+  // The first loop keeps the default.
   static unsigned long lastUpdate = 0;
   if (lastUpdate != 0) T = (time1 - lastUpdate) / 1000.0f;
   lastUpdate = time1;
@@ -456,10 +473,11 @@ void loop() {
     Serial.println(zcm);
   }
   if (PRINT_TIMING) {
-    // ms spent sampling, demodulating and in the EKF (which here includes
-    // printing the RSS line in mode 1 / 3); total = the whole loop up to
-    // here, with the position line. total is the real update period.
-    Serial.print("# T sample="); Serial.print((tSampled - tStart) / 1000.0f, 1);
+    // ms spent waiting for the window, demodulating and in the EKF (which
+    // here includes printing the RSS line in mode 1 / 3); total = the whole
+    // loop up to here, with the position line. total is the update period.
+    // wait = time spent waiting for the next window (sampling runs all the time)
+    Serial.print("# T wait="); Serial.print((tSampled - tStart) / 1000.0f, 1);
     Serial.print(" demod="); Serial.print((tDemod - tSampled) / 1000.0f, 1);
     Serial.print(" ekf="); Serial.print((tEkf - tDemod) / 1000.0f, 1);
     Serial.print(" total="); Serial.println((micros() - tStart) / 1000.0f, 1);
