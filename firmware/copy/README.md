@@ -227,8 +227,14 @@ that start with `#`, so use the Serial Monitor to read them.
 ## Update rate (2026-11-19, branch `feature/task-2-realtime`)
 One update took about 0.33 s (3.0 Hz) with LED 1, 2, 7, 8: 0.1 s to collect
 2500 samples at 25 kHz and the rest to compute, on a Pico without an FPU.
-The sample window is unchanged; the computing was made lighter. **Not yet
-measured on the board** (the estimate is 7–9 Hz); send `TIMING 1` to see.
+The sample window is unchanged; the computing was made lighter.
+
+**Measured on the board (2026-11-19, LED 1, 2, 7, 8, `mode = 2`,
+`ESTIMATE_Z = true`, `TIMING 1`):** one update takes **119.2 ms (8.4 Hz)**:
+sampling 100.0 ms, demodulation 12.0 ms, EKF 6.9 ms, the rest printing.
+Computing fell from about 230 ms to about 19 ms; 84 % of an update is now
+the sample window itself, so going faster means sampling continuously
+(overlapping windows) or a shorter window.
 
 - **Demodulation by table.** Every LED frequency is a multiple of 100 Hz
   (`F_STEP`), so at 25 kHz every reference repeats after 250 samples
