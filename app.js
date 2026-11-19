@@ -138,11 +138,10 @@
       ledSynced: 'บอร์ดรับคำสั่งแล้ว',
       ledPending: 'รอบอร์ดยืนยัน… (firmware ต้องรองรับคำสั่ง LED)',
       legTrail: 'เส้นทาง',
-      legVec: 'ทิศการเคลื่อนที่',
+      legVec: 'ทิศที่หุ่นหัน',
       vecParts: 'แตกเวกเตอร์',
-      vecTitle: 'ทิศการเคลื่อนที่ (เวกเตอร์หนึ่งหน่วย)',
-      vecMoving: 'จากการเคลื่อนที่ใน 0.5 s ล่าสุด',
-      vecStill: 'หุ่นหยุดนิ่ง — ใช้ทิศที่หุ่นหัน (Z = 0)',
+      vecTitle: 'ทิศที่หุ่นหัน (เวกเตอร์หนึ่งหน่วย)',
+      vecNote: 'จากมุมที่บอร์ดส่งมา (Z = 0)',
       legQuad: 'ควอดรันต์ปัจจุบัน',
       min: 'ต่ำสุด',
       max: 'สูงสุด',
@@ -233,11 +232,10 @@
       ledSynced: 'Board confirmed',
       ledPending: 'Waiting for the board to confirm… (needs firmware with LED commands)',
       legTrail: 'Trail',
-      legVec: 'Direction of motion',
+      legVec: 'Heading',
       vecParts: 'Split vector',
-      vecTitle: 'Direction of motion (unit vector)',
-      vecMoving: 'From the movement in the last 0.5 s',
-      vecStill: 'Standing still — using the heading (Z = 0)',
+      vecTitle: 'Heading (unit vector)',
+      vecNote: 'From the angle the board sends (Z = 0)',
       legQuad: 'Current quadrant',
       min: 'min',
       max: 'max',
@@ -347,25 +345,15 @@
   }
   function fmtVec(v) { var s = v.toFixed(2); return s === '-0.00' ? '0.00' : s; }
 
-  // Direction of motion as a 3D unit vector: from where the robot was
-  // VEC_WINDOW_MS ago to where it is now (x, y, z). If it moved less than
-  // VEC_MIN_CM (standing still, or only noise) the heading is used instead,
-  // level (z = 0); `moving` tells the two apart.
-  var VEC_WINDOW_MS = 500, VEC_MIN_CM = 1;
-  function motionVec() {
-    var S = state.samples, s = state.latest, ref = null;
+  // The arrow drawn on the robot: the way it faces (the firmware's orientation,
+  // 3rd value) as a level unit vector (z = 0), whether it moves or not. It
+  // used to follow the direction of motion; the user asked for the heading
+  // (2026-11-19).
+  function dirVec() {
+    var s = state.latest;
     if (!s) return null;
-    for (var i = S.length - 2, n = 0; i >= 0 && n < 400; i--, n++) {
-      if (s.t - S[i].t >= VEC_WINDOW_MS) { ref = S[i]; break; }
-    }
-    if (ref && s.t - ref.t > VEC_WINDOW_MS * 4) ref = null; // across a dropout
-    if (ref) {
-      var dx = s.x - ref.x, dy = s.y - ref.y, dz = s.z - ref.z;
-      var len = Math.sqrt(dx * dx + dy * dy + dz * dz);
-      if (len >= VEC_MIN_CM) return { x: dx / len, y: dy / len, z: dz / len, moving: true };
-    }
     var hv = headingVec(s.angle);
-    return { x: hv.x, y: hv.y, z: 0, moving: false };
+    return { x: hv.x, y: hv.y, z: 0 };
   }
   function setLine(ln, x1, y1, x2, y2) {
     ln.setAttribute('x1', x1.toFixed(1)); ln.setAttribute('y1', y1.toFixed(1));
@@ -384,7 +372,7 @@
     unit: DEFAULT_UNIT,    // display unit only (key of UNITS)
     trailN: 100,           // map trail length in samples; 0 = off
     mapView: '2d',         // '2d' | '3d'
-    vecParts: true,        // show the motion vector's X / Y / Z parts
+    vecParts: true,        // show the heading vector's X / Y / Z parts
     mapHover: null,        // pointer position over the map canvas (CSS px) or null
     stats: null,           // session min/max per field, reset with the data
     chartRange: 60000,     // one of CHART_RANGES
@@ -793,9 +781,9 @@
     el.valH.textContent = s.angle.toFixed(2) + '°';
     el.cNeedle.style.visibility = 'visible';
     el.cNeedle.setAttribute('transform', 'rotate(' + (-mapHeading(s.angle)).toFixed(2) + ' 70 70)');
-    // X / Y parts of the direction-of-motion vector (seen from above) and
+    // X / Y parts of the heading vector (seen from above) and
     // its X / Y / Z values; hidden when "Split vector" is off
-    var mv = motionVec(), R = 42, tx = 70 + R * mv.x, ty = 70 - R * mv.y;
+    var mv = dirVec(), R = 42, tx = 70 + R * mv.x, ty = 70 - R * mv.y;
     setLine(el.cVx, 70, 70, tx, 70);
     setLine(el.cVy, 70, 70, 70, ty);
     setLine(el.cDashX, tx, 70, tx, ty);
@@ -806,7 +794,7 @@
       '<span class="vp"><span class="key" style="--k:var(--s1)"></span>X = ' + fmtVec(mv.x) + '</span>' +
       '<span class="vp"><span class="key" style="--k:var(--s2)"></span>Y = ' + fmtVec(mv.y) + '</span>' +
       '<span class="vp"><span class="key" style="--k:var(--s3)"></span>Z = ' + fmtVec(mv.z) + '</span><br>' +
-      t(mv.moving ? 'vecMoving' : 'vecStill');
+      t('vecNote');
   }
 
   function clockTime(ms) {
@@ -887,7 +875,7 @@
     ctx.lineJoin = 'round';
     ctx.strokeStyle = C.surface; ctx.lineWidth = 7; body(); ctx.stroke(); // halo over grid lines
     ctx.fillStyle = C.text; body(); ctx.fill();
-    // the direction arrow is drawn separately, with its parts (drawMotionVec)
+    // the direction arrow is drawn separately, with its parts (drawHeadingVec)
     // photodiodes at the face centres; photodiode 1 (front) highlighted
     for (var p = 0; p < 3; p++) {
       var ang = p * 2 * Math.PI / 3, d = r * c60 * 0.62;
@@ -897,11 +885,11 @@
     ctx.restore();
   }
 
-  // Direction of motion from the robot's centre (main colour). Seen from above
+  // Heading vector from the robot's centre (main colour). Seen from above
   // only its X / Y projection can be drawn; with "Split vector" on, the X part
   // (blue, along +X) and Y part (orange, along +Y) are drawn with dashed lines
   // closing the rectangle, and Z is written next to the robot (up / down arrow).
-  function drawMotionVec(ctx, x, y, mk, v, parts) {
+  function drawHeadingVec(ctx, x, y, mk, v, parts) {
     var L = 64 * mk, ex = x + L * v.x, ey = y - L * v.y;
     function arrow(x0, y0, x1, y1, col, wdt) {
       var dx = x1 - x0, dy = y1 - y0, len = Math.hypot(dx, dy);
@@ -1104,8 +1092,8 @@
       var outside = rx !== rpx || ry !== rpy;
       if (outside) ctx.globalAlpha = 0.45;
       drawRobot(ctx, rx, ry, mk, mapHeading(s.angle));
-      var hv = motionVec();
-      drawMotionVec(ctx, rx, ry, mk, hv, state.vecParts);
+      var hv = dirVec();
+      drawHeadingVec(ctx, rx, ry, mk, hv, state.vecParts);
       ctx.globalAlpha = 1;
       var label = '(' + fmtLen(s.x) + ', ' + fmtLen(s.y) + ')';
       ctx.font = '600 12px ' + C.font;
@@ -1636,7 +1624,7 @@
     });
   }
 
-  // Direction-of-motion vector in 3D, NOT turned with the robot, so its X, Y
+  // Heading vector in 3D, NOT turned with the robot, so its X, Y
   // and Z parts stay on the room's axes. Length VEC_LEN cm. The dashed lines
   // drop from its tip to the floor plane and run from there to the X / Y tips.
   var VEC_LEN = 28;
@@ -1684,7 +1672,7 @@
   }
 
   function update3dVec(s) {
-    var V = v3.vec, v = motionVec(), T = THREE, parts = state.vecParts;
+    var V = v3.vec, v = dirVec(), T = THREE, parts = state.vecParts;
     V.group.position.set(s.x, s.y, s.z + ROBOT_H + 1.5);
     V.main.setDirection(new T.Vector3(v.x, v.y, v.z));
     [['ax', 'x', new T.Vector3(1, 0, 0)], ['ay', 'y', new T.Vector3(0, 1, 0)], ['az', 'z', new T.Vector3(0, 0, 1)]]
