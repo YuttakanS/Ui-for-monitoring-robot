@@ -250,7 +250,16 @@ half their samples: two updates in a row are not independent, and the EKF
 `# T` line now starts with `wait=` (time waiting for the next window)
 instead of `sample=`. If a loop ever takes longer than 50 ms the next
 window is taken at once, so the rate drops instead of lagging behind the
-newest samples. **Not yet measured on the board.** For a different rate
+newest samples.
+
+**Measured on the board (2026-11-19, LED 1, 2, 7, 8, `ESTIMATE_Z = true`):**
+`# T wait=20.1 demod=19.0 ekf=10.2 total=50.0`, i.e. **20.0 Hz**. The
+demodulation (19 ms, was 12) and the EKF (10.2 ms, was 6.9) got slower
+because the sampling interrupt now keeps running while they compute (three
+ADC reads every 40 µs); before, the interrupt had nothing to do during the
+computing. About 30 ms of every 50 are busy, so the rate can go to roughly
+30 Hz (`UPDATE_EVERY` = 833) before the loop can no longer keep up. For a
+different rate
 change `UPDATE_EVERY` (samples; 25 000 / `UPDATE_EVERY` = Hz) and keep
 `RING_N - N` well above the samples taken during one demodulation (~300).
 
