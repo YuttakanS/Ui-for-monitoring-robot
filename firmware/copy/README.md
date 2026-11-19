@@ -44,6 +44,10 @@ Layout seen from above (+X right, +Y up), LED 4 at the origin:
 2--1--0    y = -50
 ```
 
+- **`m = 0.55` (trial, 2026-11-19)** instead of 1.0, fitted from the
+  calibration data; see "Calibration results" below. Not yet checked
+  against the LED datasheet. To go back: `m = 1.0` and the m = 1 gammas
+  in the comment above `PtxGamma`.
 - `PtxGamma` for LED 7, 8, 1, 2 is an **interim calibration** (2026-11-19,
   see "Calibration results" below). LED 0, 3, 6 (off for now) keep the
   placeholder 0.46; LED 4, 5 (not lit) keep 0.49. `ESTIMATE_Z` is `false`
@@ -132,6 +136,23 @@ the EKF settled):
 - (25, 25) is 25 cm beyond the lit LEDs (LED 0, 3, 6 off), where the
   position cannot be found.
 - After the robot is moved, the EKF takes 10–20 s to settle (Q = 1e-6).
+
+### 2026-11-19: trial m = 0.55 (same calibration data)
+More poses with m = 1 would not help much: the misfit comes from the
+model. Leave-one-out on the 7 calibration poses (fit on 6, find the pose
+of the 7th from its RSS without the EKF):
+
+| Model | Mean error | Max error |
+|---|---|---|
+| m = 1, gamma only (before) | 7.9 cm | 15.7 cm |
+| m = 1 + per-photodiode gain | 8.3 cm | 14.5 cm |
+| **m fitted (≈ 0.55) + gamma** | **4.1 cm** | **7.3 cm** |
+| m fitted + per-photodiode gain | 4.5 cm | 6.1 cm |
+
+So `m = 0.55` with gammas LED 7 0.564, LED 8 0.542, LED 1 0.663, LED 2
+0.620 (RSS misfit 7–11 %, 9.5 % overall, was 15 %). Per-photodiode gain
+does not help, so it is not added. Still to do: measure the same 10 poses
+again with this firmware and compare with the table above.
 
 ## On/off commands
 The web page (or the Serial Monitor) sends one line per command:

@@ -24,15 +24,17 @@ test('constants match copy.ino', function () {
   assert.deepEqual(inoArray('PtxGamma'), C.CURRENT_GAMMA);
   var p = inoArray('BLA::Matrix<N_LED, 3> p');
   assert.deepEqual(p, [].concat.apply([], C.P));
-  assert.match(INO, /const float m = 1\.0;/);
+  var mIno = /const float m = ([\d.]+);/.exec(INO);
+  assert.ok(mIno, 'm not found in copy.ino');
+  assert.equal(parseFloat(mIno[1]), C.M);
   assert.match(INO, /const float FoV = M_PI \/ 2;/);
   assert.match(INO, /const float be = M_PI \/ 3;/);
   assert.match(INO, /const float al\[N_PD\] = \{ 0, 2\.0\*M_PI\/3\.0, -2\.0\*M_PI\/3\.0 \};/);
 });
 
 test('pathLoss: robot under LED 4, PD 0 (GP28) facing +X', function () {
-  // d = 0.92, cos(phi) = 1, cos(psi) = sin(60 deg): h = 2 * 0.866 / 0.8464
-  close(C.pathLoss(0, 0, 0, 0, 0, 0), 2 * Math.sin(Math.PI / 3) / (0.92 * 0.92), 1e-9);
+  // d = 0.92, cos(phi) = 1, cos(psi) = sin(60 deg): h = (m + 1) * 0.866 / 0.8464
+  close(C.pathLoss(0, 0, 0, 0, 0, 0), (C.M + 1) * Math.sin(Math.PI / 3) / (0.92 * 0.92), 1e-9);
 });
 
 test('pathLoss: PD 0 at theta equals PD 1 at theta - 120 deg', function () {
