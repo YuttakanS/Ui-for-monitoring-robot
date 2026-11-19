@@ -1154,7 +1154,7 @@
 
   // Height bar: fixed scale from Z_BAR[0] to Z_BAR[1] cm (the firmware's
   // Z_MIN / Z_MAX), filled from 0 to the z shown (after the z zero).
-  var Z_BAR = [-5, 80];
+  var Z_BAR = [0, 80];
   function drawZBar(ctx, x, T, B, z, f) {
     var lo = Z_BAR[0], hi = Z_BAR[1];
     function PZ(v) { return B - (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo) * (B - T); }

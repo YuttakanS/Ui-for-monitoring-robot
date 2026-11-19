@@ -37,7 +37,7 @@
   var PD_GAIN = [1.0, 0.917, 0.906];
   var RSS_OFFSET = 0.0689;
   // z range the firmware keeps (Z_MIN / Z_MAX, m)
-  var Z_MIN = -0.05, Z_MAX = 0.80;
+  var Z_MIN = 0.0, Z_MAX = 0.80;
   // photodiode normals v (rows), as in copy.ino
   var V = ALPHA.map(function (a) {
     return [Math.cos(BETA) * Math.cos(a), -Math.cos(BETA) * Math.sin(a), Math.sin(BETA)];

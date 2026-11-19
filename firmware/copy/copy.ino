@@ -97,9 +97,12 @@ const int IX = 0, IY = 2, ITH = 4, IZ = 6;
 // 8 calibration poses (rms 2.3 cm) and x / y did not get worse. The web page
 // can zero z where the robot stands. Set false if the robot stays on the floor.
 const bool ESTIMATE_Z = true;
-// z is kept in this range (m): a little below the floor for noise, and well
-// below the LEDs, where the path-loss model blows up (distance -> 0).
-const float Z_MIN = -0.05f, Z_MAX = 0.80f;
+// z is kept in this range (m): the floor (the robot cannot be below it; the
+// user asked for no negative z, 2026-11-19; it was -0.05 to leave room for
+// noise) and well below the LEDs, where the path-loss model blows up
+// (distance -> 0). A model error that pulls z below the floor now shows up as
+// z stuck at 0 while x / y take up the difference, as with ESTIMATE_Z = false.
+const float Z_MIN = 0.0f, Z_MAX = 0.80f;
 
 BLA::Matrix<N_STATE, 1> xHnm1nm1 = { 0.0 };
 BLA::Matrix<N_STATE, 1> xHnnm1 = { 0.0 };

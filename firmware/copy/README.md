@@ -21,8 +21,11 @@ z / vz use the same `P` and `Q` as x / y.
 - `ESTIMATE_Z = true` since 2026-11-19 (task #2 z axis); `false` keeps z at 0
   (robot always on the floor), as before. See "z axis" below for how
   accurate z can be.
-- z is kept between `Z_MIN` (-5 cm) and `Z_MAX` (80 cm); near the LEDs the
-  path-loss model blows up.
+- z is kept between `Z_MIN` (0, the floor; it was −5 cm until 2026-11-19 to
+  leave room for noise, but the user wanted no negative z) and `Z_MAX`
+  (80 cm); near the LEDs the path-loss model blows up. When the model
+  would put the robot below the floor, z sits at 0 and x / y take up the
+  difference, as with `ESTIMATE_Z = false`.
 
 ## LEDs (92 cm above the photodiodes)
 
@@ -278,7 +281,7 @@ the board, where the old model gave about 1–3 cm.)
 - **How accurate z can be:** raising the robot 1 cm changes the RSS by only
   about 0.8 % (0.07 % at a far corner such as (−50, 50)), so a 5 %
   brightness error in the model reads as about 6 cm of z. At (0, 0), z reads
-  about −6 cm with every model tried (held at `Z_MIN` = −5 cm); no single
+  about −6 cm with every model tried (held at `Z_MIN`, then −5 cm); no single
   value there looks wrong. Absolute z within 1–2 cm would need the model
   right to about 2 %.
 - **Height changes are clear:** lifting 30 cm raises the total RSS by about
