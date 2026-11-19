@@ -220,10 +220,12 @@ TIMING <0|1>           e.g.  TIMING 1
 The board answers `# TIMING <0|1>`. While it is on, every loop ends with
 
 ```
-# T sample=100.1 demod=8.3 ekf=12.0 total=121.2
+# T wait=31.0 demod=12.0 ekf=6.9 total=50.1
 ```
 
-(numbers here are only an example): the ms spent collecting the samples,
+(numbers here are only an example): the ms spent waiting for the next
+sample window (sampling runs all the time; it was `sample=` when each loop
+collected its own window),
 demodulating and in the EKF, and the whole loop. The web pages skip lines
 that start with `#`, so use the Serial Monitor to read them.
 
@@ -235,9 +237,31 @@ The sample window is unchanged; the computing was made lighter.
 **Measured on the board (2026-11-19, LED 1, 2, 7, 8, `mode = 2`,
 `ESTIMATE_Z = true`, `TIMING 1`):** one update takes **119.2 ms (8.4 Hz)**:
 sampling 100.0 ms, demodulation 12.0 ms, EKF 6.9 ms, the rest printing.
-Computing fell from about 230 ms to about 19 ms; 84 % of an update is now
-the sample window itself, so going faster means sampling continuously
-(overlapping windows) or a shorter window.
+Computing fell from about 230 ms to about 19 ms; 84 % of an update was then
+the sample window itself.
+
+**Continuous sampling (branch `feature/task-2-continuous-sampling`):** the
+timer now samples all the time into a ring buffer of `RING_N` = 2 × N
+samples per photodiode, and `loop()` demodulates the newest N samples every
+`UPDATE_EVERY` = 1250 samples (50 ms, **20 Hz**). Each RSS still averages
+0.1 s of signal, so its noise is unchanged, but consecutive windows share
+half their samples: two updates in a row are not independent, and the EKF
+(which assumes they are) trusts them a little more than it should. The
+`# T` line now starts with `wait=` (time waiting for the next window)
+instead of `sample=`. If a loop ever takes longer than 50 ms the next
+window is taken at once, so the rate drops instead of lagging behind the
+newest samples.
+
+**Measured on the board (2026-11-19, LED 1, 2, 7, 8, `ESTIMATE_Z = true`):**
+`# T wait=20.1 demod=19.0 ekf=10.2 total=50.0`, i.e. **20.0 Hz**. The
+demodulation (19 ms, was 12) and the EKF (10.2 ms, was 6.9) got slower
+because the sampling interrupt now keeps running while they compute (three
+ADC reads every 40 µs); before, the interrupt had nothing to do during the
+computing. About 30 ms of every 50 are busy, so the rate can go to roughly
+30 Hz (`UPDATE_EVERY` = 833) before the loop can no longer keep up. For a
+different rate
+change `UPDATE_EVERY` (samples; 25 000 / `UPDATE_EVERY` = Hz) and keep
+`RING_N - N` well above the samples taken during one demodulation (~300).
 
 - **Demodulation by table.** Every LED frequency is a multiple of 100 Hz
   (`F_STEP`), so at 25 kHz every reference repeats after 250 samples
