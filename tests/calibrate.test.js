@@ -40,8 +40,10 @@ test('constants match copy.ino', function () {
   assert.ok(zr, 'Z_MIN / Z_MAX not found in copy.ino');
   assert.equal(parseFloat(zr[1]), C.Z_MIN); assert.equal(parseFloat(zr[2]), C.Z_MAX);
   // the EKF prediction and Jacobian use the same model as predictRss()
-  assert.match(INO, /PtxGamma\[f\] \* PD_GAIN\[g\] \* pathLossWithoutGamma\([^;]*\) \+ RSS_OFFSET/);
-  assert.equal((INO.match(/PtxGamma\[k\] \* PD_GAIN\[l\] \* pathLossWithoutGamma/g) || []).length, 2);
+  // (pathLossCS is pathLossWithoutGamma with cos / sin of the heading passed in)
+  assert.match(INO, /PtxGamma\[f\] \* PD_GAIN\[g\] \* pathLossCS\([^;]*\) \+ RSS_OFFSET/);
+  assert.equal((INO.match(/PtxGamma\[k\] \* PD_GAIN\[l\] \* pathLossCS/g) || []).length, 2);
+  assert.match(INO, /return \(m \+ 1\) \* \(m == 1\.0f \? cosPhikl : powf\(cosPhikl, m\)\) \* cosPsikl \/ \(dk \* dk\);/);
 });
 
 test('fitModel recovers gamma, photodiode gain and offset', function () {

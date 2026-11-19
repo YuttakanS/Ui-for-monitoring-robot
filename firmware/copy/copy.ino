@@ -18,6 +18,19 @@ volatile int sampleTemp[N_PD][N];
 volatile int sampleIndex = 0;
 volatile bool isSampling = false;
 
+// Demodulation without sin() / cos() in the loop (2026-11-19, they took most
+// of the time on the Pico, which has no FPU). Every LED frequency is a
+// multiple of F_STEP, so the phase of every reference repeats after
+// LUT_N = samplingFreq / F_STEP samples: one sin and one cos table of LUT_N
+// values (scaled by LUT_SCALE) serves all LEDs, stepping Fref / F_STEP entries
+// per sample. A new LED frequency must be a multiple of F_STEP, and N a
+// multiple of LUT_N (tests/firmware-math.test.js checks both).
+const int F_STEP = 100;                   // Hz
+const int LUT_N = samplingFreq / F_STEP;  // 250
+const int LUT_SCALE = 16384;              // table values are sin * 2^14
+int16_t sinQ[LUT_N], cosQ[LUT_N];
+int lutStep[N_LED];                       // table entries per sample, for each LED
+
 //VARIBLES OF EKF/UKF
 const float m = 1.0;  //Lambertian order
 const float FoV = M_PI / 2;
@@ -102,16 +115,29 @@ BLA::Matrix<N_STATE, N_STATE> Q = { 0.0 };
 BLA::Matrix<N_Z, N_Z> R = { 0.0 };
 BLA::Matrix<N_STATE, N_STATE> I6 = { 0.0 };  // identity (name kept from the 6-state version)
 
+// Q for x, y, z and their velocities was 1e-6: the position lagged, ran
+// about 8 cm past a robot that stopped and took about 10 s to come back
+// (move_straight test, 2026-11-19). 1e-4 settles in about 2-3 s with
+// under 1 cm of jitter when still (EKF replica on the PC).
+//                          x     vx    y     vy    th    om    z     vz
+const float Q0[N_STATE] = { 1e-4, 1e-4, 1e-4, 1e-4, 1e-2, 1e-2, 1e-4, 1e-4 };
+// Q0 was tuned as the noise added per update when one update took T_REF
+// seconds. loop() scales it by T / T_REF, so the filter keeps the same
+// behaviour per second when the updates come faster. (Q added unscaled at,
+// say, 8 Hz would be 2.7 times the process noise per second: more jitter.)
+const float T_REF = 0.33f;
+// true  = correct the state one RSS value at a time, lit LEDs only (fast).
+// false = the earlier update over all N_Z values with a 27 x 27 inverse.
+// Both give the same state and covariance (R is diagonal; the Jacobian and the
+// prediction are taken once at xHnnm1 either way). tests/firmware-math.test.js
+// checks this arithmetic. Set false to compare on the board.
+const bool EKF_SEQUENTIAL = true;
+
 // Same values as the 6-state version for x, y and theta; z / vz use the same
 // as x / y. (Earlier tuning tries are in git history.)
 void initEkf() {
   //                          x     vx    y     vy    th    om    z     vz
   const float P0[N_STATE] = { 0.01, 1,    0.01, 1,    0.01, 1,    0.01, 1    };
-  // Q for x, y, z and their velocities was 1e-6: the position lagged, ran
-  // about 8 cm past a robot that stopped and took about 10 s to come back
-  // (move_straight test, 2026-11-19). 1e-4 settles in about 2-3 s with
-  // under 1 cm of jitter when still (EKF replica on the PC).
-  const float Q0[N_STATE] = { 1e-4, 1e-4, 1e-4, 1e-4, 1e-2, 1e-2, 1e-4, 1e-4 };
   for (int i = 0; i < N_STATE; i++) {
     A(i, i) = 1.0;
     I6(i, i) = 1.0;
@@ -120,6 +146,21 @@ void initEkf() {
   }
   for (int i = 0; i < N_STATE; i += 2) A(i, i + 1) = T;  // position += T * velocity
   for (int i = 0; i < N_Z; i++) R(i, i) = sigma2;
+}
+
+// Fills the demodulation tables. The second half is the first half negated
+// (sin and cos of an angle half a turn on), so each table adds up to exactly 0
+// and the constant part of the photodiode signal cancels exactly.
+void initDemod() {
+  const int half = LUT_N / 2;
+  for (int i = 0; i < half; i++) {
+    const double a = 2.0 * M_PI * i / LUT_N;
+    sinQ[i] = (int16_t)lround(LUT_SCALE * sin(a));
+    cosQ[i] = (int16_t)lround(LUT_SCALE * cos(a));
+    sinQ[i + half] = -sinQ[i];
+    cosQ[i + half] = -cosQ[i];
+  }
+  for (int f = 0; f < N_LED; f++) lutStep[f] = ((int)lround(Fref[f] / F_STEP)) % LUT_N;
 }
 
 //----------------------------------------------------------------------
@@ -141,27 +182,39 @@ float vectorNorm(const BLA::Matrix<3, 1>& z) {
   return sqrt(z(0, 0) * z(0, 0) + z(1, 0) * z(1, 0) + z(2, 0) * z(2, 0));
 }
 
-float pathLossWithoutGamma(int k, int l, float x0, float y0, float z0, float t0) {
-  // k = LED index, l = PD index; (x0, y0, z0) = robot position, t0 = heading
-  float dk, cosPhikl, cosPsikl;
-  BLA::Matrix<3, 1> p0 = { x0, y0, z0 };  // z0 was fixed at 0 before z was estimated
-  BLA::Matrix<3, 1> pk = { p(k, 0), p(k, 1), p(k, 2) };
-  BLA::Matrix<3, 1> vl = { v(l, 0), v(l, 1), v(l, 2) };
-  BLA::Matrix<3, 3> Omega0 = { cos(t0), sin(t0), 0.0, -sin(t0), cos(t0), 0.0, 0.0, 0.0, 1.0 };
-  BLA::Matrix<1, 1> tmp;
-  dk = vectorNorm(p0 - pk);
-  //Serial.println(dk);
-  tmp = ~(p0 - pk) * uk / dk;
-  cosPhikl = tmp(0, 0);
-  tmp = ~(pk - p0) * (Omega0 * vl) / dk;
-  cosPsikl = tmp(0, 0);
-  if (cosPsikl > cos(FoV))
-    // Callers multiply by PtxGamma[k], so it must not be applied here as well.
-    // Old line (gamma applied twice):
-    // return PtxGamma[k] * (m + 1) * pow(cosPhikl, m) * cosPsikl / pow(dk, 2);
-    return (m + 1) * pow(cosPhikl, m) * cosPsikl / pow(dk, 2);
+const float COS_FOV = cos(FoV);
+
+// Path loss from LED k to photodiode l for a robot at (x0, y0, z0) whose
+// heading has cosine c0 and sine s0. The same formula as before, written out
+// in single precision (2026-11-19: the EKF calls this about 100 times per
+// update, and the matrix temporaries, double cos() / sin() and pow() made it
+// slow on the Pico). It was:
+//   p0 = (x0, y0, z0), pk = row k of p, vl = row l of v
+//   Omega0 = { cos(t0), sin(t0), 0,  -sin(t0), cos(t0), 0,  0, 0, 1 }
+//   dk = |p0 - pk|
+//   cosPhikl = (p0 - pk) . uk / dk
+//   cosPsikl = (pk - p0) . (Omega0 * vl) / dk
+//   if (cosPsikl > cos(FoV)) return (m + 1) * pow(cosPhikl, m) * cosPsikl / pow(dk, 2);
+//   else return 0;
+// Callers multiply by PtxGamma[k], so it must not be applied here as well.
+float pathLossCS(int k, int l, float x0, float y0, float z0, float c0, float s0) {
+  const float dx = x0 - p(k, 0), dy = y0 - p(k, 1), dz = z0 - p(k, 2);  // p0 - pk
+  const float dk = sqrtf(dx * dx + dy * dy + dz * dz);
+  const float cosPhikl = (dx * uk(0) + dy * uk(1) + dz * uk(2)) / dk;
+  // w = Omega0 * vl
+  const float w0 = c0 * v(l, 0) + s0 * v(l, 1);
+  const float w1 = -s0 * v(l, 0) + c0 * v(l, 1);
+  const float w2 = v(l, 2);
+  const float cosPsikl = -(dx * w0 + dy * w1 + dz * w2) / dk;
+  if (cosPsikl > COS_FOV)
+    return (m + 1) * (m == 1.0f ? cosPhikl : powf(cosPhikl, m)) * cosPsikl / (dk * dk);
   else
     return 0;
+}
+
+float pathLossWithoutGamma(int k, int l, float x0, float y0, float z0, float t0) {
+  // k = LED index, l = PD index; (x0, y0, z0) = robot position, t0 = heading
+  return pathLossCS(k, l, x0, y0, z0, cosf(t0), sinf(t0));
 }
 
 void computeJacobian(const BLA::Matrix<N_STATE, 1>& xHnnm1) {
@@ -175,14 +228,69 @@ void computeJacobian(const BLA::Matrix<N_STATE, 1>& xHnnm1) {
     BLA::Matrix<N_STATE, 1> xm = xHnnm1;
     xp(j) += eps;
     xm(j) -= eps;
+    // cos / sin of the heading once per shifted state, not once per LED and PD
+    const float cosP = cosf(xp(ITH)), sinP = sinf(xp(ITH));
+    const float cosM = cosf(xm(ITH)), sinM = sinf(xm(ITH));
     for (int k = 0; k < N_LED; k++)
       for (int l = 0; l < N_PD; l++) {
         if (!LED_ON[k]) { Jn(N_PD * k + l, j) = 0; continue; }  // LED off: no influence
         // RSS_OFFSET is the same on both sides, so it drops out here
-        tmp1 = PtxGamma[k] * PD_GAIN[l] * pathLossWithoutGamma(k, l, xp(IX), xp(IY), xp(IZ), xp(ITH));
-        tmp2 = PtxGamma[k] * PD_GAIN[l] * pathLossWithoutGamma(k, l, xm(IX), xm(IY), xm(IZ), xm(ITH));
+        tmp1 = PtxGamma[k] * PD_GAIN[l] * pathLossCS(k, l, xp(IX), xp(IY), xp(IZ), cosP, sinP);
+        tmp2 = PtxGamma[k] * PD_GAIN[l] * pathLossCS(k, l, xm(IX), xm(IY), xm(IZ), cosM, sinM);
         Jn(N_PD * k + l, j) = (tmp1 - tmp2) / (2.0f * eps);
       }
+  }
+}
+
+// EKF correction, one RSS value at a time (see EKF_SEQUENTIAL). Starts from the
+// prediction (xHnnm1, Pnnm1) and leaves the result in xHnm1nm1 / Pnm1nm1.
+// For value i with Jacobian row h and noise sigma2:
+//   S = h P h' + sigma2,  K = P h' / S
+//   x = x + K * (zn(i) - zHn(i) - h (x - xHnnm1))   innovation against the model
+//                                                    linearised at xHnnm1
+//   P = (I - K h) P (I - K h)' + K sigma2 K'         Joseph form, as before
+// Values of LEDs that are off are skipped (their rows of Jn are 0).
+void ekfUpdateSequential() {
+  float h[N_STATE], Ph[N_STATE], hP[N_STATE], K[N_STATE], Mh[N_STATE];
+  float M[N_STATE][N_STATE];
+  xHnm1nm1 = xHnnm1;
+  Pnm1nm1 = Pnnm1;
+  for (int f = 0; f < N_LED; f++) {
+    if (!LED_ON[f]) continue;
+    for (int g = 0; g < N_PD; g++) {
+      const int i = N_PD * f + g;
+      float S = sigma2;
+      float innov = zn(i) - zHn(i);
+      for (int a = 0; a < N_STATE; a++) h[a] = Jn(i, a);
+      for (int a = 0; a < N_STATE; a++) {
+        float s1 = 0, s2 = 0;
+        for (int b = 0; b < N_STATE; b++) {
+          s1 += Pnm1nm1(a, b) * h[b];  // P h'
+          s2 += h[b] * Pnm1nm1(b, a);  // h P
+        }
+        Ph[a] = s1;
+        hP[a] = s2;
+      }
+      for (int a = 0; a < N_STATE; a++) {
+        S += h[a] * Ph[a];
+        innov -= h[a] * (xHnm1nm1(a) - xHnnm1(a));
+      }
+      for (int a = 0; a < N_STATE; a++) {
+        K[a] = Ph[a] / S;
+        xHnm1nm1(a) += K[a] * innov;
+      }
+      // M = (I - K h) P
+      for (int a = 0; a < N_STATE; a++)
+        for (int b = 0; b < N_STATE; b++) M[a][b] = Pnm1nm1(a, b) - K[a] * hP[b];
+      // P = M (I - K h)' + K sigma2 K' = M - (M h') K' + sigma2 K K'
+      for (int a = 0; a < N_STATE; a++) {
+        float s1 = 0;
+        for (int b = 0; b < N_STATE; b++) s1 += M[a][b] * h[b];
+        Mh[a] = s1;
+      }
+      for (int a = 0; a < N_STATE; a++)
+        for (int b = 0; b < N_STATE; b++) Pnm1nm1(a, b) = M[a][b] - Mh[a] * K[b] + sigma2 * K[a] * K[b];
+    }
   }
 }
 
@@ -228,15 +336,13 @@ void setup() {
   Serial.begin(115200);
   analogReadResolution(10);
   initEkf();
+  initDemod();
   hardware_alarm_claim(0);
   add_repeating_timer_us(-40, timer_callback, NULL, &timer);
 }
 
 void loop() {
-  float corrSin[N_LED][N_PD] = {};
-  float corrCos[N_LED][N_PD] = {};
-  float RSS[N_LED][N_PD];
-  float angle;
+  float RSS[N_LED][N_PD] = {};  // stays 0 for LEDs that are off
   unsigned long time1 = millis();
   unsigned long tStart = micros();  // for the "# T" timing line
 
@@ -249,25 +355,37 @@ void loop() {
   }
   unsigned long tSampled = micros();
 
-  // sin/cos depend only on the LED frequency and the sample index, so work
-  // them out once and reuse them for all 3 photodiodes (as in copy2).
+  // Correlate each photodiode with sin and cos at each lit LED's frequency.
+  // Was, per sample (float, sin() and cos() called 2 * N times per LED):
+  //   angle = 2.0f * M_PI * Fref[f] * i / samplingFreq;
+  //   corrSin[f][g] += sampleTemp[g][i] * sin(angle);   (and cos)
+  //   RSS[f][g] = (1.0f)/N * sqrt(corrSin^2 + corrCos^2);
+  // Now the same sums with the tables of initDemod() and integers only.
   for (int f = 0; f < N_LED; f++) {
     if (!LED_ON[f]) continue;  // skip LEDs that are off (saves time; RSS stays 0)
+    int64_t accSin[N_PD] = {}, accCos[N_PD] = {};
+    const int step = lutStep[f];
+    int idx = 0;
     for (int i = 0; i < N; i++) {
-      angle = 2.0f * M_PI * Fref[f] * i / samplingFreq;
-      float s = sin(angle);
-      float c = cos(angle);
+      const int32_t s = sinQ[idx];
+      const int32_t c = cosQ[idx];
       for (int g = 0; g < N_PD; g++) {
-        corrSin[f][g] += sampleTemp[g][i] * s;
-        corrCos[f][g] += sampleTemp[g][i] * c;
+        const int32_t x = sampleTemp[g][i];  // 0..1023, so x * s fits in 32 bits
+        accSin[g] += x * s;
+        accCos[g] += x * c;
       }
+      idx += step;
+      if (idx >= LUT_N) idx -= LUT_N;
+    }
+    for (int g = 0; g < N_PD; g++) {
+      const double cs = (double)accSin[g], cc = (double)accCos[g];
+      RSS[f][g] = (float)(sqrt(cs * cs + cc * cc) / ((double)N * LUT_SCALE));
     }
   }
   unsigned long tDemod = micros();
 
   for (int f = 0; f < N_LED; f++)
     for (int g = 0; g < N_PD; g++) {
-      RSS[f][g] = (1.0f)/N * sqrt(corrSin[f][g] * corrSin[f][g] + corrCos[f][g] * corrCos[f][g]); //
       zn(N_PD*f+g) = RSS[f][g];
       // Serial.print("RSS"); 
       if (mode == 1 || mode == 3){
@@ -286,6 +404,7 @@ void loop() {
   if (lastUpdate != 0) T = (time1 - lastUpdate) / 1000.0f;
   lastUpdate = time1;
   for (int i = 0; i < N_STATE; i += 2) A(i, i + 1) = T;
+  for (int i = 0; i < N_STATE; i++) Q(i, i) = Q0[i] * T / T_REF;  // see T_REF
 
   //ONE ITERATION OF EKF/UKF
   //Prediction step
@@ -294,15 +413,20 @@ void loop() {
 
   //Correction step
   computeJacobian(xHnnm1);
-  Kn = Pnnm1 * ~Jn * Inverse(R + Jn * Pnnm1 * ~Jn);
+  const float cosTh = cosf(xHnnm1(ITH)), sinTh = sinf(xHnnm1(ITH));
   for (int f = 0; f < N_LED; f++)
     for (int g = 0; g < N_PD; g++)
       // LED off: predicted = measured, so its innovation is 0
-      zHn(N_PD * f + g) = LED_ON[f] ? PtxGamma[f] * PD_GAIN[g] * pathLossWithoutGamma(f, g, xHnnm1(IX), xHnnm1(IY), xHnnm1(IZ), xHnnm1(ITH)) + RSS_OFFSET
+      zHn(N_PD * f + g) = LED_ON[f] ? PtxGamma[f] * PD_GAIN[g] * pathLossCS(f, g, xHnnm1(IX), xHnnm1(IY), xHnnm1(IZ), cosTh, sinTh) + RSS_OFFSET
                                     : zn(N_PD * f + g);
-  xHnm1nm1 = xHnnm1 + Kn * (zn - zHn);
-  // Pnm1nm1 = (I6 - Kn*Jn) * Pnnm1; 
-  Pnm1nm1 = (I6 - Kn*Jn) * Pnnm1 * ~(I6 - Kn*Jn) + Kn * R * ~Kn;
+  if (EKF_SEQUENTIAL) {
+    ekfUpdateSequential();
+  } else {
+    Kn = Pnnm1 * ~Jn * Inverse(R + Jn * Pnnm1 * ~Jn);
+    xHnm1nm1 = xHnnm1 + Kn * (zn - zHn);
+    // Pnm1nm1 = (I6 - Kn*Jn) * Pnnm1;
+    Pnm1nm1 = (I6 - Kn*Jn) * Pnnm1 * ~(I6 - Kn*Jn) + Kn * R * ~Kn;
+  }
   xHnm1nm1(ITH) = boundAngle(xHnm1nm1(ITH));
   if (ESTIMATE_Z) {
     // keep z in the range where the model holds; stop vz pushing past a limit
@@ -329,9 +453,9 @@ void loop() {
     Serial.println(zcm);
   }
   if (PRINT_TIMING) {
-    // ms spent sampling, demodulating (including printing RSS in mode 1 / 3)
-    // and in the EKF; total = the whole loop up to here, with the printing
-    // above. The time between two lines is the real update period.
+    // ms spent sampling, demodulating and in the EKF (which here includes
+    // printing the RSS line in mode 1 / 3); total = the whole loop up to
+    // here, with the position line. total is the real update period.
     Serial.print("# T sample="); Serial.print((tSampled - tStart) / 1000.0f, 1);
     Serial.print(" demod="); Serial.print((tDemod - tSampled) / 1000.0f, 1);
     Serial.print(" ekf="); Serial.print((tEkf - tDemod) / 1000.0f, 1);
