@@ -210,6 +210,50 @@ LED <number> <0|1>     e.g.  LED 4 1
 The board answers `# LED <number> <0|1>`. An LED that is off is not demodulated
 and adds nothing to the EKF update. This does not power the LED itself off.
 
+```
+TIMING <0|1>           e.g.  TIMING 1
+```
+
+The board answers `# TIMING <0|1>`. While it is on, every loop ends with
+
+```
+# T sample=100.1 demod=8.3 ekf=12.0 total=121.2
+```
+
+(numbers here are only an example): the ms spent collecting the samples,
+demodulating and in the EKF, and the whole loop. The web pages skip lines
+that start with `#`, so use the Serial Monitor to read them.
+
+## Update rate (2026-11-19, branch `feature/task-2-realtime`)
+One update took about 0.33 s (3.0 Hz) with LED 1, 2, 7, 8: 0.1 s to collect
+2500 samples at 25 kHz and the rest to compute, on a Pico without an FPU.
+The sample window is unchanged; the computing was made lighter. **Not yet
+measured on the board** (the estimate is 7–9 Hz); send `TIMING 1` to see.
+
+- **Demodulation by table.** Every LED frequency is a multiple of 100 Hz
+  (`F_STEP`), so at 25 kHz every reference repeats after 250 samples
+  (`LUT_N`). One sin and one cos table of 250 values, built once, replaces
+  the 2 × 2500 calls of `sin()` / `cos()` per LED and loop, and the sums are
+  kept in integers. **A new LED frequency must be a multiple of 100 Hz**, and
+  `N` a multiple of 250. Against exact arithmetic the table is within 1e-5
+  of the RSS; the earlier single-precision loop was within about 2e-4, so
+  the RSS can move in the 4th decimal.
+- **Lighter path-loss function.** Same formula in single precision, without
+  matrix temporaries or `pow()`; cos / sin of the heading are worked out
+  once per shifted state instead of once per LED and photodiode.
+- **EKF correction one value at a time** (`EKF_SEQUENTIAL = true`), for lit
+  LEDs only, instead of inverting a 27×27 matrix. With a diagonal `R` and
+  the Jacobian and prediction taken once at the predicted state, this gives
+  the same state and covariance as before; Joseph form is kept.
+  `EKF_SEQUENTIAL = false` runs the earlier update, to compare on the board.
+- **`Q` follows the update period:** `Q = Q0 * T / T_REF`, `T_REF` = 0.33 s
+  (the period when `Q0` was tuned). `Q` is added once per update, so without
+  this, faster updates would mean more process noise per second. In a
+  single-precision replica on the PC (robot still, RSS noise 0.02), x jitter
+  was 0.43 cm at 3 Hz, 0.56 cm at 8 Hz with `Q` unscaled and 0.49 cm scaled.
+- `tests/firmware-math.test.js` repeats the table demodulation and both EKF
+  updates in JS and checks they agree. It does not compile the `.ino`.
+
 ## z axis (2026-11-19)
 Checked on the PC first with `solvePose()` in `calibrate.js` (where the EKF
 settles for a still robot), on the 8 floor poses of
@@ -258,8 +302,9 @@ the board, where the old model gave about 1–3 cm.)
   | (0, 0, 40), 90° | (0.0, 0.1, 40.8), 89.9° |
 
   z settles more slowly than x / y (P0 = 0.01, Q = 1e-6 at the time).
-- With 9 LEDs each loop does more work: the EKF inverts a 27×27 matrix
-  (the gain is 8×27). LEDs that are off are not demodulated.
+- With 9 LEDs each loop does more work. LEDs that are off are not
+  demodulated. (Until 2026-11-19 the EKF inverted a 27×27 matrix every
+  loop; see "Update rate".)
 - **EKF tuning (2026-11-19):** `T` is the measured time since the previous
   update (about 0.33 s with LED 1, 2, 7, 8; it was fixed at 0.2 s), sin/cos
   are worked out once per sample and reused for the 3 photodiodes (from

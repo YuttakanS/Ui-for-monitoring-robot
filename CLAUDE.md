@@ -46,7 +46,8 @@ branch `feature/task-1-ui` แบ่งงานเป็น 4 phase / 18 ข้
 - **firmware อยู่ใน repo** โฟลเดอร์ต้องชื่อเดียวกับไฟล์ `.ino` (Arduino IDE บังคับ) ให้แก้และ upload จากไฟล์ใน repo เป็นหลัก
 - **Branch ↔ firmware:**
   - `main` ↔ `firmware/copy/copy.ino` (9 LED + 3D + z + ปุ่มเปิด/ปิด LED · แก้ γ คูณซ้ำแล้ว · ตั้งแต่ `feature/task-2-ekf-tuning`: `T` ใช้เวลารอบจริง · ใช้ sin/cos ซ้ำ · `Q` ของตำแหน่ง 1e-4) ← **branch หลักตอนนี้**
-  - `feature/task-2-z-axis` ↔ `copy.ino` + `PD_GAIN`/`RSS_OFFSET` + `ESTIMATE_Z = true` + แท่งความสูงและปุ่มตั้งศูนย์ z บนหน้าเว็บ (ยังไม่ merge รอผลบนบอร์ด)
+  - `feature/task-2-z-axis` ↔ `copy.ino` + `PD_GAIN`/`RSS_OFFSET` + `ESTIMATE_Z = true` + แท่งความสูงและปุ่มตั้งศูนย์ z บนหน้าเว็บ (push แล้ว ยังไม่มี PR · ผู้ใช้ลองบนบอร์ดแล้วบอกว่า "ค่าไม่นิ่ง" ยังไม่รู้สาเหตุ ห้าม merge จนกว่าจะรู้)
+  - `feature/task-2-realtime` (แตกจาก `-z-axis` ตามที่ผู้ใช้เลือก, 2026-11-19) ↔ `copy.ino` ที่คำนวณเร็วขึ้น: demodulate ด้วยตาราง sin/cos 250 ค่า + จำนวนเต็ม (**ความถี่ LED ต้องเป็นพหุคูณของ 100 Hz**), `pathLossCS()` แบบ float, EKF อัปเดตทีละค่า (`EKF_SEQUENTIAL = true`; `false` = สูตร inverse 27×27 เดิม ผลเท่ากันทางคณิตศาสตร์), `Q = Q0·T/T_REF` (`T_REF` = 0.33 s), คำสั่ง serial `TIMING <0|1>` พิมพ์ `# T sample= demod= ekf= total=` (ms) เดิม 3 Hz คาดว่าได้ 7–9 Hz **ยังไม่ได้ compile/วัดบนบอร์ด** ขั้นถัดไปถ้าต้องการ 10–20 Hz คือเก็บสัญญาณต่อเนื่อง/ซ้อนช่วง (ยังไม่ได้ทำ ต้องถามก่อน) test คณิตศาสตร์อยู่ใน `tests/firmware-math.test.js` (ไม่ได้ compile `.ino`)
   - `feature/task-2-ui-6led-off45` ↔ `firmware/copy2/copy2.ino` (LED 1, 2, 7, 8 · γ ยังคูณซ้ำ · ใช้ sin/cos ซ้ำแล้ว · `T` ใช้เวลาจริง) ← **branch ที่อาจารย์ใช้** ยังไม่ merge เข้า `main`
   - branch เก่า: `task-2-ui-4led` (มุมมองที่หมุนแกน ผิดทาง), `-4led-q2`, `-4led-heading`, `-6led`, `-led-toggle`
 - **ยังค้าง:**
