@@ -44,8 +44,12 @@ Layout seen from above (+X right, +Y up), LED 4 at the origin:
 2--1--0    y = -50
 ```
 
-- `m = 1.0`. A trial with `m = 0.55` (commit 1e0106c) was reverted
-  before it was measured on the board; see "Calibration results" below.
+- `m = 1.0`. The LEDs are Cree XLamp CMA1306, viewing angle (FWHM)
+  115–116°, so m ≈ 1.1, close to 1. A trial with `m = 0.55` (commit
+  1e0106c) was reverted before it was measured on the board; see
+  "Calibration results" below.
+- `be = 55°`: the pyramid faces with the photodiodes measure 35° from the
+  floor, so each normal is 55° above it (was 60°, a 30° face).
 - `PtxGamma` for LED 7, 8, 1, 2 is an **interim calibration** (2026-11-19,
   see "Calibration results" below). LED 0, 3, 6 (off for now) keep the
   placeholder 0.46; LED 4, 5 (not lit) keep 0.49. `ESTIMATE_Z` is `false`
@@ -160,6 +164,28 @@ does not help, so it is not added.
 error measured on the board, which is m = 1 with the interim gammas
 (about 3 cm, table above). m = 0.55 was never measured on the board; it
 can be tried again from commit 1e0106c.
+
+The LED datasheet (Cree XLamp CMA1306, FWHM 115–116°, half-power angle
+57.5–58°) gives m ≈ 1.1, so the LEDs are not wider than m = 1 and
+m = 0.55 does not match the hardware. The far LEDs reading high more
+likely comes from reflections (floor, walls, ceiling), which add about
+the same light everywhere and so weigh more where the direct light is
+weak.
+
+### 2026-11-19: photodiode tilt be = 55° (measured)
+The pyramid faces measure 35° from the floor; the code assumed 30°
+(`be = M_PI / 3`). Refitted on the 8 poses of
+`calib/ra_calib_20261119_130953.csv` (m = 1), finding each pose from its
+RSS without the EKF:
+
+| Face tilt | `be` | RSS misfit | Position error, leave-one-out (mean / max) |
+|---|---|---|---|
+| 30° (before) | 60° | 9.6 % | 6.7 / 14.2 cm |
+| **35° (measured, now)** | **55°** | 10.8 % | **5.9 / 11.3 cm** |
+
+New gammas: LED 7 0.476, LED 8 0.457, LED 1 0.562, LED 2 0.525. Still to
+do: measure (0, 0), (−50, 0), (0, 50), (−25, 50), (−25, −25) on the board
+and compare with the position check above; repeat `rotate` if possible.
 
 ### 2026-11-19: the professor's firmware for comparison
 `firmware/copy2/copy2.ino` on `feature/task-2-ui-6led-off45` (m = 1,

@@ -25,10 +25,10 @@
     [-0.5, -0.5, 0.92], [0.5, -0.5, 0.92], [0.5, 0, 0.92], [0.5, 0.5, 0.92]
   ];
   // PtxGamma as in copy.ino now; kept for LEDs that are not fitted
-  var CURRENT_GAMMA = [0.49, 0.49, 0.453, 0.436, 0.536, 0.504, 0.46, 0.46, 0.46];
+  var CURRENT_GAMMA = [0.49, 0.49, 0.476, 0.457, 0.562, 0.525, 0.46, 0.46, 0.46];
   var M = 1.0;                       // Lambertian order
   var FOV = Math.PI / 2;
-  var BETA = Math.PI / 3;            // photodiode tilt (be)
+  var BETA = 55 * Math.PI / 180;     // photodiode normal elevation (be); pyramid face 35 deg
   var ALPHA = [0, 2 * Math.PI / 3, -2 * Math.PI / 3]; // al; PD 0 = pin GP28
   // photodiode normals v (rows), as in copy.ino
   var V = ALPHA.map(function (a) {

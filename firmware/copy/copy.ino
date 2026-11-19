@@ -23,17 +23,21 @@ const float m = 1.0;  //Lambertian order
 const float FoV = M_PI / 2;
 float T = 0.2;  // seconds between EKF updates; set from the measured loop time in loop() (about 0.33 s)
 const float al[N_PD] = { 0, 2.0*M_PI/3.0, -2.0*M_PI/3.0 };
-const float be = M_PI / 3;
+// Elevation of each photodiode's normal above the floor. The pyramid faces
+// measure 35 deg from the floor (2026-11-19), so the normal is 90 - 35 = 55 deg
+// (was M_PI / 3 = 60 deg, a face of 30 deg).
+const float be = 55.0f * M_PI / 180.0f;
 // const float PtxGamma[N_LED] = { 0.46f, 0.41f, 0.55f, 0.51f };  
 // Which LEDs the EKF uses (same order as p). An LED set to false is not
 // demodulated and adds nothing to the update. These are the values at power-up;
 // the web page can change them at run time (see readCommands()).
 const int LED_NUM[N_LED] = {     4,     5,    7,    8,    1,    2,    0,    3,    6 };  // LED number per row of p
 bool LED_ON[N_LED]       = { false, false, true, true, true, true, false, false, false };  // only LED 7, 8, 1, 2 on at start (2026-11-19)
-// LED 7, 8, 1, 2: interim calibration 2026-11-19 with calibrate.html (7 poses,
-// theta = 0, m = 1; misfit 11-19 %, so keep ESTIMATE_Z = false). LED 4, 5
-// (not lit) and LED 0, 3, 6 (off) are not calibrated.
-const float PtxGamma[N_LED] = { 0.490f, 0.490f, 0.453f, 0.436f, 0.536f, 0.504f, 0.460f, 0.460f, 0.460f };
+// LED 7, 8, 1, 2: calibrated 2026-11-19 with calibrate.html (8 poses, theta = 0,
+// m = 1, be = 55 deg; keep ESTIMATE_Z = false). With be = 60 deg they were
+// 0.453, 0.436, 0.536, 0.504. LED 4, 5 (not lit) and LED 0, 3, 6 (off) are
+// not calibrated.
+const float PtxGamma[N_LED] = { 0.490f, 0.490f, 0.476f, 0.457f, 0.562f, 0.525f, 0.460f, 0.460f, 0.460f };
 const float eps = 0.01; //0.01;
 const float sigma2 = 0.01; //0.1, 0.4, 0.1, 0.005; 
 // const float q = 0.01;
