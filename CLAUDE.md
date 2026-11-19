@@ -50,11 +50,17 @@ branch `feature/task-1-ui` แบ่งงานเป็น 4 phase / 18 ข้
   - branch เก่า: `task-2-ui-4led` (มุมมองที่หมุนแกน ผิดทาง), `-4led-q2`, `-4led-heading`, `-6led`, `-led-toggle`
 - **ยังค้าง:**
   - firmware ทุกตัวยังไม่เคย compile หรือรันบน Pico จริง (เครื่องที่ทำงานไม่มี `arduino-cli`) `copy.ino` ทดสอบแค่จำลองบน PC
-  - `PtxGamma` ของ LED 0, 1, 2, 3, 6 เป็นค่าสมมติ 0.46 ยังไม่ได้ calibrate และค่า z ขึ้นอยู่กับ gamma โดยตรง (gamma ผิด 10% ทำให้ z คลาดราว 7 cm) ถ้ายังไม่ได้ calibrate ให้ใช้ `ESTIMATE_Z = false`
+  - `PtxGamma` ของ LED 0, 1, 2, 3, 6 เป็นค่าสมมติ 0.46 ยังไม่ได้ calibrate และค่า z ขึ้นอยู่กับ gamma โดยตรง (gamma ผิด 10% ทำให้ z คลาดราว 7 cm) ถ้ายังไม่ได้ calibrate ให้ใช้ `ESTIMATE_Z = false` เครื่องมือพร้อมแล้วบน `feature/task-2-calibrate`: หน้า `calibrate.html` (วิธีใช้อยู่ใน `firmware/copy/README.md` ส่วน "Calibrating PtxGamma") รอทดลองกับบอร์ดจริง
+- **Calibration (2026-11-19):**
+  - **LED 4 และ 5 ไม่ติดจริงที่ตัวหลอด** ใช้ LED 0, 1, 2, 3, 6, 7, 8 (`LEDS_LIT` ใน `calibrate.js`) ส่วน gamma ของ LED 4, 5 คงค่าเดิม 0.49
+  - เครื่องที่ทำงานไม่มี Python ผู้ใช้จึงเลือกทำเครื่องมือเป็น JavaScript กับหน้าเว็บ ใช้ Node (v26) รัน test ได้ด้วย `npm test` (ใช้ `node:test` ไม่มี dependency)
+  - `calibrate.js` ลอกแบบจำลองจาก `copy.ino` ถ้าแก้ `p`, `LED_NUM`, `PtxGamma`, `m`, `FoV`, `be` หรือ `al` ใน firmware ต้องแก้ `calibrate.js` ให้ตรงด้วย (test จะไม่ผ่านถ้าไม่ตรง)
+  - calibrate ที่มุม θ = 0 (photodiode ขา GP28 หันไป +X) จึงไม่ต้องรอยืนยัน `HEADING_SIGN`
+  - firmware พิมพ์ค่า RSS เป็นทศนิยม 4 ตำแหน่ง (เดิม 2 ตำแหน่ง หยาบเกินไปสำหรับการ calibrate)
   - γ ใน `copy2` ยังคูณซ้ำ: ยังไม่รู้ว่า `PtxGamma` ชุด (0.51, 0.51, 0.44, 0.46) calibrate มากับโค้ดนี้หรือเปล่า
   - `copy2` ส่งข้อมูลได้แค่ ~3.4 Hz และตำแหน่งตามหุ่นช้า สาเหตุหลักน่าจะเป็น `Q` ของ EKF ที่ต่ำ (1e-6) ควรบันทึก CSV ตอนเลื่อนหุ่นเพื่อวัดก่อนปรับ ส่วน `copy.ino` ต้อง demodulate 9 LED และกลับเมทริกซ์ 27×27 จึงน่าจะช้ากว่านี้ ควรนำส่วนที่ทำให้เร็วขึ้นจาก `copy2` มาใส่
   - ถ้าปิด LED ทุกดวง ตำแหน่งจะไหลไปตามความเร็วล่าสุด ยังไม่มีอะไรกันไว้
-  - repo ยังไม่มี test, lint หรือ build ตรวจได้ด้วยมืออย่างเดียว
+  - test มีแค่ของ calibration (`npm test`) ส่วนตัวแยกบรรทัด serial และ CSV ของหน้าหลักยังไม่มี test ยังไม่มี lint หรือ build
 
 ## การทำงาน
 - ก่อนแก้โค้ดขนาดใหญ่ ให้สรุปแผนสั้น ๆ และรอการยืนยัน

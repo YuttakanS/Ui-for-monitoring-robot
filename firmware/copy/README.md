@@ -48,6 +48,32 @@ Layout seen from above (+X right, +Y up), LED 4 at the origin:
 - The frequencies of LED 0, 3 and 6 (1100 / 1900 / 3100 Hz) were checked
   against the real LED drivers on 2026-11-19 and match `Fref`.
 
+## Calibrating `PtxGamma`
+Each LED's `PtxGamma` (its brightness times the photodiode and ADC gain) is
+fitted from RSS values taken with the robot at known poses, using
+`calibrate.html` in the repo root (Chrome or Edge, Web Serial). The page
+repeats the path-loss model of this file in `calibrate.js`; `npm test`
+checks that its constants still match this file.
+
+1. Temporarily set `mode = 3` (RSS line + position line) and
+   `ESTIMATE_Z = false`, then upload. RSS is printed with 4 decimals.
+2. Close the Position Monitor page, open `calibrate.html` and connect. The
+   page switches LED 0, 1, 2, 3, 6, 7, 8 on and LED 4, 5 off (not lit).
+3. Put the robot on the floor at **theta = 0**: the photodiode on pin
+   **GP28** (`pins[0]`) faces **+X**. Keep room light the same throughout.
+4. Record the 13 suggested poses (under each LED and the 4 midpoints,
+   30 lines each). Re-record a pose whose spread is red (the robot moved).
+5. Export the CSV as a record, copy the `PtxGamma` line into this file,
+   set `mode = 2` again and upload.
+6. Check: at a pose not among the 13 (e.g. (-25, 0) or (0, 25)), the
+   Position Monitor should show x / y within about 3 cm; then try
+   `ESTIMATE_Z = true`, and a robot on the floor should read z ~ 0.
+
+In the result table, PD0–PD2 is how much each photodiode reads above (+) or
+below (−) the model on average. If the same photodiode is off by more than
+5 % for every LED, the photodiodes differ in gain, which this firmware does
+not model yet. Note it down. LEDs that are not fitted keep their old value.
+
 ## On/off commands
 The web page (or the Serial Monitor) sends one line per command:
 
