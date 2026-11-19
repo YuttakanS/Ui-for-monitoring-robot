@@ -129,6 +129,8 @@
       angle: 'มุมตกกระทบ',
       gaugeAria: 'หน้าปัดมุมตกกระทบ',
       recTitle: 'บันทึกข้อมูล',
+      recEvery: 'เก็บทุก (วินาที)',
+      recEveryNote: '0 = ทุกบรรทัด',
       recStart: '● เริ่มบันทึก',
       recStop: '■ หยุดบันทึก',
       rows: '{n} แถว',
@@ -209,6 +211,8 @@
       angle: 'Incidence angle',
       gaugeAria: 'Incidence angle dial',
       recTitle: 'Recording',
+      recEvery: 'Keep one row every (s)',
+      recEveryNote: '0 = every line',
       recStart: '● Start recording',
       recStop: '■ Stop recording',
       rows: '{n} rows',
@@ -321,6 +325,8 @@
     recording: false,
     recSince: 0,           // performance.now() when the current recording run started
     recElapsed: 0,         // ms recorded in earlier runs (since the last Clear)
+    recEvery: 0,           // keep one row every this many seconds; 0 = every line
+    recSlot: -1,           // index of the last interval a row was kept for
     log: [],
     logSaved: true,
     dirty: true,
@@ -342,7 +348,7 @@
     valX: $('valX'), valY: $('valY'), valQ: $('valQ'), valR: $('valR'),
     valH: $('valH'), cNeedle: $('cNeedle'), headingNote: $('headingNote'),
     qMini: $('qMini'), mmX: $('mmX'), mmY: $('mmY'), mmR: $('mmR'), lastTime: $('lastTime'),
-    btnRecord: $('btnRecord'), recCount: $('recCount'), btnCsv: $('btnCsv'), btnClearLog: $('btnClearLog'),
+    btnRecord: $('btnRecord'), recCount: $('recCount'), recEvery: $('recEvery'), btnCsv: $('btnCsv'), btnClearLog: $('btnClearLog'),
     tableDetails: $('tableDetails'), tableBody: $('tableBody'),
     lastRaw: $('lastRaw'), errCount: $('errCount'), lastAge: $('lastAge'),
     noticeText: $('noticeText'), noticeAction: $('noticeAction'),
@@ -381,7 +387,7 @@
     if (state.samples.length > MAX_SAMPLES + 1000) state.samples.splice(0, state.samples.length - MAX_SAMPLES);
 
 
-    if (state.recording) {
+    if (state.recording && keepForLog(s.t)) {
       state.log.push({
         wall: s.wall, t: s.t, quadrant: s.quadrant, x: s.x, y: s.y, angle: s.angle, source: state.source
       });
@@ -1203,11 +1209,24 @@
   function toggleRecording() {
     var now = performance.now();
     if (state.recording) state.recElapsed += now - state.recSince;
-    else state.recSince = now;
+    else { state.recSince = now; state.recSlot = -1; }
     state.recording = !state.recording;
+    el.recEvery.disabled = state.recording; // one interval per run keeps the file consistent
     updateButtons();
     el.btnRecord.classList.toggle('recording', state.recording);
     updateStatus();
+  }
+
+  // With an interval set, keep only the first line that arrives in each
+  // n-second slot (counted from when this run started). The row is the raw
+  // line, not an average, so the CSV stays raw. Slots are fixed, so the
+  // spacing does not drift by the 20 Hz line period.
+  function keepForLog(t) {
+    if (!(state.recEvery > 0)) return true;
+    var slot = Math.floor((t - state.recSince) / (state.recEvery * 1000));
+    if (slot <= state.recSlot) return false;
+    state.recSlot = slot;
+    return true;
   }
 
   // total time spent recording (stopping and starting again adds up)
@@ -1360,6 +1379,12 @@
   el.baud.addEventListener('change', function () {
     try { localStorage.setItem('ra.baud', el.baud.value); } catch (e) { /* storage unavailable */ }
   });
+  el.recEvery.addEventListener('change', function () {
+    var v = parseFloat(el.recEvery.value);
+    state.recEvery = isFinite(v) && v > 0 ? v : 0;
+    el.recEvery.value = String(state.recEvery);
+    try { localStorage.setItem('ra.recEvery', String(state.recEvery)); } catch (e) { /* storage unavailable */ }
+  });
   el.lang.addEventListener('change', function () { setLang(el.lang.value); });
   el.theme.addEventListener('change', function () { setTheme(el.theme.value, true); });
 
@@ -1396,7 +1421,10 @@
     for (oi = 0; oi < el.trailN.options.length; oi++) {
       if (el.trailN.options[oi].value === savedTrail) state.trailN = +savedTrail;
     }
+    var savedEvery = parseFloat(localStorage.getItem('ra.recEvery'));
+    if (isFinite(savedEvery) && savedEvery > 0) state.recEvery = savedEvery;
   } catch (e) { /* storage unavailable */ }
+  el.recEvery.value = String(state.recEvery);
   var savedTheme = null;
   try { savedTheme = localStorage.getItem('ra.theme'); } catch (e) { /* storage unavailable */ }
   setTheme(savedTheme, false);
