@@ -194,10 +194,30 @@ and adds nothing to the EKF update. This does not power the LED itself off.
   | (-30, 25, 30), -60° | (-29.8, 24.1, 31.8), -60.4° |
   | (0, 0, 40), 90° | (0.0, 0.1, 40.8), 89.9° |
 
-  z settles more slowly than x / y (P0 = 0.01, Q = 1e-6); raise them to
-  follow faster height changes.
-- With 9 LEDs each loop does more work: 9 LEDs are demodulated (per-sample
-  sin/cos) and the EKF inverts a 27×27 matrix (the gain is now 8×27). If the update rate drops too
-  far, port the speed-ups from `copy2` (see below).
-- `T` is still fixed at 0.2 s and sin/cos are still computed per photodiode;
-  `firmware/copy2` on `feature/task-2-ui-6led-off45` has those speed-ups.
+  z settles more slowly than x / y (P0 = 0.01, Q = 1e-6 at the time).
+- With 9 LEDs each loop does more work: the EKF inverts a 27×27 matrix
+  (the gain is 8×27). LEDs that are off are not demodulated.
+- **EKF tuning (2026-11-19):** `T` is the measured time since the previous
+  update (about 0.33 s with LED 1, 2, 7, 8; it was fixed at 0.2 s), sin/cos
+  are worked out once per sample and reused for the 3 photodiodes (from
+  `copy2`), and Q for x, y, z and their velocities is 1e-4 (was 1e-6).
+
+  Before (`calib/motion_20261119/move_straight.csv`): moving the robot
+  50 cm in a straight line, the position ran about 8 cm past where it
+  stopped and took about 10 s to come back; the heading stayed within ±7°.
+  An EKF replica on the PC (same model, 4 LEDs, RSS noise 0.01–0.03)
+  gives:
+
+  | Setting | Overshoot | Settles within 2 cm | Jitter when still |
+  |---|---|---|---|
+  | Q = 1e-6, T = 0.2 s (before) | 14 cm | 18 s | 2 cm |
+  | Q = 1e-6, real T | 12 cm | 13–14 s | 1.1–1.3 cm |
+  | **Q = 1e-4, real T (now)** | **3–4 cm** | **2–3 s** | **0.2–0.6 cm** |
+  | Q = 1e-3, real T | 1–2 cm | 0–6 s | 0.3–0.8 cm |
+
+  Still to do: repeat `move_straight` on the board with this firmware.
+- `calib/motion_20261119/rotate.csv`: turning on the spot at (−25, 0),
+  clockwise in 90° steps, the heading read 0°, 77–81°, ±180°, −90°, 0°
+  (sign correct). The position moved with the heading, up to 10 cm in x
+  at 180°; likely photodiodes with different gains, which a calibration
+  at θ = 0 only cannot tell apart (not fixed yet).
