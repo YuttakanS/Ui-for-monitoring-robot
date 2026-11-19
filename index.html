@@ -78,6 +78,13 @@
             <label><input type="radio" name="mapView" value="2d" checked><span>2D</span></label>
             <label><input type="radio" name="mapView" value="3d"><span>3D</span></label>
           </div>
+          <label class="field small" id="cam3dField" hidden><span data-i18n="cam3d">กล้อง</span>
+            <select id="cam3d">
+              <option value="free" data-i18n="camFree">อิสระ</option>
+              <option value="third" data-i18n="camThird">บุคคลที่ 3 (ตามหลังหุ่น)</option>
+              <option value="first" data-i18n="camFirst">บุคคลที่ 1 (จากตัวหุ่น)</option>
+            </select>
+          </label>
           <button id="btnReset3d" class="btn secondary small" type="button" data-i18n="resetView" hidden>รีเซ็ตมุมมอง</button>
           <button id="btnVecParts" class="btn secondary small" type="button" aria-pressed="true" data-i18n="vecParts">แตกเวกเตอร์</button>
           <label class="field small"><span data-i18n="trail">เส้นทาง</span>

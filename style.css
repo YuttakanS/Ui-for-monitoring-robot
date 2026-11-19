@@ -383,3 +383,4 @@ th:first-child, td:first-child { text-align: left; }
 
 /* link to the calibration page (calibrate.html) */
 .foot-link { margin-left: auto; color: var(--text2); }
+.field[hidden], .card-tools .btn[hidden] { display: none; }

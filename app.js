@@ -111,6 +111,10 @@
       off: 'ปิด',
       mapAria: 'แผนที่ 2 มิติแสดงตำแหน่งหุ่นยนต์เทียบกับ LED 9 ดวง',
       mapTitle3d: 'แผนที่ตำแหน่ง (3 มิติ)',
+      cam3d: 'กล้อง',
+      camFree: 'อิสระ',
+      camThird: 'บุคคลที่ 3 (ตามหลังหุ่น)',
+      camFirst: 'บุคคลที่ 1 (จากตัวหุ่น)',
       map3dAria: 'ภาพ 3 มิติของ LED 9 ดวงที่ความสูงจริงและหุ่นยนต์บนพื้น',
       viewLabel: 'มุมมองแผนที่',
       resetView: 'รีเซ็ตมุมมอง',
@@ -211,6 +215,10 @@
       off: 'Off',
       mapAria: '2D map of the robot position relative to the 9 LEDs',
       mapTitle3d: 'Position map (3D)',
+      cam3d: 'Camera',
+      camFree: 'Free',
+      camThird: 'Third person (behind the robot)',
+      camFirst: 'First person (from the robot)',
       map3dAria: '3D view of the 9 LEDs at their real height and the robot on the floor',
       viewLabel: 'Map view',
       resetView: 'Reset view',
@@ -384,6 +392,7 @@
     unit: DEFAULT_UNIT,    // display unit only (key of UNITS)
     trailN: 100,           // map trail length in samples; 0 = off
     mapView: '2d',         // '2d' | '3d'
+    cam3d: 'free',         // 3D camera: 'free' (orbit) | 'third' | 'first' person
     vecParts: true,        // show the heading vector's X / Y / Z parts
     mapHover: null,        // pointer position over the map canvas (CSS px) or null
     stats: null,           // session min/max per field, reset with the data
@@ -420,6 +429,7 @@
     map: $('map'), map2dWrap: $('map2dWrap'), map3d: $('map3d'), btnReset3d: $('btnReset3d'),
     viewRadios: document.querySelectorAll('input[name=mapView]'), legQuad: $('legQuad'),
     btnVecParts: $('btnVecParts'), legVecParts: $('legVecParts'),
+    cam3d: $('cam3d'), cam3dField: $('cam3dField'),
     mapTitle: document.querySelector('[data-i18n=mapTitle]'),
     valX: $('valX'), valY: $('valY'), valZ: $('valZ'), mmZ: $('mmZ'),
     zZeroRow: $('zZeroRow'), btnZZero: $('btnZZero'), btnZZeroReset: $('btnZZeroReset'), zZeroNote: $('zZeroNote'), valQ: $('valQ'), valR: $('valR'),
@@ -1684,6 +1694,68 @@
     controls.addEventListener('change', function () { v3.needs = true; });
     v3.vec = makeVec3d(); // heading vector; drawn level, not turned with the robot
     reset3dView();
+    apply3dCam();
+  }
+
+  /* ---------- 3D camera that follows the robot ---------- */
+  // third: behind and above the robot, looking past it the way it faces.
+  // first: at the robot, looking the way it faces, tilted up towards the LEDs.
+  // Lengths in cm (scene units), angles in degrees.
+  var CAM3D = {
+    free: { fov: 40 },
+    third: { fov: 40, back: 95, up: 60, ahead: 30 },
+    first: { fov: 75, eye: ROBOT_H + 2, pitch: 14 }
+  };
+  var CAM_EASE = 0.15; // share of the remaining way the camera moves per frame
+
+  // Apply state.cam3d to the camera and controls (when the 3D view exists).
+  function apply3dCam() {
+    if (!v3) return;
+    var free = state.cam3d === 'free';
+    v3.controls.enabled = free;
+    v3.follow = null; // start from the robot's pose, not from the last follow
+    v3.camera.fov = CAM3D[state.cam3d].fov;
+    v3.camera.updateProjectionMatrix();
+    if (v3.h) size3dLabels(); // label size depends on the field of view
+    if (free) reset3dView();
+    v3.needs = true;
+  }
+
+  function setCam3d(mode, save) {
+    state.cam3d = CAM3D[mode] ? mode : 'free';
+    el.cam3d.value = state.cam3d;
+    el.btnReset3d.hidden = state.mapView !== '3d' || state.cam3d !== 'free';
+    apply3dCam();
+    if (save) {
+      try { localStorage.setItem('ra.cam3d', state.cam3d); } catch (e) { /* storage unavailable */ }
+    }
+  }
+
+  // Move the camera with the robot. Position and heading are eased, so the
+  // view glides between samples instead of jumping with every line from the
+  // board. Returns true while the camera has not caught up yet.
+  function follow3d(s) {
+    var mode = state.cam3d;
+    if (mode === 'free' || !s) return false;
+    var yaw = mapHeading(s.angle) * Math.PI / 180, f = v3.follow;
+    if (!f) f = v3.follow = { x: s.x, y: s.y, z: s.z, yaw: yaw };
+    var dyaw = Math.atan2(Math.sin(yaw - f.yaw), Math.cos(yaw - f.yaw)); // shortest way round
+    f.x += (s.x - f.x) * CAM_EASE;
+    f.y += (s.y - f.y) * CAM_EASE;
+    f.z += (s.z - f.z) * CAM_EASE;
+    f.yaw += dyaw * CAM_EASE;
+    var hx = Math.cos(f.yaw), hy = Math.sin(f.yaw), cam = v3.camera, c = CAM3D[mode];
+    if (mode === 'first') {
+      // the robot and its heading vector would fill the view from inside
+      v3.robot.visible = v3.vec.group.visible = false;
+      var ez = f.z + c.eye;
+      cam.position.set(f.x, f.y, ez);
+      cam.lookAt(f.x + hx * 100, f.y + hy * 100, ez + 100 * Math.tan(c.pitch * Math.PI / 180));
+    } else {
+      cam.position.set(f.x - hx * c.back, f.y - hy * c.back, f.z + c.up);
+      cam.lookAt(f.x + hx * c.ahead, f.y + hy * c.ahead, f.z + ROBOT_H);
+    }
+    return Math.abs(dyaw) > 0.002 || Math.abs(s.x - f.x) + Math.abs(s.y - f.y) + Math.abs(s.z - f.z) > 0.05;
   }
 
   // Parse the Maya models (OBJ text). Their geometry is shared by every copy,
@@ -2008,8 +2080,9 @@
     }
     tp.needsUpdate = true;
     v3.trail.geometry.setDrawRange(0, n);
+    var moving = follow3d(s);
     v3.renderer.render(v3.scene, v3.camera);
-    v3.needs = false;
+    v3.needs = moving; // keep drawing until the camera has caught up
   }
 
   function setVecParts(on, save) {
@@ -2030,7 +2103,8 @@
     if (is3d && !v3) init3d();
     el.map2dWrap.hidden = is3d;
     el.map3d.hidden = !is3d;
-    el.btnReset3d.hidden = !is3d;
+    el.btnReset3d.hidden = !is3d || state.cam3d !== 'free';
+    el.cam3dField.hidden = !is3d;
     el.legQuad.hidden = is3d; // the quadrant highlight is 2D only
     el.mapTitle.setAttribute('data-i18n', is3d ? 'mapTitle3d' : 'mapTitle');
     el.mapTitle.textContent = t(is3d ? 'mapTitle3d' : 'mapTitle');
@@ -2152,6 +2226,8 @@
     var savedRange = localStorage.getItem('ra.range');
     if (savedRange !== null && CHART_RANGES.indexOf(+savedRange) >= 0) state.chartRange = +savedRange;
     if (localStorage.getItem('ra.mapView') === '3d') state.mapView = '3d';
+    var savedCam = localStorage.getItem('ra.cam3d');
+    if (savedCam === 'third' || savedCam === 'first') state.cam3d = savedCam;
     if (localStorage.getItem('ra.vecParts') === '0') state.vecParts = false;
     var savedTrail = localStorage.getItem('ra.trail');
     for (oi = 0; oi < el.trailN.options.length; oi++) {
@@ -2182,6 +2258,8 @@
     }
   }
   el.btnReset3d.addEventListener('click', function () { if (v3) reset3dView(); });
+  el.cam3d.addEventListener('change', function () { setCam3d(el.cam3d.value, true); });
+  el.cam3d.value = state.cam3d;
   el.btnVecParts.addEventListener('click', function () { setVecParts(!state.vecParts, true); });
   setVecParts(state.vecParts, false);
 
