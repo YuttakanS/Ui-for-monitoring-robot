@@ -97,8 +97,13 @@ Fitted without (−25, −25), m = 1:
 | 2 | 0.46 | 0.504 | 12.3 % | +14 / 0 / −3 % |
 
 - **(−25, −25) left out:** PD2 read 34–57 % of the model for every LED,
-  the same when recorded again, and no other pose or heading explains it,
-  so something probably shaded PD2 there. Not checked yet.
+  the same when recorded again, and no other pose or heading explains it.
+  The user found nothing shading it. **Recorded again at 13:09
+  (`calib/ra_calib_20261119_130953.csv`), it reads normally** (0.81–1.10
+  of the model on every photodiode), so the earlier readings were
+  temporary, most likely a loose PD2 wire or connector. Fitting all 8
+  poses gives LED 7 0.454, LED 8 0.436, LED 1 0.536, LED 2 0.501, within
+  0.6 % of the gammas in use, so they are kept.
 - **Far LEDs read about 21 % above the model** (distance > 1.25 m), near
   ones match. The LEDs seem wider than m = 1 (half-power angle 60°):
   m ≈ 0.45 (about 78°) brings the misfit down to 9 %. Not changed, since
