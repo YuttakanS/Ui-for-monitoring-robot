@@ -106,6 +106,33 @@ Fitted without (−25, −25), m = 1:
 - The "spread" column (max − min over the lines) read 44–177 % at every
   pose, too sensitive to tell noise from a robot that moved.
 
+### 2026-11-19: position check with the interim gammas (`calib/validate_20261119/`)
+Firmware from commit 13f330e (`mode = 2`, `ESTIMATE_Z = false`, LED 1, 2,
+7, 8 on), robot at theta = 0, about 20 s per pose with REC on the
+Position Monitor (3.0 Hz). Mean of the second half of each file (after
+the EKF settled):
+
+| True (x, y) cm | Shown (x, y) cm | Error | Fit pose? |
+|---|---|---|---|
+| (−25, 50) | (−24.5, 50.3) | 0.6 cm | no |
+| (−25, −50) | (−24.0, −49.4) | 1.2 cm | no |
+| (−25, −25) | (−26.3, −23.8) | 1.8 cm | left out |
+| (−50, −50) | (−48.2, −49.4) | 2.0 cm | yes |
+| (0, 0) | (−2.4, 1.1) | 2.6 cm | yes |
+| (−50, 0) | (−47.2, −0.3) | 2.8 cm | yes |
+| (0, 50) | (−2.2, 53.4) | 4.1 cm | yes |
+| (−50, 50) | (−44.0, 49.9) | 6.0 cm | yes |
+| (0, −50) | (−6.2, −48.7) | 6.3 cm | yes |
+| (25, 25) | (−20.3, 17.0) | 46 cm | outside the lit LEDs |
+
+- Inside the lit area (x from −50 to 0) the error is 0.6–6.3 cm, about
+  3 cm on average, with a spread (std) under 0.5 cm.
+- x is pulled towards the middle of the lit LEDs (x = −25): x = 0 reads
+  2–6 cm low, x = −50 reads 2–6 cm high.
+- (25, 25) is 25 cm beyond the lit LEDs (LED 0, 3, 6 off), where the
+  position cannot be found.
+- After the robot is moved, the EKF takes 10–20 s to settle (Q = 1e-6).
+
 ## On/off commands
 The web page (or the Serial Monitor) sends one line per command:
 
