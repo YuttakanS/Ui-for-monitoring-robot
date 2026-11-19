@@ -204,3 +204,20 @@ test('fitGamma: an LED seen at too few points is not fitted', function () {
   var res = C.fitGamma(samples, { minPoints: 5 });
   res.forEach(function (r) { if (r.skipped !== 'off') assert.equal(r.skipped, 'too few points'); });
 });
+
+test('solvePose finds a known pose, with and without z', function () {
+  var gamma = C.CURRENT_GAMMA, rowsOn = [1, 2, 7, 8].map(function (k) { return C.ROW_LED.indexOf(k); });
+  function rssAt(pose) {
+    var h = C.modelRow(pose);
+    return h.map(function (v, i) { return rowsOn.indexOf(Math.floor(i / 3)) >= 0 ? gamma[Math.floor(i / 3)] * v : 0; });
+  }
+  [{ x: -25, y: 0, z: 0, theta: 0 }, { x: -10, y: 20, z: 15, theta: 40 },
+   { x: -30, y: -25, z: 30, theta: -120 }, { x: -25, y: 10, z: 50, theta: 170 }].forEach(function (p) {
+    var r = C.solvePose(rssAt(p));
+    close(r.x, p.x, 0.5, 'x'); close(r.y, p.y, 0.5, 'y'); close(r.z, p.z, 0.5, 'z');
+    close(Math.abs(((r.theta - p.theta + 540) % 360) - 180), 0, 0.5, 'theta');
+  });
+  var flat = C.solvePose(rssAt({ x: -25, y: -25, theta: 0 }), { z: false });
+  assert.equal(flat.z, 0);
+  close(flat.x, -25, 0.5, 'x'); close(flat.y, -25, 0.5, 'y');
+});

@@ -247,6 +247,113 @@
     return { poses: poses, errors: errors };
   }
 
+  // ---- Pose from one averaged RSS line ---------------------------------------
+  // Least squares of (rss - gamma * h) over the LEDs that read anything, the
+  // same residual the EKF uses (equal weight, absolute RSS). No motion model,
+  // so this is where the EKF settles for a robot that stands still.
+  // opts.z: false = keep z at 0 (ESTIMATE_Z = false); opts.gamma: PtxGamma per
+  // row (default CURRENT_GAMMA). Returns { x, y, z, theta, rms } in cm / deg.
+  function solvePose(rss, opts) {
+    opts = opts || {};
+    var gamma = opts.gamma || CURRENT_GAMMA, useZ = opts.z !== false;
+    var rows = [];
+    for (var row = 0; row < N_LED; row++) {
+      var sum = 0;
+      for (var l = 0; l < N_PD; l++) sum += rss[row * N_PD + l];
+      if (sum !== 0) rows.push(row);
+    }
+    if (!rows.length) return null;
+    var nP = useZ ? 4 : 3; // x, y, theta[, z]
+    function resid(q) {
+      var out = [], z = useZ ? q[3] : 0;
+      rows.forEach(function (r) {
+        for (var l = 0; l < N_PD; l++) out.push(rss[r * N_PD + l] - gamma[r] * pathLoss(r, l, q[0], q[1], z, q[2]));
+      });
+      return out;
+    }
+    function cost(e) { var s = 0; for (var i = 0; i < e.length; i++) s += e[i] * e[i]; return s; }
+    function solveLin(A, b) { // Gaussian elimination with partial pivoting
+      var n = b.length, M2 = A.map(function (r, i) { return r.concat([b[i]]); });
+      for (var c = 0; c < n; c++) {
+        var piv = c;
+        for (var r = c + 1; r < n; r++) if (Math.abs(M2[r][c]) > Math.abs(M2[piv][c])) piv = r;
+        var tmp = M2[c]; M2[c] = M2[piv]; M2[piv] = tmp;
+        if (Math.abs(M2[c][c]) < 1e-300) return null;
+        for (r = c + 1; r < n; r++) {
+          var f = M2[r][c] / M2[c][c];
+          for (var k = c; k <= n; k++) M2[r][k] -= f * M2[c][k];
+        }
+      }
+      var x = new Array(n);
+      for (r = n - 1; r >= 0; r--) {
+        var s = M2[r][n];
+        for (k = r + 1; k < n; k++) s -= M2[r][k] * x[k];
+        x[r] = s / M2[r][r];
+      }
+      return x;
+    }
+    // Levenberg-Marquardt with a numerical Jacobian, as in computeJacobian()
+    function refine(q) {
+      var e = resid(q), c0 = cost(e), lam = 1e-3, h = 1e-5;
+      for (var it = 0; it < 200; it++) {
+        var J = [];
+        for (var j = 0; j < nP; j++) {
+          var qp = q.slice(), qm = q.slice();
+          qp[j] += h; qm[j] -= h;
+          var ep = resid(qp), em = resid(qm);
+          J.push(ep.map(function (v, i) { return -(v - em[i]) / (2 * h); })); // d(model)/dq
+        }
+        var JTJ = [], JTe = [];
+        for (var a = 0; a < nP; a++) {
+          JTJ.push([]);
+          var s = 0;
+          for (var i = 0; i < e.length; i++) s += J[a][i] * e[i];
+          JTe.push(s);
+          for (var b = 0; b < nP; b++) {
+            var t = 0;
+            for (i = 0; i < e.length; i++) t += J[a][i] * J[b][i];
+            JTJ[a].push(t);
+          }
+        }
+        var improved = false;
+        while (lam < 1e12) {
+          var A = JTJ.map(function (r, ai) { return r.map(function (v, bi) { return ai === bi ? v * (1 + lam) + 1e-12 : v; }); });
+          var dq = solveLin(A, JTe);
+          if (!dq) { lam *= 10; continue; }
+          var qn = q.map(function (v, k) { return v + dq[k]; });
+          if (useZ) qn[3] = Math.max(-0.05, Math.min(0.8, qn[3])); // Z_MIN / Z_MAX
+          var en = resid(qn), cn = cost(en);
+          if (cn < c0) {
+            var small = Math.abs(c0 - cn) < 1e-14 * Math.max(1, c0);
+            q = qn; e = en; c0 = cn; lam = Math.max(lam / 10, 1e-9); improved = true;
+            if (small) return { q: q, c: c0 };
+            break;
+          }
+          lam *= 10;
+        }
+        if (!improved) break;
+      }
+      return { q: q, c: c0 };
+    }
+    var cx = 0, cy = 0;
+    rows.forEach(function (r) { cx += P[r][0] / rows.length; cy += P[r][1] / rows.length; });
+    var best = null;
+    [0, Math.PI / 2, Math.PI, -Math.PI / 2].forEach(function (th) {
+      [0, 0.3].forEach(function (z0) {
+        if (!useZ && z0) return;
+        var q = [cx, cy, th];
+        if (useZ) q.push(z0);
+        var r = refine(q);
+        if (!best || r.c < best.c) best = r;
+      });
+    });
+    var th = Math.atan2(Math.sin(best.q[2]), Math.cos(best.q[2]));
+    return {
+      x: best.q[0] * 100, y: best.q[1] * 100, z: useZ ? best.q[3] * 100 : 0,
+      theta: th * 180 / Math.PI, rms: Math.sqrt(best.c / (rows.length * N_PD))
+    };
+  }
+
   // An RSS line as the firmware prints it, for the page's demo mode and tests.
   function formatRssLine(rss) {
     return rss.map(function (v) { return v.toFixed(4); }).join(', ') + ', ';
@@ -256,7 +363,7 @@
     N_PD: N_PD, N_LED: N_LED, ROW_LED: ROW_LED, P: P, CURRENT_GAMMA: CURRENT_GAMMA,
     M: M, FOV: FOV, BETA: BETA, ALPHA: ALPHA, DEFAULT_LIT: DEFAULT_LIT, presetPoses: presetPoses,
     pathLoss: pathLoss, modelRow: modelRow, parseRssLine: parseRssLine,
-    fitGamma: fitGamma, firmwareLine: firmwareLine,
+    fitGamma: fitGamma, firmwareLine: firmwareLine, solvePose: solvePose,
     averageRss: averageRss, checkPose: checkPose,
     csvHeader: csvHeader, posesToCsv: posesToCsv, csvToPoses: csvToPoses, formatRssLine: formatRssLine
   };
