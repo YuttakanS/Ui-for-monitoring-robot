@@ -1,0 +1,8 @@
+{
+  "name": "research-assist",
+  "private": true,
+  "description": "Position monitor web UI and Pico firmware for the LED positioning robot",
+  "scripts": {
+    "test": "node --test tests/"
+  }
+}
