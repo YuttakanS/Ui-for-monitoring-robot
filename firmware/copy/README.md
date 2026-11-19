@@ -215,7 +215,11 @@ and adds nothing to the EKF update. This does not power the LED itself off.
   | **Q = 1e-4, real T (now)** | **3–4 cm** | **2–3 s** | **0.2–0.6 cm** |
   | Q = 1e-3, real T | 1–2 cm | 0–6 s | 0.3–0.8 cm |
 
-  Still to do: repeat `move_straight` on the board with this firmware.
+  On the board (`move_straight_after.csv`, same 50 cm move but done in
+  about 2 s instead of 6 s): overshoot 5 cm (was 7 cm), within 2 cm of the
+  final position about 5 s after arriving (was about 11 s). The cost is
+  more jitter when still: std 0.6–0.8 cm (was 0.1 cm). Update rate is
+  unchanged at 3.0 Hz.
 - `calib/motion_20261119/rotate.csv`: turning on the spot at (−25, 0),
   clockwise in 90° steps, the heading read 0°, 77–81°, ±180°, −90°, 0°
   (sign correct). The position moved with the heading, up to 10 cm in x
