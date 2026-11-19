@@ -21,17 +21,23 @@ volatile bool isSampling = false;
 //VARIBLES OF EKF/UKF
 const float m = 1.0;  //Lambertian order
 const float FoV = M_PI / 2;
-const float T = 0.2;
+float T = 0.2;  // seconds between EKF updates; set from the measured loop time in loop() (about 0.33 s)
 const float al[N_PD] = { 0, 2.0*M_PI/3.0, -2.0*M_PI/3.0 };
-const float be = M_PI / 3;
+// Elevation of each photodiode's normal above the floor. The pyramid faces
+// measure 35 deg from the floor (2026-11-19), so the normal is 90 - 35 = 55 deg
+// (was M_PI / 3 = 60 deg, a face of 30 deg).
+const float be = 55.0f * M_PI / 180.0f;
 // const float PtxGamma[N_LED] = { 0.46f, 0.41f, 0.55f, 0.51f };  
 // Which LEDs the EKF uses (same order as p). An LED set to false is not
 // demodulated and adds nothing to the update. These are the values at power-up;
 // the web page can change them at run time (see readCommands()).
 const int LED_NUM[N_LED] = {     4,     5,    7,    8,    1,    2,    0,    3,    6 };  // LED number per row of p
-bool LED_ON[N_LED]       = { false, false, true, true, true, true, true, true, true };  // LED4, LED5 off at start
-// LED1, LED2, LED0, LED3, LED6 = 0.46 for now (not calibrated yet)
-const float PtxGamma[N_LED] = { 0.49f, 0.49f, 0.46f, 0.46f, 0.46f, 0.46f, 0.46f, 0.46f, 0.46f };
+bool LED_ON[N_LED]       = { false, false, true, true, true, true, false, false, false };  // only LED 7, 8, 1, 2 on at start (2026-11-19)
+// LED 7, 8, 1, 2: calibrated 2026-11-19 with calibrate.html (8 poses, theta = 0,
+// m = 1, be = 55 deg; keep ESTIMATE_Z = false). With be = 60 deg they were
+// 0.453, 0.436, 0.536, 0.504. LED 4, 5 (not lit) and LED 0, 3, 6 (off) are
+// not calibrated.
+const float PtxGamma[N_LED] = { 0.490f, 0.490f, 0.476f, 0.457f, 0.562f, 0.525f, 0.460f, 0.460f, 0.460f };
 const float eps = 0.01; //0.01;
 const float sigma2 = 0.01; //0.1, 0.4, 0.1, 0.005; 
 // const float q = 0.01;
@@ -57,7 +63,8 @@ BLA::Matrix<3, 3> v = { cos(be) * cos(al[0]), -cos(be) * sin(al[0]), sin(be),
 // the end so x (0), y (2) and theta (4) keep their index.
 const int IX = 0, IY = 2, ITH = 4, IZ = 6;
 // false = keep z at 0 (robot always on the floor), as before z was added.
-const bool ESTIMATE_Z = true;
+// Off until PtxGamma is calibrated well enough (z follows gamma errors).
+const bool ESTIMATE_Z = false;
 // z is kept in this range (m): a little below the floor for noise, and well
 // below the LEDs, where the path-loss model blows up (distance -> 0).
 const float Z_MIN = -0.05f, Z_MAX = 0.80f;
@@ -81,7 +88,11 @@ BLA::Matrix<N_STATE, N_STATE> I6 = { 0.0 };  // identity (name kept from the 6-s
 void initEkf() {
   //                          x     vx    y     vy    th    om    z     vz
   const float P0[N_STATE] = { 0.01, 1,    0.01, 1,    0.01, 1,    0.01, 1    };
-  const float Q0[N_STATE] = { 1e-6, 1e-6, 1e-6, 1e-6, 1e-2, 1e-2, 1e-6, 1e-6 };
+  // Q for x, y, z and their velocities was 1e-6: the position lagged, ran
+  // about 8 cm past a robot that stopped and took about 10 s to come back
+  // (move_straight test, 2026-11-19). 1e-4 settles in about 2-3 s with
+  // under 1 cm of jitter when still (EKF replica on the PC).
+  const float Q0[N_STATE] = { 1e-4, 1e-4, 1e-4, 1e-4, 1e-2, 1e-2, 1e-4, 1e-4 };
   for (int i = 0; i < N_STATE; i++) {
     A(i, i) = 1.0;
     I6(i, i) = 1.0;
@@ -212,14 +223,19 @@ void loop() {
     // Do nothing, wait for all samples to be updated.
   }
 
+  // sin/cos depend only on the LED frequency and the sample index, so work
+  // them out once and reuse them for all 3 photodiodes (as in copy2).
   for (int f = 0; f < N_LED; f++) {
     if (!LED_ON[f]) continue;  // skip LEDs that are off (saves time; RSS stays 0)
-    for (int i = 0; i < N; i++)
+    for (int i = 0; i < N; i++) {
+      angle = 2.0f * M_PI * Fref[f] * i / samplingFreq;
+      float s = sin(angle);
+      float c = cos(angle);
       for (int g = 0; g < N_PD; g++) {
-        angle = 2.0f * M_PI * Fref[f] * i / samplingFreq;
-        corrSin[f][g] += sampleTemp[g][i] * sin(angle);
-        corrCos[f][g] += sampleTemp[g][i] * cos(angle);
+        corrSin[f][g] += sampleTemp[g][i] * s;
+        corrCos[f][g] += sampleTemp[g][i] * c;
       }
+    }
   }
 
   for (int f = 0; f < N_LED; f++)
@@ -228,13 +244,21 @@ void loop() {
       zn(N_PD*f+g) = RSS[f][g];
       // Serial.print("RSS"); 
       if (mode == 1 || mode == 3){
-        Serial.print(RSS[f][g]);
+        Serial.print(RSS[f][g], 4);  // 4 decimals: the default 2 is too coarse for calibration
         Serial.print(", ");
       }
     }
   if (mode == 1 || mode == 3){  
     Serial.println("");
   }
+
+  // Use the real time since the previous update as T (it was fixed at 0.2 s,
+  // but one loop takes about 0.33 s, so the velocity was off). The first
+  // loop keeps the default.
+  static unsigned long lastUpdate = 0;
+  if (lastUpdate != 0) T = (time1 - lastUpdate) / 1000.0f;
+  lastUpdate = time1;
+  for (int i = 0; i < N_STATE; i += 2) A(i, i + 1) = T;
 
   //ONE ITERATION OF EKF/UKF
   //Prediction step
