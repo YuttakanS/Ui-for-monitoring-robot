@@ -25,6 +25,8 @@
     td.off { color: var(--muted); }
     .fw-line { display: block; margin: 10px 0 0; padding: 10px; background: var(--wash); border-radius: 6px; overflow-x: auto; white-space: pre; font-size: 12px; color: var(--text); }
     .empty { color: var(--muted); margin: 8px 0 0; }
+    .lit-pick { margin-top: 12px; display: grid; gap: 6px; }
+    .lit-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 92px)); gap: 6px; }
     .bar a { color: var(--text2); }
     @media (max-width: 900px) { .cal { grid-template-columns: minmax(0, 1fr); } }
     @media (max-width: 480px) { .cal { padding: 12px; } }
@@ -56,11 +58,15 @@
       <div class="card-head"><h2>1. เตรียม</h2></div>
       <ol class="steps">
         <li>ใน <code>firmware/copy/copy.ino</code> ตั้ง <code>mode = 3</code> และ <code>ESTIMATE_Z = false</code> แล้ว upload</li>
-        <li>ปิดหน้า Position Monitor ก่อน (เปิดพอร์ตพร้อมกันไม่ได้) แล้วกด <b>เชื่อมต่อ Serial</b> หน้านี้จะเปิด LED 0, 1, 2, 3, 6, 7, 8 และปิด LED 4, 5 ในบอร์ดให้เอง</li>
-        <li>วางหุ่นบนพื้น หันมุม <b>θ = 0°</b>: photodiode ที่ต่อขา <b>GP28</b> หันไปทาง <b>+X</b> (ฝั่ง LED 0, 3, 6)</li>
+        <li>เลือก LED ที่ติดอยู่จริงด้านล่าง แล้วปิดหน้า Position Monitor ก่อน (เปิดพอร์ตพร้อมกันไม่ได้) กด <b>เชื่อมต่อ Serial</b> หน้านี้จะเปิด/ปิด LED ในบอร์ดตามที่เลือกให้เอง</li>
+        <li>วางหุ่นบนพื้น หันมุม <b>θ = 0°</b>: photodiode ที่ต่อขา <b>GP28</b> หันไปทาง <b>+X</b> (ทางขวาของแผนที่)</li>
         <li>ปิดไฟห้องหรือคุมแสงให้เหมือนกันทุกจุด อย่าแตะหุ่นตอนเก็บค่า</li>
-        <li>เก็บครบ 13 จุดที่แนะนำ แล้ว copy บรรทัด <code>PtxGamma</code> ในข้อ 4 ไปใส่ <code>copy.ino</code> เปลี่ยนกลับเป็น <code>mode = 2</code></li>
+        <li>เก็บครบทุกจุดที่แนะนำ แล้ว copy บรรทัด <code>PtxGamma</code> ในข้อ 4 ไปใส่ <code>copy.ino</code> เปลี่ยนกลับเป็น <code>mode = 2</code></li>
       </ol>
+      <div class="lit-pick">
+        <span class="field">LED ที่ใช้ (มองจากด้านบน, +X ขวา)</span>
+        <div id="litGrid" class="lit-grid" role="group" aria-label="LED ที่ใช้"></div>
+      </div>
       <p class="note">ข้อมูลที่เก็บแล้วจำไว้ใน browser นี้ (refresh ไม่หาย) ควร export CSV เก็บไว้เป็นหลักฐานด้วย</p>
     </section>
 
@@ -76,7 +82,7 @@
       <div class="progress" aria-hidden="true"><div id="progressBar"></div></div>
       <p id="recText" class="note">เชื่อมต่อบอร์ดหรือกด Demo ก่อน</p>
       <div class="presets" id="presets" aria-label="จุดที่แนะนำ"></div>
-      <p class="note">จุดที่แนะนำ (θ = 0): ใต้ LED ทั้ง 9 ดวง และกึ่งกลาง 4 จุด กดเพื่อกรอก x, y ให้ เก็บจุดเดิมซ้ำจะแทนที่ค่าเก่า</p>
+      <p class="note">จุดที่แนะนำ (θ = 0) ตาม LED ที่เลือก: จุดใต้ LED ในกรอบของ LED ที่ใช้ และกึ่งกลางแต่ละช่อง กดเพื่อกรอก x, y ให้ เก็บจุดเดิมซ้ำจะแทนที่ค่าเก่า</p>
     </section>
 
     <section class="card">

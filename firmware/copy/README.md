@@ -57,15 +57,19 @@ checks that its constants still match this file.
 
 1. Temporarily set `mode = 3` (RSS line + position line) and
    `ESTIMATE_Z = false`, then upload. RSS is printed with 4 decimals.
-2. Close the Position Monitor page, open `calibrate.html` and connect. The
-   page switches LED 0, 1, 2, 3, 6, 7, 8 on and LED 4, 5 off (not lit).
+2. Close the Position Monitor page, open `calibrate.html`, pick the LEDs
+   that are lit (default LED 1, 2, 7, 8) and connect. The page switches
+   those on and the rest off in the firmware (`LED <n> <0|1>`).
 3. Put the robot on the floor at **theta = 0**: the photodiode on pin
    **GP28** (`pins[0]`) faces **+X**. Keep room light the same throughout.
-4. Record the 13 suggested poses (under each LED and the 4 midpoints,
-   30 lines each). Re-record a pose whose spread is red (the robot moved).
+4. Record the suggested poses, 30 lines each: the 50 cm grid points inside
+   the box around the lit LEDs plus the centre of each cell (8 poses for
+   LED 1, 2, 7, 8; 13 for all 9). Re-record a pose whose spread is red (the
+   robot moved). Poses where an LED reads 0 (it was off) are left out of
+   that LED's fit.
 5. Export the CSV as a record, copy the `PtxGamma` line into this file,
    set `mode = 2` again and upload.
-6. Check: at a pose not among the 13 (e.g. (-25, 0) or (0, 25)), the
+6. Check: at a pose not among the suggested ones (e.g. (-25, 0)), the
    Position Monitor should show x / y within about 3 cm; then try
    `ESTIMATE_Z = true`, and a robot on the floor should read z ~ 0.
 

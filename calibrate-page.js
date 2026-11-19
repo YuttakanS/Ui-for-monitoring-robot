@@ -17,8 +17,9 @@
     live: $('liveTable').tBodies[0], lastRaw: $('lastRaw'),
     poses: $('poseTable').tBodies[0], poseCount: $('poseCount'), poseEmpty: $('poseEmpty'),
     exp: $('btnExport'), imp: $('fileImport'), clear: $('btnClear'),
-    fit: $('fitTable').tBodies[0], fwLine: $('fwLine'), copy: $('btnCopy')
+    fit: $('fitTable').tBodies[0], fwLine: $('fwLine'), copy: $('btnCopy'), litGrid: $('litGrid')
   };
+  var LIT_STORE = 'ra.calib.lit';
 
   // theme chosen on the main page
   try {
@@ -32,8 +33,14 @@
     rec: null,               // { pose, need, lines }
     rssTimes: [],            // arrival times of RSS lines (rate)
     quadLines: 0, rssLines: 0, connectedAt: 0,
-    demoTruth: null
+    demoTruth: null,
+    lit: C.DEFAULT_LIT.slice() // LED numbers in use
   };
+  try {
+    var savedLit = JSON.parse(localStorage.getItem(LIT_STORE) || 'null');
+    if (Array.isArray(savedLit)) state.lit = savedLit.filter(function (n) { return n >= 0 && n < C.N_LED; });
+  } catch (e) { /* storage unavailable or bad JSON */ }
+  function isLit(led) { return state.lit.indexOf(led) >= 0; }
 
   try { state.poses = JSON.parse(localStorage.getItem(STORE) || '[]') || []; } catch (e) { state.poses = []; }
   function savePoses() {
@@ -100,9 +107,9 @@
   function renderLive(rss) {
     var rows = [];
     for (var led = 0; led < C.N_LED; led++) {
-      var row = C.ROW_LED.indexOf(led), lit = C.LEDS_LIT.indexOf(led) >= 0;
+      var row = C.ROW_LED.indexOf(led), lit = isLit(led);
       var tr = document.createElement('tr');
-      tr.appendChild(td('LED ' + led + (lit ? '' : ' (ไม่ติด)'), lit ? '' : 'off'));
+      tr.appendChild(td('LED ' + led + (lit ? '' : ' (ไม่ใช้)'), lit ? '' : 'off'));
       for (var l = 0; l < C.N_PD; l++) tr.appendChild(td(rss[row * C.N_PD + l].toFixed(4), lit ? '' : 'off'));
       rows.push(tr);
     }
@@ -144,7 +151,7 @@
     var i = state.poses.findIndex(function (p) { return samePose(p, pose); });
     if (i >= 0) state.poses[i] = pose; else state.poses.push(pose);
     savePoses();
-    var warn = C.checkPose(pose.rss);
+    var warn = C.checkPose(pose.rss, state.lit);
     cancelRec('เก็บ (' + pose.x + ', ' + pose.y + ') แล้ว' + (i >= 0 ? ' (แทนค่าเก่า)' : '') +
       (avg.spread > SPREAD_MAX ? ' · ค่าแกว่ง ' + pct(avg.spread) + ' หุ่นขยับหรือเปล่า? เก็บซ้ำได้' : '') +
       (warn.length ? ' · มีคำเตือน ดูในตาราง' : ''));
@@ -156,30 +163,52 @@
     if (state.rec) cancelRec('ยกเลิกแล้ว'); else startRec();
   });
 
-  /* ---------- suggested poses ---------- */
-  var PRESETS = [];
-  [50, 0, -50].forEach(function (y) { [-50, 0, 50].forEach(function (x) { PRESETS.push([x, y]); }); });
-  [[-25, 25], [25, 25], [-25, -25], [25, -25]].forEach(function (p) { PRESETS.push(p); });
-  PRESETS.forEach(function (p) {
+  /* ---------- which LEDs are lit (picker laid out like the real grid) ---------- */
+  var GRID = [8, 7, 6, 5, 4, 3, 2, 1, 0];
+  GRID.forEach(function (led) {
     var b = document.createElement('button');
     b.type = 'button';
-    b.className = 'btn small';
-    b.textContent = '(' + p[0] + ', ' + p[1] + ')';
-    b.addEventListener('click', function () { el.x.value = p[0]; el.y.value = p[1]; el.th.value = 0; });
-    el.presets.appendChild(b);
+    b.className = 'btn led-btn';
+    b.dataset.led = led;
+    b.innerHTML = '<span class="led-dot" aria-hidden="true"></span>LED ' + led;
+    b.addEventListener('click', function () {
+      var i = state.lit.indexOf(led);
+      if (i >= 0) state.lit.splice(i, 1); else state.lit.push(led);
+      state.lit.sort();
+      try { localStorage.setItem(LIT_STORE, JSON.stringify(state.lit)); } catch (e) { /* storage unavailable */ }
+      sendLit();
+      renderLit();
+      renderAll();
+    });
+    el.litGrid.appendChild(b);
   });
+  function renderLit() {
+    var btns = el.litGrid.children;
+    for (var i = 0; i < btns.length; i++)
+      btns[i].setAttribute('aria-pressed', isLit(+btns[i].dataset.led) ? 'true' : 'false');
+  }
+  // bring the firmware's LED_ON in line with the picker
+  function sendLit() {
+    for (var led = 0; led < C.N_LED; led++) send('LED ' + led + ' ' + (isLit(led) ? 1 : 0) + '\n');
+  }
+
+  /* ---------- suggested poses (follow the lit LEDs) ---------- */
   function renderPresets() {
-    var btns = el.presets.children;
-    for (var i = 0; i < btns.length; i++) {
-      var p = PRESETS[i];
-      var done = state.poses.some(function (q) { return samePose(q, { x: p[0], y: p[1], theta: 0 }); });
-      btns[i].classList.toggle('done', done);
-    }
+    var rows = C.presetPoses(state.lit).map(function (p) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'btn small';
+      b.textContent = '(' + p.x + ', ' + p.y + ')';
+      b.classList.toggle('done', state.poses.some(function (q) { return samePose(q, { x: p.x, y: p.y, theta: 0 }); }));
+      b.addEventListener('click', function () { el.x.value = p.x; el.y.value = p.y; el.th.value = 0; });
+      return b;
+    });
+    el.presets.replaceChildren.apply(el.presets, rows);
   }
 
   /* ---------- tables ---------- */
   function warnText(pose) {
-    return C.checkPose(pose.rss).map(function (w) {
+    return C.checkPose(pose.rss, state.lit).map(function (w) {
       return w.kind === 'zero' ? 'LED ' + w.led + ' อ่านได้ 0' : 'LED ' + w.led + ' ยังเปิดใน firmware';
     }).join(', ');
   }
@@ -212,11 +241,11 @@
     for (var d = 0; d < demoCols.length; d++) demoCols[d].hidden = !state.demoTruth;
     if (!state.poses.length) {
       el.fit.replaceChildren();
-      el.fwLine.textContent = 'เก็บค่าอย่างน้อย 1 จุดก่อน (แนะนำ 13 จุด)';
+      el.fwLine.textContent = 'เก็บค่าอย่างน้อย 1 จุดก่อน (แนะนำ ' + C.presetPoses(state.lit).length + ' จุด)';
       el.copy.disabled = true;
       return;
     }
-    var res = C.fitGamma(state.poses);
+    var res = C.fitGamma(state.poses, { leds: state.lit });
     var rows = [];
     // show in LED number order
     for (var led = 0; led < C.N_LED; led++) {
@@ -224,8 +253,8 @@
       var tr = document.createElement('tr');
       tr.appendChild(td('LED ' + led));
       if (r.gamma === null) {
-        var why = r.skipped === 'off' ? (C.LEDS_LIT.indexOf(led) >= 0 ? 'ไม่มีสัญญาณ' : 'ไม่ติด') : 'ข้อมูลน้อยไป';
-        tr.appendChild(td(why, C.LEDS_LIT.indexOf(led) >= 0 ? 'bad' : 'off'));
+        var why = r.skipped === 'off' ? 'ไม่ใช้' : r.skipped === 'no signal' ? 'ไม่มีสัญญาณ' : 'ข้อมูลน้อยไป';
+        tr.appendChild(td(why, r.skipped === 'off' ? 'off' : 'bad'));
         tr.appendChild(td(old.toFixed(3), 'off'));
         for (var k = 0; k < 6; k++) tr.appendChild(td('—', 'off'));
       } else {
@@ -236,7 +265,7 @@
         tr.appendChild(td(pct(r.rmsRel), r.rmsRel > RMS_MAX ? 'bad' : ''));
         r.pdBias.forEach(function (b) { tr.appendChild(td(pct(b, true), b !== null && Math.abs(b) > BIAS_MAX ? 'bad' : '')); });
       }
-      if (state.demoTruth) tr.appendChild(td(state.demoTruth[row] ? state.demoTruth[row].toFixed(3) : '—'));
+      if (state.demoTruth) tr.appendChild(td(isLit(led) ? state.demoTruth[row].toFixed(3) : '—'));
       rows.push(tr);
     }
     el.fit.replaceChildren.apply(el.fit, rows);
@@ -327,7 +356,7 @@
     showNotice('');
     setSource('serial');
     readLoop();
-    for (var led = 0; led < C.N_LED; led++) send('LED ' + led + ' ' + (C.LEDS_LIT.indexOf(led) >= 0 ? 1 : 0) + '\n');
+    sendLit();
   }
 
   async function readLoop() {
@@ -363,7 +392,7 @@
   function startDemo() {
     // made-up "true" gammas within +-15 % of the current ones; the fit should find them
     state.demoTruth = C.CURRENT_GAMMA.map(function (g, row) {
-      return C.LEDS_LIT.indexOf(C.ROW_LED[row]) >= 0 ? +(g * (0.85 + 0.3 * Math.random())).toFixed(3) : null;
+      return +(g * (0.85 + 0.3 * Math.random())).toFixed(3);
     });
     state.rssLines = 0;
     setSource('demo');
@@ -373,8 +402,8 @@
       var x = parseFloat(el.x.value) || 0, y = parseFloat(el.y.value) || 0, t = parseFloat(el.th.value) || 0;
       var h = C.modelRow({ x: x, y: y, theta: t });
       var rss = h.map(function (hv, i) {
-        var g = state.demoTruth[Math.floor(i / C.N_PD)];
-        return g ? g * hv * (1 + 0.02 * (Math.random() - 0.5)) : 0;
+        var row = Math.floor(i / C.N_PD), g = state.demoTruth[row];
+        return isLit(C.ROW_LED[row]) ? g * hv * (1 + 0.02 * (Math.random() - 0.5)) : 0;
       });
       onLine(C.formatRssLine(rss));
     }, 150);
@@ -388,6 +417,7 @@
   el.demo.addEventListener('click', function () { if (state.source === 'demo') stopDemo(); else startDemo(); });
 
   if (!navigator.serial) showNotice('Browser นี้ไม่รองรับ Web Serial ใช้ Chrome หรือ Edge (ปุ่ม Demo ยังใช้ได้)');
+  renderLit();
   renderLive(new Array(C.N_LED * C.N_PD).fill(0));
   setSource('idle');
   renderAll();

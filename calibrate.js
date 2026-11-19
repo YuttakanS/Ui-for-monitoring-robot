@@ -99,12 +99,20 @@
       });
       if (!wanted) { res.skipped = 'off'; results.push(res); continue; }
 
+      // a pose where this LED reads 0 on every photodiode was taken while the
+      // LED was off in the firmware; it says nothing about its gamma
+      var lit = samples.map(function (s) {
+        for (var q = 0; q < N_PD; q++) if (s.rss[row * N_PD + q] !== 0) return true;
+        return false;
+      });
+      if (lit.indexOf(true) < 0) { res.skipped = 'no signal'; results.push(res); continue; }
       var hMax = 0, si, l, h;
       for (si = 0; si < samples.length; si++)
-        for (l = 0; l < N_PD; l++) hMax = Math.max(hMax, H[si][row * N_PD + l]);
+        for (l = 0; l < N_PD; l++) if (lit[si]) hMax = Math.max(hMax, H[si][row * N_PD + l]);
       var used = [];
       for (si = 0; si < samples.length; si++)
         for (l = 0; l < N_PD; l++) {
+          if (!lit[si]) continue;
           h = H[si][row * N_PD + l];
           if (h > 0 && h >= minRel * hMax) used.push({ h: h, r: samples[si].rss[row * N_PD + l], l: l });
         }
@@ -138,8 +146,27 @@
   }
 
   // ---- Recording one pose -----------------------------------------------------
-  // LEDs that are physically lit now (LED 4 and 5 are not).
-  var LEDS_LIT = [0, 1, 2, 3, 6, 7, 8];
+  // LEDs used for calibration unless the page chooses others (2026-11-19:
+  // only LED 1, 2, 7 and 8 are on).
+  var DEFAULT_LIT = [1, 2, 7, 8];
+
+  // Suggested poses (cm, theta = 0) for a set of lit LEDs: every 50 cm grid
+  // point inside the box around them, plus the centre of each 50 x 50 cell.
+  // All 9 LEDs -> 9 + 4 = 13 poses; LED 1, 2, 7, 8 -> 6 + 2 = 8 poses.
+  function presetPoses(lit) {
+    var xs = [], ys = [];
+    (lit || DEFAULT_LIT).forEach(function (led) {
+      var p = P[ROW_LED.indexOf(led)];
+      xs.push(Math.round(p[0] * 100)); ys.push(Math.round(p[1] * 100));
+    });
+    if (!xs.length) return [];
+    var x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs);
+    var y0 = Math.min.apply(null, ys), y1 = Math.max.apply(null, ys);
+    var out = [], x, y;
+    for (y = y1; y >= y0; y -= 50) for (x = x0; x <= x1; x += 50) out.push({ x: x, y: y });
+    for (y = y1 - 25; y > y0; y -= 50) for (x = x0 + 25; x < x1; x += 50) out.push({ x: x, y: y });
+    return out;
+  }
 
   // Mean of several RSS lines, and how much they moved: spread = the largest
   // (max - min) / mean over the values that carry signal (mean >= 5 % of the
@@ -166,7 +193,7 @@
   // photodiode (switched off in LED_ON, or the LED is out), or one meant to be
   // dark reads something (it is switched on in the firmware).
   function checkPose(rss, lit) {
-    lit = lit || LEDS_LIT;
+    lit = lit || DEFAULT_LIT;
     var out = [];
     for (var row = 0; row < N_LED; row++) {
       var led = ROW_LED[row], sum = 0;
@@ -227,7 +254,7 @@
 
   var api = {
     N_PD: N_PD, N_LED: N_LED, ROW_LED: ROW_LED, P: P, CURRENT_GAMMA: CURRENT_GAMMA,
-    M: M, FOV: FOV, BETA: BETA, ALPHA: ALPHA, LEDS_LIT: LEDS_LIT,
+    M: M, FOV: FOV, BETA: BETA, ALPHA: ALPHA, DEFAULT_LIT: DEFAULT_LIT, presetPoses: presetPoses,
     pathLoss: pathLoss, modelRow: modelRow, parseRssLine: parseRssLine,
     fitGamma: fitGamma, firmwareLine: firmwareLine,
     averageRss: averageRss, checkPose: checkPose,

@@ -52,7 +52,9 @@ branch `feature/task-1-ui` แบ่งงานเป็น 4 phase / 18 ข้
   - firmware ทุกตัวยังไม่เคย compile หรือรันบน Pico จริง (เครื่องที่ทำงานไม่มี `arduino-cli`) `copy.ino` ทดสอบแค่จำลองบน PC
   - `PtxGamma` ของ LED 0, 1, 2, 3, 6 เป็นค่าสมมติ 0.46 ยังไม่ได้ calibrate และค่า z ขึ้นอยู่กับ gamma โดยตรง (gamma ผิด 10% ทำให้ z คลาดราว 7 cm) ถ้ายังไม่ได้ calibrate ให้ใช้ `ESTIMATE_Z = false` เครื่องมือพร้อมแล้วบน `feature/task-2-calibrate`: หน้า `calibrate.html` (วิธีใช้อยู่ใน `firmware/copy/README.md` ส่วน "Calibrating PtxGamma") รอทดลองกับบอร์ดจริง
 - **Calibration (2026-11-19):**
-  - **LED 4 และ 5 ไม่ติดจริงที่ตัวหลอด** ใช้ LED 0, 1, 2, 3, 6, 7, 8 (`LEDS_LIT` ใน `calibrate.js`) ส่วน gamma ของ LED 4, 5 คงค่าเดิม 0.49
+  - **ตอนนี้ใช้แค่ LED 1, 2, 7, 8 ที่เหลือปิด** (ผู้ใช้ระบุ 2026-11-19) ค่าเริ่มต้นของหน้า calibrate คือ `DEFAULT_LIT` ใน `calibrate.js` และเลือก LED อื่นได้ในหน้าเว็บ (จำไว้ใน `localStorage` คีย์ `ra.calib.lit`) LED ที่ไม่ได้ใช้จะคง gamma เดิม ส่วน LED 4, 5 ไม่ติดจริงที่ตัวหลอด
+  - จุดที่แนะนำจะเปลี่ยนตาม LED ที่เลือก ถ้าใช้ 1, 2, 7, 8 จะได้ 8 จุด ถ้าใช้ครบ 9 ดวงจะได้ 13 จุด (`presetPoses()`)
+  - `LED_ON` ตอนเปิดเครื่องใน `copy.ino` และ `LEDS` ใน `app.js` **ยังไม่ได้เปลี่ยน** ให้ตรงกับ 1, 2, 7, 8
   - เครื่องที่ทำงานไม่มี Python ผู้ใช้จึงเลือกทำเครื่องมือเป็น JavaScript กับหน้าเว็บ ใช้ Node (v26) รัน test ได้ด้วย `npm test` (ใช้ `node:test` ไม่มี dependency)
   - `calibrate.js` ลอกแบบจำลองจาก `copy.ino` ถ้าแก้ `p`, `LED_NUM`, `PtxGamma`, `m`, `FoV`, `be` หรือ `al` ใน firmware ต้องแก้ `calibrate.js` ให้ตรงด้วย (test จะไม่ผ่านถ้าไม่ตรง)
   - calibrate ที่มุม θ = 0 (photodiode ขา GP28 หันไป +X) จึงไม่ต้องรอยืนยัน `HEADING_SIGN`

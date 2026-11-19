@@ -124,14 +124,57 @@ test('averageRss: mean and spread', function () {
 });
 
 test('checkPose: lit LED reading 0, dark LED reading something', function () {
+  var seven = [0, 1, 2, 3, 6, 7, 8];
   var rss = C.modelRow({ x: 0, y: 0 }).map(function (h, i) {
-    return [4, 5].indexOf(C.ROW_LED[Math.floor(i / 3)]) >= 0 ? 0 : 0.46 * h;
+    return seven.indexOf(C.ROW_LED[Math.floor(i / 3)]) >= 0 ? 0.46 * h : 0;
   });
-  assert.deepEqual(C.checkPose(rss), []);
+  assert.deepEqual(C.checkPose(rss, seven), []);
   var row0 = C.ROW_LED.indexOf(0), row4 = C.ROW_LED.indexOf(4);
   rss[row0 * 3] = rss[row0 * 3 + 1] = rss[row0 * 3 + 2] = 0; // LED 0 out
   rss[row4 * 3] = 0.5;                                        // LED 4 left on in firmware
-  assert.deepEqual(C.checkPose(rss), [{ led: 4, kind: 'unexpected' }, { led: 0, kind: 'zero' }]);
+  assert.deepEqual(C.checkPose(rss, seven), [{ led: 4, kind: 'unexpected' }, { led: 0, kind: 'zero' }]);
+  // default set is LED 1, 2, 7, 8: LED 3 and 6 still on in the firmware
+  assert.deepEqual(C.DEFAULT_LIT, [1, 2, 7, 8]);
+  assert.deepEqual(C.checkPose(rss).map(function (w) { return w.led + w.kind; }),
+    ['4unexpected', '3unexpected', '6unexpected']);
+});
+
+test('presetPoses: grid inside the lit LEDs plus cell centres', function () {
+  function key(ps) { return ps.map(function (p) { return p.x + ',' + p.y; }).sort(); }
+  assert.deepEqual(key(C.presetPoses([1, 2, 7, 8])),
+    key([{ x: -50, y: 50 }, { x: 0, y: 50 }, { x: -50, y: 0 }, { x: 0, y: 0 }, { x: -50, y: -50 }, { x: 0, y: -50 },
+      { x: -25, y: 25 }, { x: -25, y: -25 }]));
+  assert.equal(C.presetPoses([0, 1, 2, 3, 4, 5, 6, 7, 8]).length, 13);
+  assert.deepEqual(key(C.presetPoses([4])), ['0,0']);
+  assert.deepEqual(C.presetPoses([]), []);
+});
+
+test('fitGamma with LED 1, 2, 7, 8 at their 8 preset poses', function () {
+  var lit = [1, 2, 7, 8], truth = [0.49, 0.49, 0.52, 0.44, 0.47, 0.50, 0.41, 0.55, 0.45], r = rng(21);
+  var samples = C.presetPoses(lit).map(function (p) {
+    return { x: p.x, y: p.y, rss: C.modelRow(p).map(function (h, i) {
+      var row = Math.floor(i / 3);
+      return lit.indexOf(C.ROW_LED[row]) >= 0 ? truth[row] * h * (1 + 0.03 * (2 * r() - 1)) : 0;
+    }) };
+  });
+  var res = C.fitGamma(samples, { leds: lit });
+  res.forEach(function (q) {
+    if (lit.indexOf(q.led) < 0) { assert.equal(q.gamma, null); return; }
+    assert.ok(q.n >= 15, 'LED ' + q.led + ' n=' + q.n);
+    close(q.gamma / truth[q.row], 1, 0.02, 'LED ' + q.led);
+  });
+  // a chosen LED that reads 0 everywhere is reported, not fitted as gamma = 0
+  var r2 = C.fitGamma(samples, { leds: [0, 1] });
+  assert.equal(r2[C.ROW_LED.indexOf(0)].skipped, 'no signal');
+  assert.ok(r2[C.ROW_LED.indexOf(1)].gamma > 0);
+  // poses taken while LED 7 was off do not pull its gamma down
+  var row7 = C.ROW_LED.indexOf(7);
+  var mixed = samples.map(function (s, i) {
+    var rss = s.rss.slice();
+    if (i % 2) rss[row7 * 3] = rss[row7 * 3 + 1] = rss[row7 * 3 + 2] = 0;
+    return { x: s.x, y: s.y, rss: rss };
+  });
+  close(C.fitGamma(mixed, { leds: lit })[row7].gamma / truth[row7], 1, 0.02, 'LED 7 mixed');
 });
 
 test('CSV round trip and RSS line round trip', function () {
