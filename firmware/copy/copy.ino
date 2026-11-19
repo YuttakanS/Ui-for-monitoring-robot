@@ -54,6 +54,9 @@ const float eps = 0.01; //0.01;
 const float sigma2 = 0.01; //0.1, 0.4, 0.1, 0.005; 
 // const float q = 0.01;
 int mode = 2; //1 is RSS only. 2 is the coordinate.
+// true = print how long each part of a loop took, as a "# T ..." line (the web
+// pages skip lines that start with #). Switched with the command "TIMING <0|1>".
+bool PRINT_TIMING = false;
 
 BLA::Matrix<N_LED, 3> p = { 0, 0, 0.920, //0.93 - 0.03 - 0.01   LED4
                             -0.5, 0, 0.920,                  // LED5
@@ -191,8 +194,9 @@ float boundAngle(float a) {
 
 // Commands from the web page over USB serial, one per line:
 //   LED <number> <0|1>     e.g. "LED 4 0" stops using LED 4, "LED 4 1" uses it again
-// Each accepted command is answered with "# LED <number> <0|1>"
-// (the web page ignores lines that start with #).
+//   TIMING <0|1>           print a "# T ..." line with the loop timing after each loop
+// Each accepted command is answered with "# LED <number> <0|1>" or
+// "# TIMING <0|1>" (the web page ignores lines that start with #).
 void readCommands() {
   static char buf[32];
   static int len = 0;
@@ -212,6 +216,9 @@ void readCommands() {
         LED_ON[k] = (on != 0);
         Serial.print("# LED "); Serial.print(num); Serial.print(" "); Serial.println(LED_ON[k] ? 1 : 0);
       }
+    } else if (sscanf(buf, "TIMING %d", &on) == 1) {
+      PRINT_TIMING = (on != 0);
+      Serial.print("# TIMING "); Serial.println(PRINT_TIMING ? 1 : 0);
     }
   }
 }
@@ -231,6 +238,7 @@ void loop() {
   float RSS[N_LED][N_PD];
   float angle;
   unsigned long time1 = millis();
+  unsigned long tStart = micros();  // for the "# T" timing line
 
   readCommands();  // apply any LED on/off commands from the web page
 
@@ -239,6 +247,7 @@ void loop() {
   while (isSampling) {
     // Do nothing, wait for all samples to be updated.
   }
+  unsigned long tSampled = micros();
 
   // sin/cos depend only on the LED frequency and the sample index, so work
   // them out once and reuse them for all 3 photodiodes (as in copy2).
@@ -254,6 +263,7 @@ void loop() {
       }
     }
   }
+  unsigned long tDemod = micros();
 
   for (int f = 0; f < N_LED; f++)
     for (int g = 0; g < N_PD; g++) {
@@ -303,6 +313,7 @@ void loop() {
     xHnm1nm1(IZ + 1) = 0;
   }
   //Serial.print("Covariance"); Serial.println(Pnm1nm1);
+  unsigned long tEkf = micros();
   if (mode == 2 || mode == 3){
     // Web format:  Quadrant <n>: <x cm>, <y cm>, <angle deg>, <z cm>
     // (the page also accepts the old line without z, and then takes z = 0)
@@ -317,7 +328,16 @@ void loop() {
     Serial.print(deg); Serial.print(", ");
     Serial.println(zcm);
   }
-// 
+  if (PRINT_TIMING) {
+    // ms spent sampling, demodulating (including printing RSS in mode 1 / 3)
+    // and in the EKF; total = the whole loop up to here, with the printing
+    // above. The time between two lines is the real update period.
+    Serial.print("# T sample="); Serial.print((tSampled - tStart) / 1000.0f, 1);
+    Serial.print(" demod="); Serial.print((tDemod - tSampled) / 1000.0f, 1);
+    Serial.print(" ekf="); Serial.print((tEkf - tDemod) / 1000.0f, 1);
+    Serial.print(" total="); Serial.println((micros() - tStart) / 1000.0f, 1);
+  }
+//
   unsigned long time2 = millis();
   // Serial.println(time2-time1);
   // delayMicroseconds(200000);  //0.2s
