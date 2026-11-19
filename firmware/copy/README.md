@@ -183,9 +183,10 @@ RSS without the EKF:
 | 30° (before) | 60° | 9.6 % | 6.7 / 14.2 cm |
 | **35° (measured, now)** | **55°** | 10.8 % | **5.9 / 11.3 cm** |
 
-New gammas: LED 7 0.476, LED 8 0.457, LED 1 0.562, LED 2 0.525. Still to
-do: measure (0, 0), (−50, 0), (0, 50), (−25, 50), (−25, −25) on the board
-and compare with the position check above; repeat `rotate` if possible.
+New gammas: LED 7 0.476, LED 8 0.457, LED 1 0.562, LED 2 0.525. On the
+board the user saw errors of about 1–2 cm, rarely 3 cm (by eye on the
+Position Monitor, 2026-11-19; no CSV recorded), against about 3 cm on
+average before. `rotate` has not been repeated yet.
 
 ### 2026-11-19: the professor's firmware for comparison
 `firmware/copy2/copy2.ino` on `feature/task-2-ui-6led-off45` (m = 1,
