@@ -25,11 +25,19 @@
     [-0.5, -0.5, 0.92], [0.5, -0.5, 0.92], [0.5, 0, 0.92], [0.5, 0.5, 0.92]
   ];
   // PtxGamma as in copy.ino now; kept for LEDs that are not fitted
-  var CURRENT_GAMMA = [0.49, 0.49, 0.476, 0.457, 0.562, 0.525, 0.46, 0.46, 0.46];
+  var CURRENT_GAMMA = [0.49, 0.49, 0.447, 0.435, 0.538, 0.506, 0.46, 0.46, 0.46];
   var M = 1.0;                       // Lambertian order
   var FOV = Math.PI / 2;
   var BETA = 55 * Math.PI / 180;     // photodiode normal elevation (be); pyramid face 35 deg
   var ALPHA = [0, 2 * Math.PI / 3, -2 * Math.PI / 3]; // al; PD 0 = pin GP28
+  // Gain of each photodiode relative to PD 0 (PD_GAIN) and a constant added
+  // to every RSS value of a lit LED (RSS_OFFSET: reflections, demodulation
+  // noise floor), as in copy.ino. PD_GAIN = 1, 1, 1 and RSS_OFFSET = 0 give
+  // the model used before 2026-11-19 (task #2 z axis).
+  var PD_GAIN = [1.0, 0.917, 0.906];
+  var RSS_OFFSET = 0.0689;
+  // z range the firmware keeps (Z_MIN / Z_MAX, m)
+  var Z_MIN = 0.0, Z_MAX = 0.80;
   // photodiode normals v (rows), as in copy.ino
   var V = ALPHA.map(function (a) {
     return [Math.cos(BETA) * Math.cos(a), -Math.cos(BETA) * Math.sin(a), Math.sin(BETA)];
@@ -49,6 +57,15 @@
     var cosPsi = (-dx * w0 - dy * w1 - dz * w2) / d; // (pk - p0) . w / d
     if (!(cosPsi > Math.cos(FOV))) return 0;
     return (M + 1) * Math.pow(cosPhi, M) * cosPsi / (d * d);
+  }
+
+  // RSS the firmware expects (zHn in copy.ino) from LED row / photodiode l.
+  // opts.gamma / pdGain / offset override PtxGamma / PD_GAIN / RSS_OFFSET.
+  function predictRss(row, l, x, y, z, theta, opts) {
+    opts = opts || {};
+    var g = (opts.gamma || CURRENT_GAMMA)[row] * (opts.pdGain || PD_GAIN)[l];
+    var off = opts.offset !== undefined ? opts.offset : RSS_OFFSET;
+    return g * pathLoss(row, l, x, y, z, theta) + off;
   }
 
   // h for every RSS value of one pose, in firmware order (row * 3 + l).
@@ -83,9 +100,13 @@
   //   h (near the edge of the photodiode's field of view the model is weakest).
   // opts.leds: LED numbers to fit; default = every LED with any non-zero RSS
   //   (the firmware prints 0 for LEDs switched off in LED_ON).
+  // opts.pdGain / opts.offset: photodiode gains and RSS offset held fixed
+  //   while gamma is fitted (default 1, 1, 1 and 0: gamma only, the model
+  //   before PD_GAIN / RSS_OFFSET; fitModel() fits all of them).
   // Returns one entry per row of p; gamma is null when the LED is not fitted.
   function fitGamma(samples, opts) {
     opts = opts || {};
+    var pdGain = opts.pdGain || [1, 1, 1], off = opts.offset || 0;
     var minRel = opts.minRel !== undefined ? opts.minRel : 0.1;
     var minPoints = opts.minPoints !== undefined ? opts.minPoints : 3;
     var H = samples.map(modelRow);
@@ -114,7 +135,7 @@
         for (l = 0; l < N_PD; l++) {
           if (!lit[si]) continue;
           h = H[si][row * N_PD + l];
-          if (h > 0 && h >= minRel * hMax) used.push({ h: h, r: samples[si].rss[row * N_PD + l], l: l });
+          if (h > 0 && h >= minRel * hMax) used.push({ h: pdGain[l] * h, r: samples[si].rss[row * N_PD + l] - off, l: l });
         }
       res.n = used.length;
       if (used.length < minPoints) { res.skipped = 'too few points'; results.push(res); continue; }
@@ -125,9 +146,11 @@
       res.gamma = g;
       // relative misfit of each value, overall and per photodiode
       var se = 0, sum = [0, 0, 0], cnt = [0, 0, 0];
+      res.resid = []; // absolute misfit, for fitModel()
       used.forEach(function (u) {
-        var rel = u.r / (g * u.h) - 1;
+        var rel = (u.r + off) / (g * u.h + off) - 1;
         se += rel * rel; sum[u.l] += rel; cnt[u.l]++;
+        res.resid.push(u.r - g * u.h);
       });
       res.rmsRel = Math.sqrt(se / used.length);
       res.pdBias = sum.map(function (s, i) { return cnt[i] ? s / cnt[i] : null; });
@@ -143,6 +166,41 @@
       return (r.gamma !== null ? r.gamma : current[i]).toFixed(3) + 'f';
     });
     return 'const float PtxGamma[N_LED] = { ' + vals.join(', ') + ' };  // LED ' + ROW_LED.join(', ');
+  }
+
+  // Fit gamma of every LED together with PD_GAIN (PD 1 and 2; PD 0 = 1) and
+  // RSS_OFFSET, by least squares on the absolute RSS (as the EKF weighs it).
+  // With fewer than opts.minPoses poses (default 4) the photodiode gains and
+  // offset are not fitted: they stay at PD_GAIN / RSS_OFFSET.
+  // Returns { leds: fitGamma() results, pdGain, offset, fitted }.
+  function fitModel(samples, opts) {
+    opts = opts || {};
+    var minPoses = opts.minPoses !== undefined ? opts.minPoses : 4;
+    function inner(q) {
+      var o = {}; for (var k in opts) o[k] = opts[k];
+      o.pdGain = [1, q[0], q[1]]; o.offset = q[2];
+      return fitGamma(samples, o);
+    }
+    function resid(q) {
+      var out = [];
+      inner(q).forEach(function (r) { if (r.resid) out = out.concat(r.resid); });
+      return out;
+    }
+    var q = [PD_GAIN[1] / PD_GAIN[0], PD_GAIN[2] / PD_GAIN[0], RSS_OFFSET], fitted = false;
+    if (samples.length >= minPoses && resid(q).length > q.length) {
+      q = levMar(resid, q, { step: 1e-5 }).q;
+      fitted = true;
+    }
+    return { leds: inner(q), pdGain: [1, q[0], q[1]], offset: q[2], fitted: fitted };
+  }
+
+  // The lines to paste into copy.ino for a fitModel() result.
+  function firmwareLines(fit, current) {
+    return [
+      firmwareLine(fit.leds, current),
+      'const float PD_GAIN[N_PD] = { ' + fit.pdGain.map(function (v) { return v.toFixed(3) + 'f'; }).join(', ') + ' };',
+      'const float RSS_OFFSET = ' + fit.offset.toFixed(4) + 'f;'
+    ].join('\n');
   }
 
   // ---- Recording one pose -----------------------------------------------------
@@ -247,6 +305,116 @@
     return { poses: poses, errors: errors };
   }
 
+  // ---- Least squares helper ---------------------------------------------------
+  // Levenberg-Marquardt on resid(q) -> array, numerical Jacobian (central
+  // differences, step h, as computeJacobian() in copy.ino). clamp(q) may
+  // change q in place after each step. Returns { q, cost }.
+  function solveLin(A, b) { // Gaussian elimination with partial pivoting
+    var n = b.length, M2 = A.map(function (r, i) { return r.concat([b[i]]); }), r, k;
+    for (var c = 0; c < n; c++) {
+      var piv = c;
+      for (r = c + 1; r < n; r++) if (Math.abs(M2[r][c]) > Math.abs(M2[piv][c])) piv = r;
+      var tmp = M2[c]; M2[c] = M2[piv]; M2[piv] = tmp;
+      if (!(Math.abs(M2[c][c]) > 1e-300)) return null;
+      for (r = c + 1; r < n; r++) {
+        var f = M2[r][c] / M2[c][c];
+        for (k = c; k <= n; k++) M2[r][k] -= f * M2[c][k];
+      }
+    }
+    var x = new Array(n);
+    for (r = n - 1; r >= 0; r--) {
+      var s = M2[r][n];
+      for (k = r + 1; k < n; k++) s -= M2[r][k] * x[k];
+      x[r] = s / M2[r][r];
+    }
+    return x;
+  }
+  function sumSq(e) { var s = 0; for (var i = 0; i < e.length; i++) s += e[i] * e[i]; return s; }
+  function levMar(resid, q, opts) {
+    opts = opts || {};
+    var h = opts.step || 1e-5, clamp = opts.clamp, nP = q.length;
+    var e = resid(q), c0 = sumSq(e), lam = 1e-3;
+    for (var it = 0; it < 200; it++) {
+      var J = [], i, a, b;
+      for (var j = 0; j < nP; j++) {
+        var qp = q.slice(), qm = q.slice();
+        qp[j] += h; qm[j] -= h;
+        var ep = resid(qp), em = resid(qm);
+        J.push(ep.map(function (v, n) { return (em[n] - v) / (2 * h); })); // d(model)/dq
+      }
+      var JTJ = [], JTe = [];
+      for (a = 0; a < nP; a++) {
+        var s = 0;
+        for (i = 0; i < e.length; i++) s += J[a][i] * e[i];
+        JTe.push(s);
+        JTJ.push([]);
+        for (b = 0; b < nP; b++) {
+          var t = 0;
+          for (i = 0; i < e.length; i++) t += J[a][i] * J[b][i];
+          JTJ[a].push(t);
+        }
+      }
+      var improved = false, done = false;
+      while (lam < 1e12) {
+        var A = JTJ.map(function (r, ai) { return r.map(function (v, bi) { return ai === bi ? v * (1 + lam) + 1e-12 : v; }); });
+        var dq = solveLin(A, JTe);
+        if (!dq) { lam *= 10; continue; }
+        var qn = q.map(function (v, n) { return v + dq[n]; });
+        if (clamp) clamp(qn);
+        var en = resid(qn), cn = sumSq(en);
+        if (cn < c0) {
+          done = c0 - cn < 1e-14 * Math.max(1, c0);
+          q = qn; e = en; c0 = cn; lam = Math.max(lam / 10, 1e-9); improved = true;
+          break;
+        }
+        lam *= 10;
+      }
+      if (!improved || done) break;
+    }
+    return { q: q, cost: c0 };
+  }
+
+  // ---- Pose from one averaged RSS line ---------------------------------------
+  // Least squares of (rss - predicted) over the LEDs that read anything, the
+  // same residual the EKF uses (equal weight, absolute RSS; predicted as in
+  // predictRss()). No motion model, so this is where the EKF settles for a
+  // robot that stands still.
+  // opts.z: false = keep z at 0 (ESTIMATE_Z = false); opts.gamma / pdGain /
+  // offset override the firmware constants. Returns { x, y, z, theta, rms }
+  // in cm / deg.
+  function solvePose(rss, opts) {
+    opts = opts || {};
+    var useZ = opts.z !== false, rows = [];
+    for (var row = 0; row < N_LED; row++) {
+      var sum = 0;
+      for (var l = 0; l < N_PD; l++) sum += rss[row * N_PD + l];
+      if (sum !== 0) rows.push(row);
+    }
+    if (!rows.length) return null;
+    function resid(q) {
+      var out = [], z = useZ ? q[3] : 0;
+      rows.forEach(function (r) {
+        for (var l = 0; l < N_PD; l++) out.push(rss[r * N_PD + l] - predictRss(r, l, q[0], q[1], z, q[2], opts));
+      });
+      return out;
+    }
+    function clamp(q) { if (useZ) q[3] = Math.max(Z_MIN, Math.min(Z_MAX, q[3])); }
+    var cx = 0, cy = 0;
+    rows.forEach(function (r) { cx += P[r][0] / rows.length; cy += P[r][1] / rows.length; });
+    var best = null;
+    [0, Math.PI / 2, Math.PI, -Math.PI / 2].forEach(function (th) {
+      (useZ ? [0, 0.3] : [0]).forEach(function (z0) {
+        var r = levMar(resid, useZ ? [cx, cy, th, z0] : [cx, cy, th], { clamp: clamp });
+        if (!best || r.cost < best.cost) best = r;
+      });
+    });
+    var th = Math.atan2(Math.sin(best.q[2]), Math.cos(best.q[2]));
+    return {
+      x: best.q[0] * 100, y: best.q[1] * 100, z: useZ ? best.q[3] * 100 : 0,
+      theta: th * 180 / Math.PI, rms: Math.sqrt(best.cost / (rows.length * N_PD))
+    };
+  }
+
   // An RSS line as the firmware prints it, for the page's demo mode and tests.
   function formatRssLine(rss) {
     return rss.map(function (v) { return v.toFixed(4); }).join(', ') + ', ';
@@ -256,7 +424,9 @@
     N_PD: N_PD, N_LED: N_LED, ROW_LED: ROW_LED, P: P, CURRENT_GAMMA: CURRENT_GAMMA,
     M: M, FOV: FOV, BETA: BETA, ALPHA: ALPHA, DEFAULT_LIT: DEFAULT_LIT, presetPoses: presetPoses,
     pathLoss: pathLoss, modelRow: modelRow, parseRssLine: parseRssLine,
-    fitGamma: fitGamma, firmwareLine: firmwareLine,
+    PD_GAIN: PD_GAIN, RSS_OFFSET: RSS_OFFSET, Z_MIN: Z_MIN, Z_MAX: Z_MAX, predictRss: predictRss,
+    fitGamma: fitGamma, firmwareLine: firmwareLine, fitModel: fitModel, firmwareLines: firmwareLines,
+    solvePose: solvePose, levMar: levMar,
     averageRss: averageRss, checkPose: checkPose,
     csvHeader: csvHeader, posesToCsv: posesToCsv, csvToPoses: csvToPoses, formatRssLine: formatRssLine
   };

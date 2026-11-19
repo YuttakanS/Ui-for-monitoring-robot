@@ -111,6 +111,10 @@
       off: 'ปิด',
       mapAria: 'แผนที่ 2 มิติแสดงตำแหน่งหุ่นยนต์เทียบกับ LED 9 ดวง',
       mapTitle3d: 'แผนที่ตำแหน่ง (3 มิติ)',
+      cam3d: 'กล้อง',
+      camFree: 'อิสระ',
+      camThird: 'บุคคลที่ 3 (ตามหลังหุ่น)',
+      camFirst: 'บุคคลที่ 1 (จากตัวหุ่น)',
       map3dAria: 'ภาพ 3 มิติของ LED 9 ดวงที่ความสูงจริงและหุ่นยนต์บนพื้น',
       viewLabel: 'มุมมองแผนที่',
       resetView: 'รีเซ็ตมุมมอง',
@@ -126,6 +130,10 @@
       hintWait2: 'บอร์ดต้องส่งบรรทัดแบบ  Quadrant 1: x, y, มุม',
       distLed: 'ระยะจาก LED 4 (origin)',
       zNone: 'บอร์ดยังไม่ส่งค่า z (ถือว่าอยู่บนพื้น)',
+      zZero: 'ตั้งศูนย์ z ที่นี่',
+      zZeroReset: 'ล้างศูนย์',
+      zZeroNote: 'ศูนย์ z: {n} (CSV ยังเป็นค่าดิบ)',
+      zBar: 'Z',
       orientation: 'ทิศของหุ่น (Orientation)',
       compassAria: 'เข็มทิศแสดงทิศที่หุ่นหัน',
       headingCW: '0° = หันไป +X · ค่าบวก = หมุนตามเข็มนาฬิกา',
@@ -207,6 +215,10 @@
       off: 'Off',
       mapAria: '2D map of the robot position relative to the 9 LEDs',
       mapTitle3d: 'Position map (3D)',
+      cam3d: 'Camera',
+      camFree: 'Free',
+      camThird: 'Third person (behind the robot)',
+      camFirst: 'First person (from the robot)',
       map3dAria: '3D view of the 9 LEDs at their real height and the robot on the floor',
       viewLabel: 'Map view',
       resetView: 'Reset view',
@@ -222,6 +234,10 @@
       hintWait2: 'The board must send lines like  Quadrant 1: x, y, angle',
       distLed: 'Distance from LED 4 (origin)',
       zNone: 'The board sends no z yet (taken as on the floor)',
+      zZero: 'Zero z here',
+      zZeroReset: 'Clear zero',
+      zZeroNote: 'z zero: {n} (the CSV stays raw)',
+      zBar: 'Z',
       orientation: 'Orientation',
       compassAria: 'Compass showing where the robot faces',
       headingCW: '0° = facing +X · positive = clockwise',
@@ -376,6 +392,7 @@
     unit: DEFAULT_UNIT,    // display unit only (key of UNITS)
     trailN: 100,           // map trail length in samples; 0 = off
     mapView: '2d',         // '2d' | '3d'
+    cam3d: 'free',         // 3D camera: 'free' (orbit) | 'third' | 'first' person
     vecParts: true,        // show the heading vector's X / Y / Z parts
     mapHover: null,        // pointer position over the map canvas (CSS px) or null
     stats: null,           // session min/max per field, reset with the data
@@ -391,6 +408,7 @@
     recElapsed: 0,         // ms recorded in earlier runs (since the last Clear)
     recEvery: 0,           // keep one row every this many seconds; 0 = every line
     recSlot: -1,           // index of the last interval a row was kept for
+    zZero: 0,              // cm subtracted from z on screen (not in the CSV); not saved
     log: [],
     logSaved: true,
     dirty: true,
@@ -411,8 +429,10 @@
     map: $('map'), map2dWrap: $('map2dWrap'), map3d: $('map3d'), btnReset3d: $('btnReset3d'),
     viewRadios: document.querySelectorAll('input[name=mapView]'), legQuad: $('legQuad'),
     btnVecParts: $('btnVecParts'), legVecParts: $('legVecParts'),
+    cam3d: $('cam3d'), cam3dField: $('cam3dField'),
     mapTitle: document.querySelector('[data-i18n=mapTitle]'),
-    valX: $('valX'), valY: $('valY'), valZ: $('valZ'), mmZ: $('mmZ'), valQ: $('valQ'), valR: $('valR'),
+    valX: $('valX'), valY: $('valY'), valZ: $('valZ'), mmZ: $('mmZ'),
+    zZeroRow: $('zZeroRow'), btnZZero: $('btnZZero'), btnZZeroReset: $('btnZZeroReset'), zZeroNote: $('zZeroNote'), valQ: $('valQ'), valR: $('valR'),
     valH: $('valH'), cNeedle: $('cNeedle'), headingNote: $('headingNote'),
     cComp: $('cComp'), cVx: $('cVx'), cVy: $('cVy'), cDashX: $('cDashX'), cDashY: $('cDashY'), hComp: $('hComp'),
     qMini: $('qMini'), mmX: $('mmX'), mmY: $('mmY'), mmR: $('mmR'), lastTime: $('lastTime'),
@@ -454,6 +474,9 @@
 
     s.t = performance.now();
     s.wall = Date.now();
+    // z as sent (kept for the CSV); s.z is shown relative to the z zero
+    s.zRaw = s.z;
+    if (s.hasZ) s.z -= state.zZero;
     state.samples.push(s);
     state.latest = s;
     addStats(s);
@@ -465,7 +488,7 @@
     if (state.recording && keepForLog(s.t)) {
       state.log.push({
         wall: s.wall, t: s.t, quadrant: s.quadrant, x: s.x, y: s.y, angle: s.angle, source: state.source,
-        z: s.z, hasZ: s.hasZ
+        z: s.zRaw, hasZ: s.hasZ // raw, not shifted by the z zero
       });
       state.logSaved = false;
     }
@@ -775,6 +798,9 @@
     el.mmY.textContent = mm(fmtLen(st.y.min), fmtLen(st.y.max));
     el.mmR.textContent = mm(fmtLen(st.r.min), fmtLen(st.r.max));
     el.mmZ.textContent = s.hasZ ? mm(fmtLen(st.z.min), fmtLen(st.z.max)) : t('zNone');
+    el.zZeroRow.hidden = !s.hasZ;
+    el.btnZZeroReset.hidden = state.zZero === 0;
+    el.zZeroNote.textContent = state.zZero === 0 ? '' : t('zZeroNote', fmtLen(state.zZero) + (state.unit ? ' ' + state.unit : ''));
     el.lastTime.textContent = clockTime(s.wall) + '.' + String(s.wall % 1000).padStart(3, '0');
     el.valX.textContent = fmtLen(s.x);
     el.valY.textContent = fmtLen(s.y);
@@ -943,9 +969,12 @@
     var f = fitCanvas(el.map), ctx = f.ctx, w = f.w, h = f.h;
     ctx.clearRect(0, 0, w, h);
     var pad = w < 400 ? 28 : 36; // room for tick labels; tighter on phones
-    var half = (Math.min(w, h) - pad * 2) / 2;
+    var s = state.latest;
+    // height bar on the right while the board sends z; the map moves left for it
+    var barW = s && s.hasZ ? (w < 400 ? 40 : 52) : 0;
+    var half = (Math.min(w - barW, h) - pad * 2) / 2;
     if (half < 40) return;
-    var cx = w / 2, cy = h / 2;
+    var cx = (w - barW) / 2, cy = h / 2;
     // markers shrink on small maps (phones) so they don't cover each other
     var mk = Math.max(0.55, Math.min(1, half / 230));
     // Grid and ticks work in the display unit; sample values (cm) go through f.
@@ -955,7 +984,6 @@
     var k = half / R;
     // Firmware coordinates as on paper: +X right, +Y up (viewed from the Q3/Q4 side).
     var vx = VIEW_C[0] * f, vy = VIEW_C[1] * f; // view centre in the display unit
-    var s = state.latest;
     function PX(x) { return cx + (x - vx) * k; }
     function PY(y) { return cy - (y - vy) * k; }
     var L = cx - half, Rt = cx + half, T = cy - half, B = cy + half;
@@ -1120,7 +1148,44 @@
       drawHint(ctx, cx, cy + half * 0.5);
     }
 
+    if (barW) drawZBar(ctx, Rt + 14, T, B, s.z, f);
     drawMapCrosshair(ctx, cx, cy, half, k, w, h, vx, vy);
+  }
+
+  // Height bar: fixed scale from Z_BAR[0] to Z_BAR[1] cm (the firmware's
+  // Z_MIN / Z_MAX), filled from 0 to the z shown (after the z zero).
+  var Z_BAR = [0, 80];
+  function drawZBar(ctx, x, T, B, z, f) {
+    var lo = Z_BAR[0], hi = Z_BAR[1];
+    function PZ(v) { return B - (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo) * (B - T); }
+    var tw = 10, tx = x; // track
+    ctx.save();
+    ctx.fillStyle = C.grid;
+    ctx.beginPath(); ctx.roundRect(tx, T, tw, B - T, 3); ctx.fill();
+    // ticks every 20 cm, labelled in the display unit
+    ctx.font = '11px ' + C.font;
+    ctx.fillStyle = C.muted;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    for (var v = 0; v <= hi; v += 20) {
+      ctx.fillRect(tx + tw, Math.round(PZ(v)), 4, 1);
+      ctx.fillText(fmtTick(v * f, 20 * f), tx + tw + 6, PZ(v));
+    }
+    // fill from 0 to z
+    var y0 = PZ(0), yz = PZ(z);
+    ctx.fillStyle = C.s3;
+    ctx.fillRect(tx, Math.min(y0, yz), tw, Math.max(2, Math.abs(yz - y0)));
+    // marker, with a notch when z is past the end of the scale
+    ctx.fillStyle = C.text;
+    ctx.fillRect(tx - 3, Math.round(yz) - 1, tw + 6, 2);
+    if (z > hi || z < lo) {
+      var dir = z > hi ? -1 : 1;
+      ctx.beginPath(); ctx.moveTo(tx + tw / 2, yz + dir * 8); ctx.lineTo(tx - 1, yz + dir * 2); ctx.lineTo(tx + tw + 1, yz + dir * 2); ctx.fill();
+    }
+    ctx.font = '600 12px ' + C.font;
+    ctx.fillStyle = C.text2;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillText(t('zBar'), tx + tw / 2, T - 6);
+    ctx.restore();
   }
 
   // Hover: dashed crosshair and the X, Y (selected unit) under the pointer.
@@ -1424,6 +1489,28 @@
     return true;
   }
 
+  /* ---------- z zero ---------- */
+  // Show z relative to where the robot stands now: the mean raw z of the last
+  // second becomes 0. Only the screen changes; the CSV keeps the raw z.
+  function zeroZ() {
+    var S = state.samples, n = 0, sum = 0;
+    if (!S.length) return;
+    var tEnd = S[S.length - 1].t;
+    for (var i = S.length - 1; i >= 0 && S[i].t >= tEnd - 1000; i--) {
+      if (!S[i].hasZ) continue;
+      sum += S[i].zRaw; n++;
+    }
+    if (n) setZZero(sum / n);
+  }
+  function setZZero(v) {
+    var d = v - state.zZero;
+    if (!d) return;
+    state.samples.forEach(function (s) { if (s.hasZ) s.z -= d; });
+    if (state.stats) { state.stats.z.min -= d; state.stats.z.max -= d; }
+    state.zZero = v;
+    state.dirty = state.tilesDirty = true;
+  }
+
   // total time spent recording (stopping and starting again adds up)
   function recDuration() {
     return state.recElapsed + (state.recording ? performance.now() - state.recSince : 0);
@@ -1607,6 +1694,68 @@
     controls.addEventListener('change', function () { v3.needs = true; });
     v3.vec = makeVec3d(); // heading vector; drawn level, not turned with the robot
     reset3dView();
+    apply3dCam();
+  }
+
+  /* ---------- 3D camera that follows the robot ---------- */
+  // third: behind and above the robot, looking past it the way it faces.
+  // first: at the robot, looking the way it faces, tilted up towards the LEDs.
+  // Lengths in cm (scene units), angles in degrees.
+  var CAM3D = {
+    free: { fov: 40 },
+    third: { fov: 40, back: 95, up: 60, ahead: 30 },
+    first: { fov: 75, eye: ROBOT_H + 2, pitch: 14 }
+  };
+  var CAM_EASE = 0.15; // share of the remaining way the camera moves per frame
+
+  // Apply state.cam3d to the camera and controls (when the 3D view exists).
+  function apply3dCam() {
+    if (!v3) return;
+    var free = state.cam3d === 'free';
+    v3.controls.enabled = free;
+    v3.follow = null; // start from the robot's pose, not from the last follow
+    v3.camera.fov = CAM3D[state.cam3d].fov;
+    v3.camera.updateProjectionMatrix();
+    if (v3.h) size3dLabels(); // label size depends on the field of view
+    if (free) reset3dView();
+    v3.needs = true;
+  }
+
+  function setCam3d(mode, save) {
+    state.cam3d = CAM3D[mode] ? mode : 'free';
+    el.cam3d.value = state.cam3d;
+    el.btnReset3d.hidden = state.mapView !== '3d' || state.cam3d !== 'free';
+    apply3dCam();
+    if (save) {
+      try { localStorage.setItem('ra.cam3d', state.cam3d); } catch (e) { /* storage unavailable */ }
+    }
+  }
+
+  // Move the camera with the robot. Position and heading are eased, so the
+  // view glides between samples instead of jumping with every line from the
+  // board. Returns true while the camera has not caught up yet.
+  function follow3d(s) {
+    var mode = state.cam3d;
+    if (mode === 'free' || !s) return false;
+    var yaw = mapHeading(s.angle) * Math.PI / 180, f = v3.follow;
+    if (!f) f = v3.follow = { x: s.x, y: s.y, z: s.z, yaw: yaw };
+    var dyaw = Math.atan2(Math.sin(yaw - f.yaw), Math.cos(yaw - f.yaw)); // shortest way round
+    f.x += (s.x - f.x) * CAM_EASE;
+    f.y += (s.y - f.y) * CAM_EASE;
+    f.z += (s.z - f.z) * CAM_EASE;
+    f.yaw += dyaw * CAM_EASE;
+    var hx = Math.cos(f.yaw), hy = Math.sin(f.yaw), cam = v3.camera, c = CAM3D[mode];
+    if (mode === 'first') {
+      // the robot and its heading vector would fill the view from inside
+      v3.robot.visible = v3.vec.group.visible = false;
+      var ez = f.z + c.eye;
+      cam.position.set(f.x, f.y, ez);
+      cam.lookAt(f.x + hx * 100, f.y + hy * 100, ez + 100 * Math.tan(c.pitch * Math.PI / 180));
+    } else {
+      cam.position.set(f.x - hx * c.back, f.y - hy * c.back, f.z + c.up);
+      cam.lookAt(f.x + hx * c.ahead, f.y + hy * c.ahead, f.z + ROBOT_H);
+    }
+    return Math.abs(dyaw) > 0.002 || Math.abs(s.x - f.x) + Math.abs(s.y - f.y) + Math.abs(s.z - f.z) > 0.05;
   }
 
   // Parse the Maya models (OBJ text). Their geometry is shared by every copy,
@@ -1931,8 +2080,9 @@
     }
     tp.needsUpdate = true;
     v3.trail.geometry.setDrawRange(0, n);
+    var moving = follow3d(s);
     v3.renderer.render(v3.scene, v3.camera);
-    v3.needs = false;
+    v3.needs = moving; // keep drawing until the camera has caught up
   }
 
   function setVecParts(on, save) {
@@ -1953,7 +2103,8 @@
     if (is3d && !v3) init3d();
     el.map2dWrap.hidden = is3d;
     el.map3d.hidden = !is3d;
-    el.btnReset3d.hidden = !is3d;
+    el.btnReset3d.hidden = !is3d || state.cam3d !== 'free';
+    el.cam3dField.hidden = !is3d;
     el.legQuad.hidden = is3d; // the quadrant highlight is 2D only
     el.mapTitle.setAttribute('data-i18n', is3d ? 'mapTitle3d' : 'mapTitle');
     el.mapTitle.textContent = t(is3d ? 'mapTitle3d' : 'mapTitle');
@@ -2000,6 +2151,8 @@
   });
   el.map.addEventListener('pointerleave', function () { state.mapHover = null; state.dirty = true; });
   el.btnRecord.addEventListener('click', toggleRecording);
+  el.btnZZero.addEventListener('click', zeroZ);
+  el.btnZZeroReset.addEventListener('click', function () { setZZero(0); });
   el.btnCsv.addEventListener('click', downloadCsv);
   el.btnClearLog.addEventListener('click', clearLog);
   el.tableDetails.addEventListener('toggle', updateStatus);
@@ -2073,6 +2226,8 @@
     var savedRange = localStorage.getItem('ra.range');
     if (savedRange !== null && CHART_RANGES.indexOf(+savedRange) >= 0) state.chartRange = +savedRange;
     if (localStorage.getItem('ra.mapView') === '3d') state.mapView = '3d';
+    var savedCam = localStorage.getItem('ra.cam3d');
+    if (savedCam === 'third' || savedCam === 'first') state.cam3d = savedCam;
     if (localStorage.getItem('ra.vecParts') === '0') state.vecParts = false;
     var savedTrail = localStorage.getItem('ra.trail');
     for (oi = 0; oi < el.trailN.options.length; oi++) {
@@ -2103,6 +2258,8 @@
     }
   }
   el.btnReset3d.addEventListener('click', function () { if (v3) reset3dView(); });
+  el.cam3d.addEventListener('change', function () { setCam3d(el.cam3d.value, true); });
+  el.cam3d.value = state.cam3d;
   el.btnVecParts.addEventListener('click', function () { setVecParts(!state.vecParts, true); });
   setVecParts(state.vecParts, false);
 

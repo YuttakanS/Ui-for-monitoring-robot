@@ -18,9 +18,14 @@ pages that expect 3 values do not read this line; pages from
 so the others keep their index). `A`, `P`, `Q`, `R` are filled in `initEkf()`;
 z / vz use the same `P` and `Q` as x / y.
 
-- `ESTIMATE_Z = false` keeps z at 0 (robot always on the floor), as before.
-- z is kept between `Z_MIN` (-5 cm) and `Z_MAX` (80 cm); near the LEDs the
-  path-loss model blows up.
+- `ESTIMATE_Z = true` since 2026-11-19 (task #2 z axis); `false` keeps z at 0
+  (robot always on the floor), as before. See "z axis" below for how
+  accurate z can be.
+- z is kept between `Z_MIN` (0, the floor; it was −5 cm until 2026-11-19 to
+  leave room for noise, but the user wanted no negative z) and `Z_MAX`
+  (80 cm); near the LEDs the path-loss model blows up. When the model
+  would put the robot below the floor, z sits at 0 and x / y take up the
+  difference, as with `ESTIMATE_Z = false`.
 
 ## LEDs (92 cm above the photodiodes)
 
@@ -50,10 +55,11 @@ Layout seen from above (+X right, +Y up), LED 4 at the origin:
   "Calibration results" below.
 - `be = 55°`: the pyramid faces with the photodiodes measure 35° from the
   floor, so each normal is 55° above it (was 60°, a 30° face).
-- `PtxGamma` for LED 7, 8, 1, 2 is an **interim calibration** (2026-11-19,
-  see "Calibration results" below). LED 0, 3, 6 (off for now) keep the
-  placeholder 0.46; LED 4, 5 (not lit) keep 0.49. `ESTIMATE_Z` is `false`
-  until the fit is better.
+- The model is `RSS = PtxGamma[k] * PD_GAIN[l] * h + RSS_OFFSET` (the last
+  two were added on 2026-11-19, see "z axis" below). `PtxGamma` for LED 7,
+  8, 1, 2, `PD_GAIN` and `RSS_OFFSET` are fitted together from
+  `calib/ra_calib_20261119_130953.csv`. LED 0, 3, 6 (off for now) keep the
+  placeholder 0.46; LED 4, 5 (not lit) keep 0.49.
 - The frequencies of LED 0, 3 and 6 (1100 / 1900 / 3100 Hz) were checked
   against the real LED drivers on 2026-11-19 and match `Fref`.
 
@@ -76,16 +82,18 @@ checks that its constants still match this file.
    LED 1, 2, 7, 8; 13 for all 9). Re-record a pose whose spread is red (the
    robot moved). Poses where an LED reads 0 (it was off) are left out of
    that LED's fit.
-5. Export the CSV as a record, copy the `PtxGamma` line into this file,
-   set `mode = 2` again and upload.
+5. Export the CSV as a record, copy the 3 lines (`PtxGamma`, `PD_GAIN`,
+   `RSS_OFFSET`) into this file and into `calibrate.js` (`CURRENT_GAMMA`,
+   `PD_GAIN`, `RSS_OFFSET`; `npm test` checks they match), set `mode = 2`
+   again and upload. With fewer than 4 poses only the gammas are fitted.
 6. Check: at a pose not among the suggested ones (e.g. (-25, 0)), the
    Position Monitor should show x / y within about 3 cm; then try
    `ESTIMATE_Z = true`, and a robot on the floor should read z ~ 0.
 
 In the result table, PD0–PD2 is how much each photodiode reads above (+) or
-below (−) the model on average. If the same photodiode is off by more than
-5 % for every LED, the photodiodes differ in gain, which this firmware does
-not model yet. Note it down. LEDs that are not fitted keep their old value.
+below (−) the model (with `PD_GAIN`) on average. If one is still off by
+more than 5 % for every LED, note it down. LEDs that are not fitted keep
+their old value.
 
 ## Calibration results
 
@@ -205,6 +213,82 @@ LED <number> <0|1>     e.g.  LED 4 1
 The board answers `# LED <number> <0|1>`. An LED that is off is not demodulated
 and adds nothing to the EKF update. This does not power the LED itself off.
 
+```
+TIMING <0|1>           e.g.  TIMING 1
+```
+
+The board answers `# TIMING <0|1>`. While it is on, every loop ends with
+
+```
+# T sample=100.1 demod=8.3 ekf=12.0 total=121.2
+```
+
+(numbers here are only an example): the ms spent collecting the samples,
+demodulating and in the EKF, and the whole loop. The web pages skip lines
+that start with `#`, so use the Serial Monitor to read them.
+
+## Update rate (2026-11-19, branch `feature/task-2-realtime`)
+One update took about 0.33 s (3.0 Hz) with LED 1, 2, 7, 8: 0.1 s to collect
+2500 samples at 25 kHz and the rest to compute, on a Pico without an FPU.
+The sample window is unchanged; the computing was made lighter.
+
+**Measured on the board (2026-11-19, LED 1, 2, 7, 8, `mode = 2`,
+`ESTIMATE_Z = true`, `TIMING 1`):** one update takes **119.2 ms (8.4 Hz)**:
+sampling 100.0 ms, demodulation 12.0 ms, EKF 6.9 ms, the rest printing.
+Computing fell from about 230 ms to about 19 ms; 84 % of an update is now
+the sample window itself, so going faster means sampling continuously
+(overlapping windows) or a shorter window.
+
+- **Demodulation by table.** Every LED frequency is a multiple of 100 Hz
+  (`F_STEP`), so at 25 kHz every reference repeats after 250 samples
+  (`LUT_N`). One sin and one cos table of 250 values, built once, replaces
+  the 2 × 2500 calls of `sin()` / `cos()` per LED and loop, and the sums are
+  kept in integers. **A new LED frequency must be a multiple of 100 Hz**, and
+  `N` a multiple of 250. Against exact arithmetic the table is within 1e-5
+  of the RSS; the earlier single-precision loop was within about 2e-4, so
+  the RSS can move in the 4th decimal.
+- **Lighter path-loss function.** Same formula in single precision, without
+  matrix temporaries or `pow()`; cos / sin of the heading are worked out
+  once per shifted state instead of once per LED and photodiode.
+- **EKF correction one value at a time** (`EKF_SEQUENTIAL = true`), for lit
+  LEDs only, instead of inverting a 27×27 matrix. With a diagonal `R` and
+  the Jacobian and prediction taken once at the predicted state, this gives
+  the same state and covariance as before; Joseph form is kept.
+  `EKF_SEQUENTIAL = false` runs the earlier update, to compare on the board.
+- **`Q` follows the update period:** `Q = Q0 * T / T_REF`, `T_REF` = 0.33 s
+  (the period when `Q0` was tuned). `Q` is added once per update, so without
+  this, faster updates would mean more process noise per second. In a
+  single-precision replica on the PC (robot still, RSS noise 0.02), x jitter
+  was 0.43 cm at 3 Hz, 0.56 cm at 8 Hz with `Q` unscaled and 0.49 cm scaled.
+- `tests/firmware-math.test.js` repeats the table demodulation and both EKF
+  updates in JS and checks they agree. It does not compile the `.ino`.
+
+## z axis (2026-11-19)
+Checked on the PC first with `solvePose()` in `calibrate.js` (where the EKF
+settles for a still robot), on the 8 floor poses of
+`calib/ra_calib_20261119_130953.csv`, each solved with a model fitted
+without that pose (leave one out):
+
+| Model | Fit misfit | x / y error, z off | x / y error, z on | z on the floor |
+|---|---|---|---|---|
+| gamma only (before) | 12–18 % | 5.9 cm | 5.6 cm | rms 2.7 cm, −5.0 (limit) to +1.9 |
+| **+ `PD_GAIN` + `RSS_OFFSET` (now)** | **8–10 %** | **3.6 cm** | **3.5 cm** | **rms 2.3 cm**, −5.0 (limit) to +2.2 |
+
+Also tried: an offset per LED, `PD_GAIN` only, offset only; none was better
+on both x / y and z. (PC numbers for x / y have always been larger than on
+the board, where the old model gave about 1–3 cm.)
+
+- **How accurate z can be:** raising the robot 1 cm changes the RSS by only
+  about 0.8 % (0.07 % at a far corner such as (−50, 50)), so a 5 %
+  brightness error in the model reads as about 6 cm of z. At (0, 0), z reads
+  about −6 cm with every model tried (held at `Z_MIN`, then −5 cm); no single
+  value there looks wrong. Absolute z within 1–2 cm would need the model
+  right to about 2 %.
+- **Height changes are clear:** lifting 30 cm raises the total RSS by about
+  20–36 % inside the 4 lit LEDs.
+  Zero z on the web page where the robot stands and read the change.
+- The model assumes the robot is level. Held tilted, z, x and y are off.
+
 ## Notes
 - **z depends on `PtxGamma` being right.** A brighter LED looks like a closer
   one, so a gamma error shows up as height: in a host simulation, LEDs 10 %
@@ -227,8 +311,9 @@ and adds nothing to the EKF update. This does not power the LED itself off.
   | (0, 0, 40), 90° | (0.0, 0.1, 40.8), 89.9° |
 
   z settles more slowly than x / y (P0 = 0.01, Q = 1e-6 at the time).
-- With 9 LEDs each loop does more work: the EKF inverts a 27×27 matrix
-  (the gain is 8×27). LEDs that are off are not demodulated.
+- With 9 LEDs each loop does more work. LEDs that are off are not
+  demodulated. (Until 2026-11-19 the EKF inverted a 27×27 matrix every
+  loop; see "Update rate".)
 - **EKF tuning (2026-11-19):** `T` is the measured time since the previous
   update (about 0.33 s with LED 1, 2, 7, 8; it was fixed at 0.2 s), sin/cos
   are worked out once per sample and reused for the 3 photodiodes (from
