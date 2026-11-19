@@ -376,3 +376,6 @@ th:first-child, td:first-child { text-align: left; }
   .card-head { flex-wrap: wrap; }
 }
 .settings-panel { max-width: calc(100vw - 32px); }
+
+/* link to the calibration page (calibrate.html) */
+.foot-link { margin-left: auto; color: var(--text2); }

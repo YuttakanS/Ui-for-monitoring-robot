@@ -137,11 +137,101 @@
     return 'const float PtxGamma[N_LED] = { ' + vals.join(', ') + ' };  // LED ' + ROW_LED.join(', ');
   }
 
+  // ---- Recording one pose -----------------------------------------------------
+  // LEDs that are physically lit now (LED 4 and 5 are not).
+  var LEDS_LIT = [0, 1, 2, 3, 6, 7, 8];
+
+  // Mean of several RSS lines, and how much they moved: spread = the largest
+  // (max - min) / mean over the values that carry signal (mean >= 5 % of the
+  // largest mean). A robot that moved while recording shows a large spread.
+  function averageRss(lines) {
+    var n = lines.length, len = N_LED * N_PD, mean = [], i, j;
+    if (!n) return null;
+    for (j = 0; j < len; j++) {
+      var s = 0;
+      for (i = 0; i < n; i++) s += lines[i][j];
+      mean.push(s / n);
+    }
+    var top = Math.max.apply(null, mean), spread = 0;
+    for (j = 0; j < len; j++) {
+      if (!(mean[j] > 0) || mean[j] < 0.05 * top) continue;
+      var lo = Infinity, hi = -Infinity;
+      for (i = 0; i < n; i++) { lo = Math.min(lo, lines[i][j]); hi = Math.max(hi, lines[i][j]); }
+      spread = Math.max(spread, (hi - lo) / mean[j]);
+    }
+    return { rss: mean, n: n, spread: spread };
+  }
+
+  // Warnings for an averaged pose: an LED meant to be lit reads 0 on every
+  // photodiode (switched off in LED_ON, or the LED is out), or one meant to be
+  // dark reads something (it is switched on in the firmware).
+  function checkPose(rss, lit) {
+    lit = lit || LEDS_LIT;
+    var out = [];
+    for (var row = 0; row < N_LED; row++) {
+      var led = ROW_LED[row], sum = 0;
+      for (var l = 0; l < N_PD; l++) sum += rss[row * N_PD + l];
+      var want = lit.indexOf(led) >= 0;
+      if (want && sum === 0) out.push({ led: led, kind: 'zero' });
+      if (!want && sum !== 0) out.push({ led: led, kind: 'unexpected' });
+    }
+    return out;
+  }
+
+  // ---- CSV of recorded poses ------------------------------------------------------
+  // x_cm, y_cm, theta_deg, n_lines, spread, then the 27 averaged RSS values in
+  // firmware order, named led<k>_pd<l> (pd0 = pin GP28).
+  function csvHeader() {
+    var h = ['x_cm', 'y_cm', 'theta_deg', 'n_lines', 'spread'];
+    ROW_LED.forEach(function (led) { for (var l = 0; l < N_PD; l++) h.push('led' + led + '_pd' + l); });
+    return h;
+  }
+  function posesToCsv(poses) {
+    var out = [csvHeader().join(',')];
+    poses.forEach(function (p) {
+      out.push([p.x, p.y, p.theta || 0, p.n || '', p.spread !== undefined ? +p.spread.toFixed(4) : '']
+        .concat(p.rss.map(function (v) { return +v.toFixed(4); })).join(','));
+    });
+    return out.join('\r\n') + '\r\n';
+  }
+  // Returns { poses, errors }. Columns are found by name, so their order may change.
+  function csvToPoses(text) {
+    var lines = String(text).split(/\r\n|\n|\r/).filter(function (s) { return s.trim() !== ''; });
+    if (!lines.length) return { poses: [], errors: ['empty file'] };
+    var head = lines[0].split(',').map(function (s) { return s.trim(); });
+    var idx = {};
+    head.forEach(function (name, i) { idx[name] = i; });
+    var need = csvHeader(), missing = need.filter(function (c) {
+      return idx[c] === undefined && c !== 'n_lines' && c !== 'spread' && c !== 'theta_deg';
+    });
+    if (missing.length) return { poses: [], errors: ['missing columns: ' + missing.join(' ')] };
+    var poses = [], errors = [];
+    for (var i = 1; i < lines.length; i++) {
+      var c = lines[i].split(',');
+      var num = function (name) { return idx[name] === undefined ? NaN : parseFloat(c[idx[name]]); };
+      var p = { x: num('x_cm'), y: num('y_cm'), theta: num('theta_deg'), n: num('n_lines'), spread: num('spread'), rss: [] };
+      if (isNaN(p.theta)) p.theta = 0;
+      need.slice(5).forEach(function (name) { p.rss.push(num(name)); });
+      if (isNaN(p.x) || isNaN(p.y) || p.rss.some(isNaN)) { errors.push('line ' + (i + 1)); continue; }
+      if (isNaN(p.n)) delete p.n;
+      if (isNaN(p.spread)) delete p.spread;
+      poses.push(p);
+    }
+    return { poses: poses, errors: errors };
+  }
+
+  // An RSS line as the firmware prints it, for the page's demo mode and tests.
+  function formatRssLine(rss) {
+    return rss.map(function (v) { return v.toFixed(4); }).join(', ') + ', ';
+  }
+
   var api = {
     N_PD: N_PD, N_LED: N_LED, ROW_LED: ROW_LED, P: P, CURRENT_GAMMA: CURRENT_GAMMA,
-    M: M, FOV: FOV, BETA: BETA, ALPHA: ALPHA,
+    M: M, FOV: FOV, BETA: BETA, ALPHA: ALPHA, LEDS_LIT: LEDS_LIT,
     pathLoss: pathLoss, modelRow: modelRow, parseRssLine: parseRssLine,
-    fitGamma: fitGamma, firmwareLine: firmwareLine
+    fitGamma: fitGamma, firmwareLine: firmwareLine,
+    averageRss: averageRss, checkPose: checkPose,
+    csvHeader: csvHeader, posesToCsv: posesToCsv, csvToPoses: csvToPoses, formatRssLine: formatRssLine
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.RACalib = api;

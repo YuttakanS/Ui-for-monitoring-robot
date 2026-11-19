@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Calibrate PtxGamma</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* page-only layout; colours, buttons, cards and tables come from style.css */
+    .cal { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; padding: 12px 16px; max-width: 1280px; margin: 0 auto; }
+    .cal .wide { grid-column: 1 / -1; }
+    .steps { margin: 0; padding-left: 20px; color: var(--text2); }
+    .steps li { margin: 2px 0; }
+    .steps code { white-space: nowrap; }
+    .steps code, .note code, .fw-line { font-family: Consolas, "Cascadia Mono", monospace; }
+    .note { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
+    .pose-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+    .pose-form input { width: 72px; }
+    .presets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .presets .btn.done { border-color: var(--good); }
+    .presets .btn.done::after { content: " ✓"; color: var(--good); }
+    .progress { height: 6px; border-radius: 3px; background: var(--wash); margin-top: 10px; overflow: hidden; }
+    .progress > div { height: 100%; width: 0; background: var(--s1); transition: width 0.15s; }
+    td.bad, span.bad { color: var(--critical); font-weight: 600; }
+    td.off { color: var(--muted); }
+    .fw-line { display: block; margin: 10px 0 0; padding: 10px; background: var(--wash); border-radius: 6px; overflow-x: auto; white-space: pre; font-size: 12px; color: var(--text); }
+    .empty { color: var(--muted); margin: 8px 0 0; }
+    .bar a { color: var(--text2); }
+    @media (max-width: 900px) { .cal { grid-template-columns: minmax(0, 1fr); } }
+    @media (max-width: 480px) { .cal { padding: 12px; } }
+  </style>
+</head>
+<body>
+  <header class="bar">
+    <h1>Calibrate PtxGamma</h1>
+    <div class="controls">
+      <button id="btnConnect" class="btn primary" type="button">เชื่อมต่อ Serial</button>
+      <button id="btnDemo" class="btn secondary" type="button">Demo</button>
+      <a href="index.html">← Position Monitor</a>
+    </div>
+    <div class="status">
+      <span class="status-main" role="status">
+        <span id="statusDot" class="dot"></span>
+        <span id="statusText">ยังไม่เชื่อมต่อ</span>
+      </span>
+      <dl class="stats">
+        <div><dt>บรรทัด RSS</dt><dd id="rate">0 Hz</dd></div>
+      </dl>
+    </div>
+  </header>
+
+  <div id="notice" class="notice" role="alert" hidden><span id="noticeText"></span></div>
+
+  <main class="cal">
+    <section class="card">
+      <div class="card-head"><h2>1. เตรียม</h2></div>
+      <ol class="steps">
+        <li>ใน <code>firmware/copy/copy.ino</code> ตั้ง <code>mode = 3</code> และ <code>ESTIMATE_Z = false</code> แล้ว upload</li>
+        <li>ปิดหน้า Position Monitor ก่อน (เปิดพอร์ตพร้อมกันไม่ได้) แล้วกด <b>เชื่อมต่อ Serial</b> หน้านี้จะเปิด LED 0, 1, 2, 3, 6, 7, 8 และปิด LED 4, 5 ในบอร์ดให้เอง</li>
+        <li>วางหุ่นบนพื้น หันมุม <b>θ = 0°</b>: photodiode ที่ต่อขา <b>GP28</b> หันไปทาง <b>+X</b> (ฝั่ง LED 0, 3, 6)</li>
+        <li>ปิดไฟห้องหรือคุมแสงให้เหมือนกันทุกจุด อย่าแตะหุ่นตอนเก็บค่า</li>
+        <li>เก็บครบ 13 จุดที่แนะนำ แล้ว copy บรรทัด <code>PtxGamma</code> ในข้อ 4 ไปใส่ <code>copy.ino</code> เปลี่ยนกลับเป็น <code>mode = 2</code></li>
+      </ol>
+      <p class="note">ข้อมูลที่เก็บแล้วจำไว้ใน browser นี้ (refresh ไม่หาย) ควร export CSV เก็บไว้เป็นหลักฐานด้วย</p>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>2. เก็บค่าที่จุดนี้</h2></div>
+      <form id="poseForm" class="pose-form" novalidate>
+        <label class="field">x (cm) <input id="inX" type="number" step="any" value="0" required></label>
+        <label class="field">y (cm) <input id="inY" type="number" step="any" value="0" required></label>
+        <label class="field">θ (°) <input id="inTh" type="number" step="any" value="0" required></label>
+        <label class="field">จำนวนบรรทัด <input id="inN" type="number" min="5" max="200" step="1" value="30" required></label>
+        <button id="btnRecord" class="btn primary" type="submit" disabled>เก็บจุดนี้</button>
+      </form>
+      <div class="progress" aria-hidden="true"><div id="progressBar"></div></div>
+      <p id="recText" class="note">เชื่อมต่อบอร์ดหรือกด Demo ก่อน</p>
+      <div class="presets" id="presets" aria-label="จุดที่แนะนำ"></div>
+      <p class="note">จุดที่แนะนำ (θ = 0): ใต้ LED ทั้ง 9 ดวง และกึ่งกลาง 4 จุด กดเพื่อกรอก x, y ให้ เก็บจุดเดิมซ้ำจะแทนที่ค่าเก่า</p>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>ค่า RSS ล่าสุด</h2></div>
+      <div class="table-scroll">
+        <table id="liveTable">
+          <thead><tr><th>LED</th><th>PD0 (GP28)</th><th>PD1 (GP27)</th><th>PD2 (GP26)</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="note">บรรทัดล่าสุดจาก serial: <code id="lastRaw">—</code></p>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>3. จุดที่เก็บแล้ว <span id="poseCount" class="unit"></span></h2>
+        <div class="card-tools">
+          <button id="btnExport" class="btn small" type="button">Export CSV</button>
+          <label class="btn small" for="fileImport">Import CSV</label>
+          <input id="fileImport" type="file" accept=".csv,text/csv" hidden>
+          <button id="btnClear" class="btn small" type="button">ล้างทั้งหมด</button>
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table id="poseTable">
+          <thead><tr><th>#</th><th>x</th><th>y</th><th>θ</th><th>บรรทัด</th><th>แกว่ง</th><th>คำเตือน</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p id="poseEmpty" class="empty">ยังไม่มีจุด</p>
+    </section>
+
+    <section class="card wide">
+      <div class="card-head">
+        <h2>4. ผล PtxGamma</h2>
+        <div class="card-tools"><button id="btnCopy" class="btn small" type="button" disabled>Copy บรรทัด firmware</button></div>
+      </div>
+      <div class="table-scroll">
+        <table id="fitTable">
+          <thead><tr>
+            <th>LED</th><th>γ ใหม่</th><th>γ เดิม</th><th>เปลี่ยน</th><th>ค่าที่ใช้</th><th>คลาด (rms)</th>
+            <th>PD0</th><th>PD1</th><th>PD2</th><th class="demo-col" hidden>ค่าจริงใน Demo</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <code id="fwLine" class="fw-line">—</code>
+      <p class="note">PD0–PD2 = photodiode แต่ละตัวอ่านสูง (+) หรือต่ำ (−) กว่าแบบจำลองโดยเฉลี่ย ถ้าตัวเดียวกันเกิน ±5% ทุก LED แปลว่าความไวของ photodiode ไม่เท่ากัน (โค้ดยังไม่รองรับ ให้จดไว้)
+        สีแดง = คลาดเกิน 10% หรือ photodiode เอียงเกิน 5% หรือหุ่นแกว่งเกิน 5% ระหว่างเก็บ LED ที่ไม่ได้คำนวณใช้ค่าเดิม</p>
+    </section>
+  </main>
+
+  <script src="calibrate.js"></script>
+  <script src="calibrate-page.js"></script>
+</body>
+</html>

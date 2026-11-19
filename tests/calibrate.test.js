@@ -106,6 +106,52 @@ test('fitGamma shows a photodiode that reads 10 % high', function () {
   });
 });
 
+test('copy.ino prints RSS with 4 decimals', function () {
+  assert.match(INO, /Serial\.print\(RSS\[f\]\[g\], 4\);/);
+});
+
+test('averageRss: mean and spread', function () {
+  var a = [], b = [];
+  for (var i = 0; i < 27; i++) { a.push(i < 3 ? 0 : 1.0); b.push(i < 3 ? 0 : 1.0); }
+  b[5] = 1.2; // one value moved 20 %
+  var r = C.averageRss([a, b]);
+  assert.equal(r.n, 2);
+  close(r.rss[5], 1.1, 1e-12);
+  assert.equal(r.rss[0], 0);
+  close(r.spread, 0.2 / 1.1, 1e-12);
+  assert.equal(C.averageRss([a, a]).spread, 0);
+  assert.equal(C.averageRss([]), null);
+});
+
+test('checkPose: lit LED reading 0, dark LED reading something', function () {
+  var rss = C.modelRow({ x: 0, y: 0 }).map(function (h, i) {
+    return [4, 5].indexOf(C.ROW_LED[Math.floor(i / 3)]) >= 0 ? 0 : 0.46 * h;
+  });
+  assert.deepEqual(C.checkPose(rss), []);
+  var row0 = C.ROW_LED.indexOf(0), row4 = C.ROW_LED.indexOf(4);
+  rss[row0 * 3] = rss[row0 * 3 + 1] = rss[row0 * 3 + 2] = 0; // LED 0 out
+  rss[row4 * 3] = 0.5;                                        // LED 4 left on in firmware
+  assert.deepEqual(C.checkPose(rss), [{ led: 4, kind: 'unexpected' }, { led: 0, kind: 'zero' }]);
+});
+
+test('CSV round trip and RSS line round trip', function () {
+  var poses = simulate(C.CURRENT_GAMMA, [4, 5], 0.02, 11).slice(0, 3);
+  poses[0].theta = 0; poses[0].n = 30; poses[0].spread = 0.031;
+  var back = C.csvToPoses(C.posesToCsv(poses));
+  assert.deepEqual(back.errors, []);
+  assert.equal(back.poses.length, 3);
+  back.poses.forEach(function (p, i) {
+    assert.equal(p.x, poses[i].x); assert.equal(p.y, poses[i].y);
+    p.rss.forEach(function (v, j) { close(v, poses[i].rss[j], 5e-5); });
+  });
+  assert.equal(back.poses[0].n, 30);
+  assert.equal(C.csvHeader()[5], 'led4_pd0');
+  assert.equal(C.csvToPoses('a,b\n1,2').poses.length, 0);
+  assert.match(C.csvToPoses('a,b\n1,2').errors[0], /missing columns/);
+  var line = C.formatRssLine(poses[1].rss);
+  C.parseRssLine(line).forEach(function (v, j) { close(v, poses[1].rss[j], 5e-5); });
+});
+
 test('fitGamma: an LED seen at too few points is not fitted', function () {
   var samples = simulate(C.CURRENT_GAMMA, [4, 5], 0, 5).slice(0, 1);
   var res = C.fitGamma(samples, { minPoints: 5 });
