@@ -32,9 +32,9 @@ z / vz use the same `P` and `Q` as x / y.
 | 3 | LED 8 | (-50, 50) | 4100 Hz | yes |
 | 4 | LED 1 | (0, -50) | 1300 Hz | yes |
 | 5 | LED 2 | (-50, -50) | 1700 Hz | yes |
-| 6 | LED 0 | (50, -50) | 1100 Hz | yes |
-| 7 | LED 3 | (50, 0) | 1900 Hz | yes |
-| 8 | LED 6 | (50, 50) | 3100 Hz | yes |
+| 6 | LED 0 | (50, -50) | 1100 Hz | no |
+| 7 | LED 3 | (50, 0) | 1900 Hz | no |
+| 8 | LED 6 | (50, 50) | 3100 Hz | no |
 
 Layout seen from above (+X right, +Y up), LED 4 at the origin:
 

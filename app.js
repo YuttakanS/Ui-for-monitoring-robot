@@ -319,9 +319,9 @@
   // firmware's LED_ON.
   var LED_SPACING = 50;    // cm between neighbouring LEDs
   var LEDS = [
-    [-LED_SPACING, LED_SPACING, '8', true], [0, LED_SPACING, '7', true], [LED_SPACING, LED_SPACING, '6', true],
-    [-LED_SPACING, 0, '5', false], [0, 0, '4', false], [LED_SPACING, 0, '3', true], // LED 4, 5 off for now
-    [-LED_SPACING, -LED_SPACING, '2', true], [0, -LED_SPACING, '1', true], [LED_SPACING, -LED_SPACING, '0', true]
+    [-LED_SPACING, LED_SPACING, '8', true], [0, LED_SPACING, '7', true], [LED_SPACING, LED_SPACING, '6', false],
+    [-LED_SPACING, 0, '5', false], [0, 0, '4', false], [LED_SPACING, 0, '3', false], // only LED 1, 2, 7, 8 on for now
+    [-LED_SPACING, -LED_SPACING, '2', true], [0, -LED_SPACING, '1', true], [LED_SPACING, -LED_SPACING, '0', false]
   ];
   // LED on/off as chosen on the page (label -> bool). Starts from the `on`
   // flags above, then the saved choice; sent to the board as "LED <n> <0|1>".

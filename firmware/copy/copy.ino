@@ -29,7 +29,7 @@ const float be = M_PI / 3;
 // demodulated and adds nothing to the update. These are the values at power-up;
 // the web page can change them at run time (see readCommands()).
 const int LED_NUM[N_LED] = {     4,     5,    7,    8,    1,    2,    0,    3,    6 };  // LED number per row of p
-bool LED_ON[N_LED]       = { false, false, true, true, true, true, true, true, true };  // LED4, LED5 off at start
+bool LED_ON[N_LED]       = { false, false, true, true, true, true, false, false, false };  // only LED 7, 8, 1, 2 on at start (2026-11-19)
 // LED 7, 8, 1, 2: interim calibration 2026-11-19 with calibrate.html (7 poses,
 // theta = 0, m = 1; misfit 11-19 %, so keep ESTIMATE_Z = false). LED 4, 5
 // (not lit) and LED 0, 3, 6 (off) are not calibrated.
