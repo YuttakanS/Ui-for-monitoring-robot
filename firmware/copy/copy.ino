@@ -228,7 +228,7 @@ void loop() {
       zn(N_PD*f+g) = RSS[f][g];
       // Serial.print("RSS"); 
       if (mode == 1 || mode == 3){
-        Serial.print(RSS[f][g]);
+        Serial.print(RSS[f][g], 4);  // 4 decimals: the default 2 is too coarse for calibration
         Serial.print(", ");
       }
     }
