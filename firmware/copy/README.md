@@ -44,10 +44,8 @@ Layout seen from above (+X right, +Y up), LED 4 at the origin:
 2--1--0    y = -50
 ```
 
-- **`m = 0.55` (trial, 2026-11-19)** instead of 1.0, fitted from the
-  calibration data; see "Calibration results" below. Not yet checked
-  against the LED datasheet. To go back: `m = 1.0` and the m = 1 gammas
-  in the comment above `PtxGamma`.
+- `m = 1.0`. A trial with `m = 0.55` (commit 1e0106c) was reverted
+  before it was measured on the board; see "Calibration results" below.
 - `PtxGamma` for LED 7, 8, 1, 2 is an **interim calibration** (2026-11-19,
   see "Calibration results" below). LED 0, 3, 6 (off for now) keep the
   placeholder 0.46; LED 4, 5 (not lit) keep 0.49. `ESTIMATE_Z` is `false`
@@ -151,8 +149,19 @@ of the 7th from its RSS without the EKF):
 
 So `m = 0.55` with gammas LED 7 0.564, LED 8 0.542, LED 1 0.663, LED 2
 0.620 (RSS misfit 7–11 %, 9.5 % overall, was 15 %). Per-photodiode gain
-does not help, so it is not added. Still to do: measure the same 10 poses
-again with this firmware and compare with the table above.
+does not help, so it is not added.
+
+**Reverted (2026-11-19):** the user chose the version with the smallest
+error measured on the board, which is m = 1 with the interim gammas
+(about 3 cm, table above). m = 0.55 was never measured on the board; it
+can be tried again from commit 1e0106c.
+
+### 2026-11-19: the professor's firmware for comparison
+`firmware/copy2/copy2.ino` on `feature/task-2-ui-6led-off45` (m = 1,
+gamma applied twice, gammas 0.51, 0.51, 0.44, 0.46): the user measured
+about ±10 cm on the board, against about 3 cm for this firmware. With
+the same RSS data, its model also gives about twice the error (16.5 cm
+against 8.3 cm mean, solving each pose without the EKF).
 
 ## On/off commands
 The web page (or the Serial Monitor) sends one line per command:

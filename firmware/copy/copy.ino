@@ -19,10 +19,7 @@ volatile int sampleIndex = 0;
 volatile bool isSampling = false;
 
 //VARIBLES OF EKF/UKF
-// Lambertian order. Trial 2026-11-19: fitted from the calibration data
-// (was 1.0 = half-power angle 60 deg; 0.55 = about 75 deg). Not yet checked
-// against the LED datasheet.
-const float m = 0.55;
+const float m = 1.0;  //Lambertian order
 const float FoV = M_PI / 2;
 const float T = 0.2;
 const float al[N_PD] = { 0, 2.0*M_PI/3.0, -2.0*M_PI/3.0 };
@@ -33,10 +30,10 @@ const float be = M_PI / 3;
 // the web page can change them at run time (see readCommands()).
 const int LED_NUM[N_LED] = {     4,     5,    7,    8,    1,    2,    0,    3,    6 };  // LED number per row of p
 bool LED_ON[N_LED]       = { false, false, true, true, true, true, false, false, false };  // only LED 7, 8, 1, 2 on at start (2026-11-19)
-// LED 7, 8, 1, 2: calibrated 2026-11-19 with calibrate.html (7 poses, theta = 0)
-// for m = 0.55, misfit 9.5 % (for m = 1 they were 0.453, 0.436, 0.536, 0.504).
-// LED 4, 5 (not lit) and LED 0, 3, 6 (off) are not calibrated.
-const float PtxGamma[N_LED] = { 0.490f, 0.490f, 0.564f, 0.542f, 0.663f, 0.620f, 0.460f, 0.460f, 0.460f };
+// LED 7, 8, 1, 2: interim calibration 2026-11-19 with calibrate.html (7 poses,
+// theta = 0, m = 1; misfit 11-19 %, so keep ESTIMATE_Z = false). LED 4, 5
+// (not lit) and LED 0, 3, 6 (off) are not calibrated.
+const float PtxGamma[N_LED] = { 0.490f, 0.490f, 0.453f, 0.436f, 0.536f, 0.504f, 0.460f, 0.460f, 0.460f };
 const float eps = 0.01; //0.01;
 const float sigma2 = 0.01; //0.1, 0.4, 0.1, 0.005; 
 // const float q = 0.01;
