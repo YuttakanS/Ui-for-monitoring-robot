@@ -45,8 +45,8 @@ Layout seen from above (+X right, +Y up), LED 4 at the origin:
 ```
 
 - `PtxGamma` for LED 1, 2, 0, 3 and 6 is a placeholder (0.46), not calibrated.
-- The frequencies of LED 0, 3 and 6 (1100 / 1900 / 3100 Hz) still need to be
-  checked against the real LED drivers.
+- The frequencies of LED 0, 3 and 6 (1100 / 1900 / 3100 Hz) were checked
+  against the real LED drivers on 2026-11-19 and match `Fref`.
 
 ## On/off commands
 The web page (or the Serial Monitor) sends one line per command:
