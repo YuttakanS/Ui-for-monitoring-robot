@@ -30,8 +30,10 @@ const float be = M_PI / 3;
 // the web page can change them at run time (see readCommands()).
 const int LED_NUM[N_LED] = {     4,     5,    7,    8,    1,    2,    0,    3,    6 };  // LED number per row of p
 bool LED_ON[N_LED]       = { false, false, true, true, true, true, true, true, true };  // LED4, LED5 off at start
-// LED1, LED2, LED0, LED3, LED6 = 0.46 for now (not calibrated yet)
-const float PtxGamma[N_LED] = { 0.49f, 0.49f, 0.46f, 0.46f, 0.46f, 0.46f, 0.46f, 0.46f, 0.46f };
+// LED 7, 8, 1, 2: interim calibration 2026-11-19 with calibrate.html (7 poses,
+// theta = 0, m = 1; misfit 11-19 %, so keep ESTIMATE_Z = false). LED 4, 5
+// (not lit) and LED 0, 3, 6 (off) are not calibrated.
+const float PtxGamma[N_LED] = { 0.490f, 0.490f, 0.453f, 0.436f, 0.536f, 0.504f, 0.460f, 0.460f, 0.460f };
 const float eps = 0.01; //0.01;
 const float sigma2 = 0.01; //0.1, 0.4, 0.1, 0.005; 
 // const float q = 0.01;
@@ -57,7 +59,8 @@ BLA::Matrix<3, 3> v = { cos(be) * cos(al[0]), -cos(be) * sin(al[0]), sin(be),
 // the end so x (0), y (2) and theta (4) keep their index.
 const int IX = 0, IY = 2, ITH = 4, IZ = 6;
 // false = keep z at 0 (robot always on the floor), as before z was added.
-const bool ESTIMATE_Z = true;
+// Off until PtxGamma is calibrated well enough (z follows gamma errors).
+const bool ESTIMATE_Z = false;
 // z is kept in this range (m): a little below the floor for noise, and well
 // below the LEDs, where the path-loss model blows up (distance -> 0).
 const float Z_MIN = -0.05f, Z_MAX = 0.80f;

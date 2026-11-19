@@ -44,7 +44,10 @@ Layout seen from above (+X right, +Y up), LED 4 at the origin:
 2--1--0    y = -50
 ```
 
-- `PtxGamma` for LED 1, 2, 0, 3 and 6 is a placeholder (0.46), not calibrated.
+- `PtxGamma` for LED 7, 8, 1, 2 is an **interim calibration** (2026-11-19,
+  see "Calibration results" below). LED 0, 3, 6 (off for now) keep the
+  placeholder 0.46; LED 4, 5 (not lit) keep 0.49. `ESTIMATE_Z` is `false`
+  until the fit is better.
 - The frequencies of LED 0, 3 and 6 (1100 / 1900 / 3100 Hz) were checked
   against the real LED drivers on 2026-11-19 and match `Fref`.
 
@@ -77,6 +80,31 @@ In the result table, PD0–PD2 is how much each photodiode reads above (+) or
 below (−) the model on average. If the same photodiode is off by more than
 5 % for every LED, the photodiodes differ in gain, which this firmware does
 not model yet. Note it down. LEDs that are not fitted keep their old value.
+
+## Calibration results
+
+### 2026-11-19: interim, LED 1, 2, 7, 8 (`calib/ra_calib_20261119_111822.csv`)
+8 poses at theta = 0, 100 RSS lines each, firmware in `mode = 1`.
+Fitted without (−25, −25), m = 1:
+
+| LED | Old γ | New γ | Misfit (rms) | PD0 / PD1 / PD2 bias |
+|---|---|---|---|---|
+| 7 | 0.46 | 0.453 | 14.8 % | +12 / −7 / +7 % |
+| 8 | 0.46 | 0.436 | 11.4 % | +12 / −2 / +1 % |
+| 1 | 0.46 | 0.536 | 18.9 % | +19 / +10 / −2 % |
+| 2 | 0.46 | 0.504 | 12.3 % | +14 / 0 / −3 % |
+
+- **(−25, −25) left out:** PD2 read 34–57 % of the model for every LED,
+  the same when recorded again, and no other pose or heading explains it,
+  so something probably shaded PD2 there. Not checked yet.
+- **Far LEDs read about 21 % above the model** (distance > 1.25 m), near
+  ones match. The LEDs seem wider than m = 1 (half-power angle 60°):
+  m ≈ 0.45 (about 78°) brings the misfit down to 9 %. Not changed, since
+  m is also the EKF's model; check the LED datasheet first. Meanwhile,
+  positions at the edge (y = ±50) are likely pulled about 8–10 cm towards
+  the centre.
+- The "spread" column (max − min over the lines) read 44–177 % at every
+  pose, too sensitive to tell noise from a robot that moved.
 
 ## On/off commands
 The web page (or the Serial Monitor) sends one line per command:
