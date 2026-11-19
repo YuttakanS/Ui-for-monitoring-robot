@@ -18,7 +18,9 @@ pages that expect 3 values do not read this line; pages from
 so the others keep their index). `A`, `P`, `Q`, `R` are filled in `initEkf()`;
 z / vz use the same `P` and `Q` as x / y.
 
-- `ESTIMATE_Z = false` keeps z at 0 (robot always on the floor), as before.
+- `ESTIMATE_Z = true` since 2026-11-19 (task #2 z axis); `false` keeps z at 0
+  (robot always on the floor), as before. See "z axis" below for how
+  accurate z can be.
 - z is kept between `Z_MIN` (-5 cm) and `Z_MAX` (80 cm); near the LEDs the
   path-loss model blows up.
 
@@ -50,10 +52,11 @@ Layout seen from above (+X right, +Y up), LED 4 at the origin:
   "Calibration results" below.
 - `be = 55°`: the pyramid faces with the photodiodes measure 35° from the
   floor, so each normal is 55° above it (was 60°, a 30° face).
-- `PtxGamma` for LED 7, 8, 1, 2 is an **interim calibration** (2026-11-19,
-  see "Calibration results" below). LED 0, 3, 6 (off for now) keep the
-  placeholder 0.46; LED 4, 5 (not lit) keep 0.49. `ESTIMATE_Z` is `false`
-  until the fit is better.
+- The model is `RSS = PtxGamma[k] * PD_GAIN[l] * h + RSS_OFFSET` (the last
+  two were added on 2026-11-19, see "z axis" below). `PtxGamma` for LED 7,
+  8, 1, 2, `PD_GAIN` and `RSS_OFFSET` are fitted together from
+  `calib/ra_calib_20261119_130953.csv`. LED 0, 3, 6 (off for now) keep the
+  placeholder 0.46; LED 4, 5 (not lit) keep 0.49.
 - The frequencies of LED 0, 3 and 6 (1100 / 1900 / 3100 Hz) were checked
   against the real LED drivers on 2026-11-19 and match `Fref`.
 
@@ -76,16 +79,18 @@ checks that its constants still match this file.
    LED 1, 2, 7, 8; 13 for all 9). Re-record a pose whose spread is red (the
    robot moved). Poses where an LED reads 0 (it was off) are left out of
    that LED's fit.
-5. Export the CSV as a record, copy the `PtxGamma` line into this file,
-   set `mode = 2` again and upload.
+5. Export the CSV as a record, copy the 3 lines (`PtxGamma`, `PD_GAIN`,
+   `RSS_OFFSET`) into this file and into `calibrate.js` (`CURRENT_GAMMA`,
+   `PD_GAIN`, `RSS_OFFSET`; `npm test` checks they match), set `mode = 2`
+   again and upload. With fewer than 4 poses only the gammas are fitted.
 6. Check: at a pose not among the suggested ones (e.g. (-25, 0)), the
    Position Monitor should show x / y within about 3 cm; then try
    `ESTIMATE_Z = true`, and a robot on the floor should read z ~ 0.
 
 In the result table, PD0–PD2 is how much each photodiode reads above (+) or
-below (−) the model on average. If the same photodiode is off by more than
-5 % for every LED, the photodiodes differ in gain, which this firmware does
-not model yet. Note it down. LEDs that are not fitted keep their old value.
+below (−) the model (with `PD_GAIN`) on average. If one is still off by
+more than 5 % for every LED, note it down. LEDs that are not fitted keep
+their old value.
 
 ## Calibration results
 
@@ -204,6 +209,32 @@ LED <number> <0|1>     e.g.  LED 4 1
 
 The board answers `# LED <number> <0|1>`. An LED that is off is not demodulated
 and adds nothing to the EKF update. This does not power the LED itself off.
+
+## z axis (2026-11-19)
+Checked on the PC first with `solvePose()` in `calibrate.js` (where the EKF
+settles for a still robot), on the 8 floor poses of
+`calib/ra_calib_20261119_130953.csv`, each solved with a model fitted
+without that pose (leave one out):
+
+| Model | Fit misfit | x / y error, z off | x / y error, z on | z on the floor |
+|---|---|---|---|---|
+| gamma only (before) | 12–18 % | 5.9 cm | 5.6 cm | rms 2.7 cm, −5.0 (limit) to +1.9 |
+| **+ `PD_GAIN` + `RSS_OFFSET` (now)** | **8–10 %** | **3.6 cm** | **3.5 cm** | **rms 2.3 cm**, −5.0 (limit) to +2.2 |
+
+Also tried: an offset per LED, `PD_GAIN` only, offset only; none was better
+on both x / y and z. (PC numbers for x / y have always been larger than on
+the board, where the old model gave about 1–3 cm.)
+
+- **How accurate z can be:** raising the robot 1 cm changes the RSS by only
+  about 0.8 % (0.07 % at a far corner such as (−50, 50)), so a 5 %
+  brightness error in the model reads as about 6 cm of z. At (0, 0), z reads
+  about −6 cm with every model tried (held at `Z_MIN` = −5 cm); no single
+  value there looks wrong. Absolute z within 1–2 cm would need the model
+  right to about 2 %.
+- **Height changes are clear:** lifting 30 cm raises the total RSS by about
+  20–36 % inside the 4 lit LEDs.
+  Zero z on the web page where the robot stands and read the change.
+- The model assumes the robot is level. Held tilted, z, x and y are off.
 
 ## Notes
 - **z depends on `PtxGamma` being right.** A brighter LED looks like a closer

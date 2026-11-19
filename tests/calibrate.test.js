@@ -32,6 +32,41 @@ test('constants match copy.ino', function () {
   assert.ok(beIno, 'be not found in copy.ino');
   close(parseFloat(beIno[1]) * Math.PI / 180, C.BETA, 1e-12, 'be');
   assert.match(INO, /const float al\[N_PD\] = \{ 0, 2\.0\*M_PI\/3\.0, -2\.0\*M_PI\/3\.0 \};/);
+  assert.deepEqual(inoArray('PD_GAIN'), C.PD_GAIN);
+  var offIno = /const float RSS_OFFSET = ([\d.]+)f?;/.exec(INO);
+  assert.ok(offIno, 'RSS_OFFSET not found in copy.ino');
+  assert.equal(parseFloat(offIno[1]), C.RSS_OFFSET);
+  var zr = /const float Z_MIN = (-?[\d.]+)f?, Z_MAX = ([\d.]+)f?;/.exec(INO);
+  assert.ok(zr, 'Z_MIN / Z_MAX not found in copy.ino');
+  assert.equal(parseFloat(zr[1]), C.Z_MIN); assert.equal(parseFloat(zr[2]), C.Z_MAX);
+  // the EKF prediction and Jacobian use the same model as predictRss()
+  assert.match(INO, /PtxGamma\[f\] \* PD_GAIN\[g\] \* pathLossWithoutGamma\([^;]*\) \+ RSS_OFFSET/);
+  assert.equal((INO.match(/PtxGamma\[k\] \* PD_GAIN\[l\] \* pathLossWithoutGamma/g) || []).length, 2);
+});
+
+test('fitModel recovers gamma, photodiode gain and offset', function () {
+  var lit = [1, 2, 7, 8], r = rng(5);
+  var truth = { gamma: [0.49, 0.49, 0.45, 0.43, 0.54, 0.51, 0.46, 0.46, 0.46], pdGain: [1, 0.9, 1.08], offset: 0.05 };
+  var samples = C.presetPoses(lit).map(function (p) {
+    var rss = [];
+    for (var row = 0; row < 9; row++) for (var l = 0; l < 3; l++) {
+      var on = lit.indexOf(C.ROW_LED[row]) >= 0;
+      rss.push(on ? C.predictRss(row, l, p.x / 100, p.y / 100, 0, 0, truth) * (1 + 0.01 * (2 * r() - 1)) : 0);
+    }
+    return { x: p.x, y: p.y, rss: rss };
+  });
+  var f = C.fitModel(samples, { leds: lit });
+  assert.ok(f.fitted);
+  close(f.pdGain[1], 0.9, 0.02, 'pd1'); close(f.pdGain[2], 1.08, 0.02, 'pd2');
+  close(f.offset, 0.05, 0.01, 'offset');
+  lit.forEach(function (led) { var row = C.ROW_LED.indexOf(led); close(f.leds[row].gamma / truth.gamma[row], 1, 0.02, 'LED ' + led); });
+  var lines = C.firmwareLines(f).split('\n');
+  assert.match(lines[0], /^const float PtxGamma\[N_LED\]/);
+  assert.match(lines[1], /^const float PD_GAIN\[N_PD\] = \{ 1\.000f, 0\.9\d\df, 1\.0\d\df \};$/);
+  assert.match(lines[2], /^const float RSS_OFFSET = 0\.0\d{3}f;$/);
+  // too few poses: gains and offset stay at the firmware values
+  var few = C.fitModel(samples.slice(0, 2), { leds: lit });
+  assert.equal(few.fitted, false); assert.deepEqual(few.pdGain, C.PD_GAIN); assert.equal(few.offset, C.RSS_OFFSET);
 });
 
 test('pathLoss: robot under LED 4, PD 0 (GP28) facing +X', function () {
@@ -206,10 +241,12 @@ test('fitGamma: an LED seen at too few points is not fitted', function () {
 });
 
 test('solvePose finds a known pose, with and without z', function () {
-  var gamma = C.CURRENT_GAMMA, rowsOn = [1, 2, 7, 8].map(function (k) { return C.ROW_LED.indexOf(k); });
-  function rssAt(pose) {
-    var h = C.modelRow(pose);
-    return h.map(function (v, i) { return rowsOn.indexOf(Math.floor(i / 3)) >= 0 ? gamma[Math.floor(i / 3)] * v : 0; });
+  var rowsOn = [1, 2, 7, 8].map(function (k) { return C.ROW_LED.indexOf(k); });
+  function rssAt(p) { // the firmware model with its constants
+    var out = [];
+    for (var row = 0; row < 9; row++) for (var l = 0; l < 3; l++)
+      out.push(rowsOn.indexOf(row) >= 0 ? C.predictRss(row, l, p.x / 100, p.y / 100, (p.z || 0) / 100, (p.theta || 0) * Math.PI / 180) : 0);
+    return out;
   }
   [{ x: -25, y: 0, z: 0, theta: 0 }, { x: -10, y: 20, z: 15, theta: 40 },
    { x: -30, y: -25, z: 30, theta: -120 }, { x: -25, y: 10, z: 50, theta: 170 }].forEach(function (p) {

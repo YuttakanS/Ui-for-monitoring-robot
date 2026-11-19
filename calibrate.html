@@ -117,8 +117,8 @@
 
     <section class="card wide">
       <div class="card-head">
-        <h2>4. ผล PtxGamma</h2>
-        <div class="card-tools"><button id="btnCopy" class="btn small" type="button" disabled>Copy บรรทัด firmware</button></div>
+        <h2>4. ผล PtxGamma, PD_GAIN, RSS_OFFSET</h2>
+        <div class="card-tools"><button id="btnCopy" class="btn small" type="button" disabled>Copy บรรทัด firmware (3 บรรทัด)</button></div>
       </div>
       <div class="table-scroll">
         <table id="fitTable">
@@ -130,7 +130,8 @@
         </table>
       </div>
       <code id="fwLine" class="fw-line">—</code>
-      <p class="note">PD0–PD2 = photodiode แต่ละตัวอ่านสูง (+) หรือต่ำ (−) กว่าแบบจำลองโดยเฉลี่ย ถ้าตัวเดียวกันเกิน ±5% ทุก LED แปลว่าความไวของ photodiode ไม่เท่ากัน (โค้ดยังไม่รองรับ ให้จดไว้)
+      <p class="note">คำนวณ γ ของแต่ละ LED พร้อมกับ PD_GAIN (ความไวของ PD1, PD2 เทียบกับ PD0) และ RSS_OFFSET (ค่าคงที่ที่บวกเพิ่ม เช่นแสงสะท้อน) ให้ copy ทั้ง 3 บรรทัดไปแทนใน <code>copy.ino</code> และแก้ <code>CURRENT_GAMMA</code>, <code>PD_GAIN</code>, <code>RSS_OFFSET</code> ใน <code>calibrate.js</code> ให้ตรงกัน (<code>npm test</code> ตรวจให้)
+        PD0–PD2 = photodiode แต่ละตัวอ่านสูง (+) หรือต่ำ (−) กว่าแบบจำลอง (ที่รวม PD_GAIN แล้ว) โดยเฉลี่ย ถ้ายังเกิน ±5% ให้จดไว้
         สีแดง = คลาดเกิน 10% หรือ photodiode เอียงเกิน 5% หรือหุ่นแกว่งเกิน 5% ระหว่างเก็บ LED ที่ไม่ได้คำนวณใช้ค่าเดิม</p>
     </section>
   </main>

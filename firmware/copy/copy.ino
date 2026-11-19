@@ -33,11 +33,23 @@ const float be = 55.0f * M_PI / 180.0f;
 // the web page can change them at run time (see readCommands()).
 const int LED_NUM[N_LED] = {     4,     5,    7,    8,    1,    2,    0,    3,    6 };  // LED number per row of p
 bool LED_ON[N_LED]       = { false, false, true, true, true, true, false, false, false };  // only LED 7, 8, 1, 2 on at start (2026-11-19)
-// LED 7, 8, 1, 2: calibrated 2026-11-19 with calibrate.html (8 poses, theta = 0,
-// m = 1, be = 55 deg; keep ESTIMATE_Z = false). With be = 60 deg they were
-// 0.453, 0.436, 0.536, 0.504. LED 4, 5 (not lit) and LED 0, 3, 6 (off) are
+// LED 7, 8, 1, 2: fitted 2026-11-19 together with PD_GAIN and RSS_OFFSET
+// below (calibrate.js fitModel(), calib/ra_calib_20261119_130953.csv, 8 poses,
+// theta = 0, m = 1, be = 55 deg). LED 4, 5 (not lit) and LED 0, 3, 6 (off) are
 // not calibrated.
-const float PtxGamma[N_LED] = { 0.490f, 0.490f, 0.476f, 0.457f, 0.562f, 0.525f, 0.460f, 0.460f, 0.460f };
+// To go back to the model without PD_GAIN / RSS_OFFSET (x / y about 1-2 cm on
+// the board with ESTIMATE_Z = false), use PD_GAIN = 1, 1, 1, RSS_OFFSET = 0 and
+//   { 0.490f, 0.490f, 0.476f, 0.457f, 0.562f, 0.525f, 0.460f, 0.460f, 0.460f }
+// (with be = 60 deg the gammas were 0.453, 0.436, 0.536, 0.504).
+const float PtxGamma[N_LED] = { 0.490f, 0.490f, 0.447f, 0.435f, 0.538f, 0.506f, 0.460f, 0.460f, 0.460f };
+// Photodiode gain relative to PD 0 (pin GP28). The calibration data read PD 0
+// 12-21 % above the model for every LED; PD 1 and 2 are about 8-9 % lower.
+const float PD_GAIN[N_PD] = { 1.000f, 0.917f, 0.906f };
+// Added to every RSS of a lit LED: reflections and the noise floor of the
+// demodulation. Far LEDs (> 1.25 m) read about 21 % above the model without it.
+// With these two, the model misfit fell from 12-18 % to 8-10 % and x / y on
+// the PC (leave one pose out) from 5.9 to 3.6 cm.
+const float RSS_OFFSET = 0.0689f;
 const float eps = 0.01; //0.01;
 const float sigma2 = 0.01; //0.1, 0.4, 0.1, 0.005; 
 // const float q = 0.01;
@@ -63,8 +75,12 @@ BLA::Matrix<3, 3> v = { cos(be) * cos(al[0]), -cos(be) * sin(al[0]), sin(be),
 // the end so x (0), y (2) and theta (4) keep their index.
 const int IX = 0, IY = 2, ITH = 4, IZ = 6;
 // false = keep z at 0 (robot always on the floor), as before z was added.
-// Off until PtxGamma is calibrated well enough (z follows gamma errors).
-const bool ESTIMATE_Z = false;
+// On since 2026-11-19 (task #2 z axis). z follows any brightness error of the
+// model: +1 cm of z changes RSS by only about 0.8 %, so a 5 % error reads as
+// about 6 cm. On the PC, a robot on the floor read z within +-3 cm at 7 of the
+// 8 calibration poses (rms 2.3 cm) and x / y did not get worse. The web page
+// can zero z where the robot stands. Set false if the robot stays on the floor.
+const bool ESTIMATE_Z = true;
 // z is kept in this range (m): a little below the floor for noise, and well
 // below the LEDs, where the path-loss model blows up (distance -> 0).
 const float Z_MIN = -0.05f, Z_MAX = 0.80f;
@@ -159,8 +175,9 @@ void computeJacobian(const BLA::Matrix<N_STATE, 1>& xHnnm1) {
     for (int k = 0; k < N_LED; k++)
       for (int l = 0; l < N_PD; l++) {
         if (!LED_ON[k]) { Jn(N_PD * k + l, j) = 0; continue; }  // LED off: no influence
-        tmp1 = PtxGamma[k] * pathLossWithoutGamma(k, l, xp(IX), xp(IY), xp(IZ), xp(ITH));
-        tmp2 = PtxGamma[k] * pathLossWithoutGamma(k, l, xm(IX), xm(IY), xm(IZ), xm(ITH));
+        // RSS_OFFSET is the same on both sides, so it drops out here
+        tmp1 = PtxGamma[k] * PD_GAIN[l] * pathLossWithoutGamma(k, l, xp(IX), xp(IY), xp(IZ), xp(ITH));
+        tmp2 = PtxGamma[k] * PD_GAIN[l] * pathLossWithoutGamma(k, l, xm(IX), xm(IY), xm(IZ), xm(ITH));
         Jn(N_PD * k + l, j) = (tmp1 - tmp2) / (2.0f * eps);
       }
   }
@@ -271,7 +288,7 @@ void loop() {
   for (int f = 0; f < N_LED; f++)
     for (int g = 0; g < N_PD; g++)
       // LED off: predicted = measured, so its innovation is 0
-      zHn(N_PD * f + g) = LED_ON[f] ? PtxGamma[f] * pathLossWithoutGamma(f, g, xHnnm1(IX), xHnnm1(IY), xHnnm1(IZ), xHnnm1(ITH))
+      zHn(N_PD * f + g) = LED_ON[f] ? PtxGamma[f] * PD_GAIN[g] * pathLossWithoutGamma(f, g, xHnnm1(IX), xHnnm1(IY), xHnnm1(IZ), xHnnm1(ITH)) + RSS_OFFSET
                                     : zn(N_PD * f + g);
   xHnm1nm1 = xHnnm1 + Kn * (zn - zHn);
   // Pnm1nm1 = (I6 - Kn*Jn) * Pnnm1; 

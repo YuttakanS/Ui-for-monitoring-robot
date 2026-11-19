@@ -245,7 +245,9 @@
       el.copy.disabled = true;
       return;
     }
-    var res = C.fitGamma(state.poses, { leds: state.lit });
+    // gamma together with PD_GAIN and RSS_OFFSET (fixed at the firmware
+    // values when there are too few poses to fit them)
+    var fit = C.fitModel(state.poses, { leds: state.lit }), res = fit.leds;
     var rows = [];
     // show in LED number order
     for (var led = 0; led < C.N_LED; led++) {
@@ -269,7 +271,8 @@
       rows.push(tr);
     }
     el.fit.replaceChildren.apply(el.fit, rows);
-    el.fwLine.textContent = C.firmwareLine(res);
+    el.fwLine.textContent = C.firmwareLines(fit) + (fit.fitted ? '' :
+      '\n// PD_GAIN / RSS_OFFSET: ค่าเดิมใน firmware (ต้องมีอย่างน้อย 4 จุดจึงจะคำนวณใหม่)');
     el.copy.disabled = false;
   }
 
