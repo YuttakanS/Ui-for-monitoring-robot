@@ -126,6 +126,10 @@
       hintWait2: 'บอร์ดต้องส่งบรรทัดแบบ  Quadrant 1: x, y, มุม',
       distLed: 'ระยะจาก LED 4 (origin)',
       zNone: 'บอร์ดยังไม่ส่งค่า z (ถือว่าอยู่บนพื้น)',
+      zZero: 'ตั้งศูนย์ z ที่นี่',
+      zZeroReset: 'ล้างศูนย์',
+      zZeroNote: 'ศูนย์ z: {n} (CSV ยังเป็นค่าดิบ)',
+      zBar: 'Z',
       orientation: 'ทิศของหุ่น (Orientation)',
       compassAria: 'เข็มทิศแสดงทิศที่หุ่นหัน',
       headingCW: '0° = หันไป +X · ค่าบวก = หมุนตามเข็มนาฬิกา',
@@ -222,6 +226,10 @@
       hintWait2: 'The board must send lines like  Quadrant 1: x, y, angle',
       distLed: 'Distance from LED 4 (origin)',
       zNone: 'The board sends no z yet (taken as on the floor)',
+      zZero: 'Zero z here',
+      zZeroReset: 'Clear zero',
+      zZeroNote: 'z zero: {n} (the CSV stays raw)',
+      zBar: 'Z',
       orientation: 'Orientation',
       compassAria: 'Compass showing where the robot faces',
       headingCW: '0° = facing +X · positive = clockwise',
@@ -391,6 +399,7 @@
     recElapsed: 0,         // ms recorded in earlier runs (since the last Clear)
     recEvery: 0,           // keep one row every this many seconds; 0 = every line
     recSlot: -1,           // index of the last interval a row was kept for
+    zZero: 0,              // cm subtracted from z on screen (not in the CSV); not saved
     log: [],
     logSaved: true,
     dirty: true,
@@ -412,7 +421,8 @@
     viewRadios: document.querySelectorAll('input[name=mapView]'), legQuad: $('legQuad'),
     btnVecParts: $('btnVecParts'), legVecParts: $('legVecParts'),
     mapTitle: document.querySelector('[data-i18n=mapTitle]'),
-    valX: $('valX'), valY: $('valY'), valZ: $('valZ'), mmZ: $('mmZ'), valQ: $('valQ'), valR: $('valR'),
+    valX: $('valX'), valY: $('valY'), valZ: $('valZ'), mmZ: $('mmZ'),
+    zZeroRow: $('zZeroRow'), btnZZero: $('btnZZero'), btnZZeroReset: $('btnZZeroReset'), zZeroNote: $('zZeroNote'), valQ: $('valQ'), valR: $('valR'),
     valH: $('valH'), cNeedle: $('cNeedle'), headingNote: $('headingNote'),
     cComp: $('cComp'), cVx: $('cVx'), cVy: $('cVy'), cDashX: $('cDashX'), cDashY: $('cDashY'), hComp: $('hComp'),
     qMini: $('qMini'), mmX: $('mmX'), mmY: $('mmY'), mmR: $('mmR'), lastTime: $('lastTime'),
@@ -454,6 +464,9 @@
 
     s.t = performance.now();
     s.wall = Date.now();
+    // z as sent (kept for the CSV); s.z is shown relative to the z zero
+    s.zRaw = s.z;
+    if (s.hasZ) s.z -= state.zZero;
     state.samples.push(s);
     state.latest = s;
     addStats(s);
@@ -465,7 +478,7 @@
     if (state.recording && keepForLog(s.t)) {
       state.log.push({
         wall: s.wall, t: s.t, quadrant: s.quadrant, x: s.x, y: s.y, angle: s.angle, source: state.source,
-        z: s.z, hasZ: s.hasZ
+        z: s.zRaw, hasZ: s.hasZ // raw, not shifted by the z zero
       });
       state.logSaved = false;
     }
@@ -775,6 +788,9 @@
     el.mmY.textContent = mm(fmtLen(st.y.min), fmtLen(st.y.max));
     el.mmR.textContent = mm(fmtLen(st.r.min), fmtLen(st.r.max));
     el.mmZ.textContent = s.hasZ ? mm(fmtLen(st.z.min), fmtLen(st.z.max)) : t('zNone');
+    el.zZeroRow.hidden = !s.hasZ;
+    el.btnZZeroReset.hidden = state.zZero === 0;
+    el.zZeroNote.textContent = state.zZero === 0 ? '' : t('zZeroNote', fmtLen(state.zZero) + (state.unit ? ' ' + state.unit : ''));
     el.lastTime.textContent = clockTime(s.wall) + '.' + String(s.wall % 1000).padStart(3, '0');
     el.valX.textContent = fmtLen(s.x);
     el.valY.textContent = fmtLen(s.y);
@@ -943,9 +959,12 @@
     var f = fitCanvas(el.map), ctx = f.ctx, w = f.w, h = f.h;
     ctx.clearRect(0, 0, w, h);
     var pad = w < 400 ? 28 : 36; // room for tick labels; tighter on phones
-    var half = (Math.min(w, h) - pad * 2) / 2;
+    var s = state.latest;
+    // height bar on the right while the board sends z; the map moves left for it
+    var barW = s && s.hasZ ? (w < 400 ? 40 : 52) : 0;
+    var half = (Math.min(w - barW, h) - pad * 2) / 2;
     if (half < 40) return;
-    var cx = w / 2, cy = h / 2;
+    var cx = (w - barW) / 2, cy = h / 2;
     // markers shrink on small maps (phones) so they don't cover each other
     var mk = Math.max(0.55, Math.min(1, half / 230));
     // Grid and ticks work in the display unit; sample values (cm) go through f.
@@ -955,7 +974,6 @@
     var k = half / R;
     // Firmware coordinates as on paper: +X right, +Y up (viewed from the Q3/Q4 side).
     var vx = VIEW_C[0] * f, vy = VIEW_C[1] * f; // view centre in the display unit
-    var s = state.latest;
     function PX(x) { return cx + (x - vx) * k; }
     function PY(y) { return cy - (y - vy) * k; }
     var L = cx - half, Rt = cx + half, T = cy - half, B = cy + half;
@@ -1120,7 +1138,44 @@
       drawHint(ctx, cx, cy + half * 0.5);
     }
 
+    if (barW) drawZBar(ctx, Rt + 14, T, B, s.z, f);
     drawMapCrosshair(ctx, cx, cy, half, k, w, h, vx, vy);
+  }
+
+  // Height bar: fixed scale from Z_BAR[0] to Z_BAR[1] cm (the firmware's
+  // Z_MIN / Z_MAX), filled from 0 to the z shown (after the z zero).
+  var Z_BAR = [-5, 80];
+  function drawZBar(ctx, x, T, B, z, f) {
+    var lo = Z_BAR[0], hi = Z_BAR[1];
+    function PZ(v) { return B - (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo) * (B - T); }
+    var tw = 10, tx = x; // track
+    ctx.save();
+    ctx.fillStyle = C.grid;
+    ctx.beginPath(); ctx.roundRect(tx, T, tw, B - T, 3); ctx.fill();
+    // ticks every 20 cm, labelled in the display unit
+    ctx.font = '11px ' + C.font;
+    ctx.fillStyle = C.muted;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    for (var v = 0; v <= hi; v += 20) {
+      ctx.fillRect(tx + tw, Math.round(PZ(v)), 4, 1);
+      ctx.fillText(fmtTick(v * f, 20 * f), tx + tw + 6, PZ(v));
+    }
+    // fill from 0 to z
+    var y0 = PZ(0), yz = PZ(z);
+    ctx.fillStyle = C.s3;
+    ctx.fillRect(tx, Math.min(y0, yz), tw, Math.max(2, Math.abs(yz - y0)));
+    // marker, with a notch when z is past the end of the scale
+    ctx.fillStyle = C.text;
+    ctx.fillRect(tx - 3, Math.round(yz) - 1, tw + 6, 2);
+    if (z > hi || z < lo) {
+      var dir = z > hi ? -1 : 1;
+      ctx.beginPath(); ctx.moveTo(tx + tw / 2, yz + dir * 8); ctx.lineTo(tx - 1, yz + dir * 2); ctx.lineTo(tx + tw + 1, yz + dir * 2); ctx.fill();
+    }
+    ctx.font = '600 12px ' + C.font;
+    ctx.fillStyle = C.text2;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillText(t('zBar'), tx + tw / 2, T - 6);
+    ctx.restore();
   }
 
   // Hover: dashed crosshair and the X, Y (selected unit) under the pointer.
@@ -1422,6 +1477,28 @@
     if (slot <= state.recSlot) return false;
     state.recSlot = slot;
     return true;
+  }
+
+  /* ---------- z zero ---------- */
+  // Show z relative to where the robot stands now: the mean raw z of the last
+  // second becomes 0. Only the screen changes; the CSV keeps the raw z.
+  function zeroZ() {
+    var S = state.samples, n = 0, sum = 0;
+    if (!S.length) return;
+    var tEnd = S[S.length - 1].t;
+    for (var i = S.length - 1; i >= 0 && S[i].t >= tEnd - 1000; i--) {
+      if (!S[i].hasZ) continue;
+      sum += S[i].zRaw; n++;
+    }
+    if (n) setZZero(sum / n);
+  }
+  function setZZero(v) {
+    var d = v - state.zZero;
+    if (!d) return;
+    state.samples.forEach(function (s) { if (s.hasZ) s.z -= d; });
+    if (state.stats) { state.stats.z.min -= d; state.stats.z.max -= d; }
+    state.zZero = v;
+    state.dirty = state.tilesDirty = true;
   }
 
   // total time spent recording (stopping and starting again adds up)
@@ -2000,6 +2077,8 @@
   });
   el.map.addEventListener('pointerleave', function () { state.mapHover = null; state.dirty = true; });
   el.btnRecord.addEventListener('click', toggleRecording);
+  el.btnZZero.addEventListener('click', zeroZ);
+  el.btnZZeroReset.addEventListener('click', function () { setZZero(0); });
   el.btnCsv.addEventListener('click', downloadCsv);
   el.btnClearLog.addEventListener('click', clearLog);
   el.tableDetails.addEventListener('toggle', updateStatus);
