@@ -260,3 +260,65 @@ test('solvePose finds a known pose, with and without z', function () {
   assert.equal(flat.z, 0);
   close(flat.x, -25, 0.5, 'x'); close(flat.y, -25, 0.5, 'y');
 });
+
+// ---- several headings (task E) ----------------------------------------------
+// RSS lines for poses whose real heading is off the entered one by dth (deg)
+function multiHeadingSamples(lit, truth, dth, r) {
+  return C.anglePoses(lit).map(function (p, i) {
+    var rss = [], th = (p.theta + (dth ? dth[i] : 0)) * Math.PI / 180;
+    for (var row = 0; row < 9; row++) for (var l = 0; l < 3; l++) {
+      var on = lit.indexOf(C.ROW_LED[row]) >= 0;
+      rss.push(on ? C.predictRss(row, l, p.x / 100, p.y / 100, 0, th, truth) * (1 + 0.01 * (2 * r() - 1)) : 0);
+    }
+    return { x: p.x, y: p.y, theta: p.theta, rss: rss };
+  });
+}
+
+test('anglePoses: centre and cell centres at 6 headings', function () {
+  var key = function (ps) { return ps.map(function (p) { return p.x + ',' + p.y + ',' + p.theta; }); };
+  var a = C.anglePoses([1, 2, 7, 8]);
+  assert.equal(a.length, 18);
+  assert.deepEqual(key(a.slice(0, 6)), ['-25,0,0', '-25,0,60', '-25,0,120', '-25,0,180', '-25,0,-120', '-25,0,-60']);
+  assert.deepEqual(a.filter(function (p) { return p.theta === 0; }).map(function (p) { return p.x + ',' + p.y; }),
+    ['-25,0', '-25,25', '-25,-25']);
+  assert.equal(C.anglePoses([0, 1, 2, 3, 4, 5, 6, 7, 8]).length, 5 * 6);
+  assert.deepEqual(key(C.anglePoses([4])), ['0,0,0', '0,0,60', '0,0,120', '0,0,180', '0,0,-120', '0,0,-60']);
+  assert.deepEqual(C.anglePoses([]), []);
+});
+
+test('fitModel with several headings: gains and per-pose heading errors', function () {
+  var lit = [1, 2, 7, 8], r = rng(11);
+  var truth = { gamma: [0.49, 0.49, 0.45, 0.43, 0.54, 0.51, 0.46, 0.46, 0.46], pdGain: [1, 0.85, 1.1], offset: 0.06 };
+  var dth = C.anglePoses(lit).map(function () { return 8 * (r() - 0.5); }); // turned by hand: +-4 deg
+  var samples = multiHeadingSamples(lit, truth, dth, r);
+  var f = C.fitModel(samples, { leds: lit });
+  assert.ok(f.fitted);
+  assert.equal(f.dTheta.length, samples.length);
+  close(f.pdGain[1], 0.85, 0.01, 'pd1'); close(f.pdGain[2], 1.1, 0.01, 'pd2');
+  close(f.offset, 0.06, 0.005, 'offset');
+  f.dTheta.forEach(function (d, i) { close(d, dth[i], 1.5, 'dTheta ' + i); });
+  // a heading typed in wrong stops at the limit instead of spoiling the gains
+  var bad = samples.slice(); bad[1] = { x: bad[1].x, y: bad[1].y, theta: bad[1].theta + 60, rss: bad[1].rss };
+  var fb = C.fitModel(bad, { leds: lit });
+  close(Math.abs(fb.dTheta[1]), C.THETA_FIT_MAX, 1e-9, 'clamped');
+  // one heading only: no heading fit (as before task E)
+  var flat = samples.filter(function (s) { return s.theta === 0; });
+  assert.equal(C.fitModel(flat.concat(flat), { leds: lit }).dTheta, null);
+});
+
+test('poseErrors / driftByPlace: unequal photodiodes move the position with the heading', function () {
+  var lit = [1, 2, 7, 8], r = rng(3);
+  var truth = { gamma: C.CURRENT_GAMMA, pdGain: [1, 0.8, 1.1], offset: C.RSS_OFFSET };
+  var samples = multiHeadingSamples(lit, truth, null, r);
+  var before = C.driftByPlace(C.poseErrors(samples));            // firmware PD_GAIN: wrong
+  var fit = C.fitModel(samples, { leds: lit });
+  var after = C.driftByPlace(C.poseErrors(samples, C.fitParams(fit)));
+  assert.equal(before.length, 3);
+  assert.deepEqual(before.map(function (g) { return g.n; }), [6, 6, 6]);
+  before.forEach(function (g, i) {
+    assert.ok(g.drift > 2, 'drift before ' + g.drift);
+    assert.ok(after[i].drift < 1 && after[i].meanErr < 1, 'after ' + after[i].drift + ' ' + after[i].meanErr);
+  });
+  // the heading the EKF would read matches the one entered (sign of theta)
+  C.poseErrors(samples, C.fitParams(fit)).forEach(function (e) { close(e.dTheta, 0, 2, 'heading at ' + e.theta); });
+});

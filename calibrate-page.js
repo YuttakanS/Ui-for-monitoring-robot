@@ -17,8 +17,11 @@
     live: $('liveTable').tBodies[0], lastRaw: $('lastRaw'),
     poses: $('poseTable').tBodies[0], poseCount: $('poseCount'), poseEmpty: $('poseEmpty'),
     exp: $('btnExport'), imp: $('fileImport'), clear: $('btnClear'),
-    fit: $('fitTable').tBodies[0], fwLine: $('fwLine'), copy: $('btnCopy'), litGrid: $('litGrid')
+    fit: $('fitTable').tBodies[0], fwLine: $('fwLine'), copy: $('btnCopy'), litGrid: $('litGrid'),
+    anglePresets: $('anglePresets'), thMax: $('thMax'),
+    drift: $('driftTable').tBodies[0], driftPoses: $('driftPoseTable').tBodies[0], driftEmpty: $('driftEmpty')
   };
+  el.thMax.textContent = C.THETA_FIT_MAX;
   var LIT_STORE = 'ra.calib.lit';
 
   // theme chosen on the main page
@@ -33,7 +36,7 @@
     rec: null,               // { pose, need, lines }
     rssTimes: [],            // arrival times of RSS lines (rate)
     quadLines: 0, rssLines: 0, connectedAt: 0,
-    demoTruth: null,
+    demoTruth: null,         // { gamma, pdGain, offset } made up for the demo
     lit: C.DEFAULT_LIT.slice() // LED numbers in use
   };
   try {
@@ -51,6 +54,8 @@
   function td(text, cls) { var c = document.createElement('td'); c.textContent = text; if (cls) c.className = cls; return c; }
   function pct(v, signed) { return v === null || v === undefined ? '—' : (signed && v > 0 ? '+' : '') + (v * 100).toFixed(1) + '%'; }
   function samePose(a, b) { return a.x === b.x && a.y === b.y && (a.theta || 0) === (b.theta || 0); }
+  function poseLabel(p) { return '(' + p.x + ', ' + p.y + ')' + (p.theta ? ' θ ' + p.theta + '°' : ''); }
+  function fixed(v, d) { return v === null || v === undefined ? '—' : v.toFixed(d); }
 
   /* ---------- status ---------- */
   function setSource(src) {
@@ -100,7 +105,7 @@
     if (!r) return;
     r.lines.push(rss);
     el.bar.style.width = (100 * r.lines.length / r.need) + '%';
-    el.recText.textContent = 'กำลังเก็บ (' + r.pose.x + ', ' + r.pose.y + ') ' + r.lines.length + ' / ' + r.need + ' บรรทัด';
+    el.recText.textContent = 'กำลังเก็บ ' + poseLabel(r.pose) + ' ' + r.lines.length + ' / ' + r.need + ' บรรทัด';
     if (r.lines.length >= r.need) finishRec();
   }
 
@@ -132,7 +137,7 @@
     el.record.textContent = 'ยกเลิก';
     el.record.classList.remove('primary');
     el.bar.style.width = '0';
-    el.recText.textContent = 'กำลังเก็บ (' + r.pose.x + ', ' + r.pose.y + ') รอบรรทัดแรก…';
+    el.recText.textContent = 'กำลังเก็บ ' + poseLabel(r.pose) + ' รอบรรทัดแรก…';
   }
 
   function cancelRec(msg) {
@@ -152,7 +157,7 @@
     if (i >= 0) state.poses[i] = pose; else state.poses.push(pose);
     savePoses();
     var warn = C.checkPose(pose.rss, state.lit);
-    cancelRec('เก็บ (' + pose.x + ', ' + pose.y + ') แล้ว' + (i >= 0 ? ' (แทนค่าเก่า)' : '') +
+    cancelRec('เก็บ ' + poseLabel(pose) + ' แล้ว' + (i >= 0 ? ' (แทนค่าเก่า)' : '') +
       (avg.spread > SPREAD_MAX ? ' · ค่าแกว่ง ' + pct(avg.spread) + ' หุ่นขยับหรือเปล่า? เก็บซ้ำได้' : '') +
       (warn.length ? ' · มีคำเตือน ดูในตาราง' : ''));
     renderAll();
@@ -204,6 +209,34 @@
       return b;
     });
     el.presets.replaceChildren.apply(el.presets, rows);
+
+    // several headings: one row per place
+    var places = [], byKey = {};
+    C.anglePoses(state.lit).forEach(function (p) {
+      var k = p.x + ',' + p.y;
+      if (!byKey[k]) { byKey[k] = { x: p.x, y: p.y, poses: [] }; places.push(byKey[k]); }
+      byKey[k].poses.push(p);
+    });
+    var angleRows = places.map(function (pl) {
+      var row = document.createElement('div');
+      row.className = 'angle-row';
+      var lab = document.createElement('span');
+      lab.className = 'place';
+      lab.textContent = '(' + pl.x + ', ' + pl.y + ')';
+      row.appendChild(lab);
+      pl.poses.forEach(function (p) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'btn small';
+        b.textContent = (p.theta > 0 ? '+' : '') + p.theta + '°';
+        b.title = 'x = ' + p.x + ', y = ' + p.y + ', θ = ' + p.theta + '°';
+        b.classList.toggle('done', state.poses.some(function (q) { return samePose(q, p); }));
+        b.addEventListener('click', function () { el.x.value = p.x; el.y.value = p.y; el.th.value = p.theta; });
+        row.appendChild(b);
+      });
+      return row;
+    });
+    el.anglePresets.replaceChildren.apply(el.anglePresets, angleRows);
   }
 
   /* ---------- tables ---------- */
@@ -213,13 +246,20 @@
     }).join(', ');
   }
 
-  function renderPoses() {
+  // fit = fitModel() result or null; its dTheta says how far the fit turned
+  // each pose (red when it hit the limit: wrong heading entered?)
+  function renderPoses(fit) {
+    var dth = fit && fit.dTheta;
     var rows = state.poses.map(function (p, i) {
       var tr = document.createElement('tr');
       tr.appendChild(td(String(i + 1)));
       tr.appendChild(td(String(p.x)));
       tr.appendChild(td(String(p.y)));
       tr.appendChild(td(String(p.theta || 0)));
+      if (dth) {
+        var d = dth[i];
+        tr.appendChild(td((d > 0 ? '+' : '') + d.toFixed(1) + '°', Math.abs(d) > C.THETA_FIT_MAX - 0.5 ? 'bad' : ''));
+      } else tr.appendChild(td('—', 'off'));
       tr.appendChild(td(p.n ? String(p.n) : '—'));
       tr.appendChild(td(p.spread !== undefined ? pct(p.spread) : '—', p.spread > SPREAD_MAX ? 'bad' : ''));
       var w = warnText(p);
@@ -236,18 +276,16 @@
     el.exp.disabled = el.clear.disabled = !state.poses.length;
   }
 
-  function renderFit() {
+  function renderFit(fit) {
     var demoCols = document.querySelectorAll('.demo-col');
     for (var d = 0; d < demoCols.length; d++) demoCols[d].hidden = !state.demoTruth;
-    if (!state.poses.length) {
+    if (!fit) {
       el.fit.replaceChildren();
       el.fwLine.textContent = 'เก็บค่าอย่างน้อย 1 จุดก่อน (แนะนำ ' + C.presetPoses(state.lit).length + ' จุด)';
       el.copy.disabled = true;
       return;
     }
-    // gamma together with PD_GAIN and RSS_OFFSET (fixed at the firmware
-    // values when there are too few poses to fit them)
-    var fit = C.fitModel(state.poses, { leds: state.lit }), res = fit.leds;
+    var res = fit.leds;
     var rows = [];
     // show in LED number order
     for (var led = 0; led < C.N_LED; led++) {
@@ -267,16 +305,61 @@
         tr.appendChild(td(pct(r.rmsRel), r.rmsRel > RMS_MAX ? 'bad' : ''));
         r.pdBias.forEach(function (b) { tr.appendChild(td(pct(b, true), b !== null && Math.abs(b) > BIAS_MAX ? 'bad' : '')); });
       }
-      if (state.demoTruth) tr.appendChild(td(isLit(led) ? state.demoTruth[row].toFixed(3) : '—'));
+      if (state.demoTruth) tr.appendChild(td(isLit(led) ? state.demoTruth.gamma[row].toFixed(3) : '—'));
       rows.push(tr);
     }
     el.fit.replaceChildren.apply(el.fit, rows);
+    var t = state.demoTruth;
     el.fwLine.textContent = C.firmwareLines(fit) + (fit.fitted ? '' :
-      '\n// PD_GAIN / RSS_OFFSET: ค่าเดิมใน firmware (ต้องมีอย่างน้อย 4 จุดจึงจะคำนวณใหม่)');
+      '\n// PD_GAIN / RSS_OFFSET: ค่าเดิมใน firmware (ต้องมีอย่างน้อย 4 จุดจึงจะคำนวณใหม่)') +
+      (t ? '\n// Demo ค่าจริง: PD_GAIN = ' + t.pdGain.map(function (v) { return v.toFixed(3); }).join(', ') +
+        ', RSS_OFFSET = ' + t.offset.toFixed(4) : '');
     el.copy.disabled = false;
   }
 
-  function renderAll() { renderPoses(); renderPresets(); renderFit(); }
+  /* ---------- does the position move with the heading? ---------- */
+  function renderDrift(fit) {
+    // only places recorded at two or more headings say anything here
+    var count = {};
+    state.poses.forEach(function (p) { var k = p.x + ',' + p.y; count[k] = (count[k] || 0) + 1; });
+    var multi = state.poses.filter(function (p) { return count[p.x + ',' + p.y] >= 2; });
+    el.driftEmpty.hidden = multi.length > 0;
+    if (!multi.length || !fit) { el.drift.replaceChildren(); el.driftPoses.replaceChildren(); return; }
+    var before = C.poseErrors(multi), after = C.poseErrors(multi, C.fitParams(fit));
+    var gb = C.driftByPlace(before), ga = C.driftByPlace(after);
+    function cm(v) { return v === null || v === undefined ? '—' : v.toFixed(1) + ' cm'; }
+    function better(b, a) { return a < b - 0.5 ? 'good' : a > b + 0.5 ? 'bad' : ''; }
+    el.drift.replaceChildren.apply(el.drift, gb.map(function (b, i) {
+      var a = ga[i], tr = document.createElement('tr');
+      tr.appendChild(td('(' + b.x + ', ' + b.y + ')'));
+      tr.appendChild(td(b.headings.map(function (h) { return h + '°'; }).join(' ')));
+      tr.appendChild(td(cm(b.drift)));
+      tr.appendChild(td(cm(b.meanErr)));
+      tr.appendChild(td(cm(a && a.drift), a ? better(b.drift, a.drift) : ''));
+      tr.appendChild(td(cm(a && a.meanErr), a ? better(b.meanErr, a.meanErr) : ''));
+      return tr;
+    }));
+    el.driftPoses.replaceChildren.apply(el.driftPoses, before.map(function (b, i) {
+      var a = after[i], tr = document.createElement('tr');
+      tr.appendChild(td(String(b.x))); tr.appendChild(td(String(b.y))); tr.appendChild(td(b.theta + '°'));
+      [b, a].forEach(function (e, j) {
+        tr.appendChild(td(e.est ? '(' + e.est.x.toFixed(1) + ', ' + e.est.y.toFixed(1) + ')' : '—'));
+        tr.appendChild(td(e.est ? fixed(e.est.z, 1) : '—'));
+        tr.appendChild(td(cm(e.err)));
+        if (j === 0) tr.appendChild(td(e.dTheta === null ? '—' : (e.dTheta > 0 ? '+' : '') + e.dTheta.toFixed(0) + '°',
+          e.dTheta !== null && Math.abs(e.dTheta) > 30 ? 'bad' : ''));
+      });
+      return tr;
+    }));
+  }
+
+  function renderAll() {
+    // gamma together with PD_GAIN and RSS_OFFSET (fixed at the firmware values
+    // when there are too few poses to fit them), and each pose's heading
+    // nudged when the poses use several headings
+    var fit = state.poses.length ? C.fitModel(state.poses, { leds: state.lit }) : null;
+    renderPoses(fit); renderPresets(); renderFit(fit); renderDrift(fit);
+  }
 
   /* ---------- CSV ---------- */
   function stamp(d) {
@@ -393,21 +476,29 @@
   /* ---------- demo: RSS lines from the model at the pose in the form ---------- */
   var demoTimer = null;
   function startDemo() {
-    // made-up "true" gammas within +-15 % of the current ones; the fit should find them
-    state.demoTruth = C.CURRENT_GAMMA.map(function (g, row) {
-      return +(g * (0.85 + 0.3 * Math.random())).toFixed(3);
-    });
+    // made-up "true" gammas within +-15 % of the current ones, photodiode gains
+    // within +-10 % and an offset; the fit should find them
+    function jitter(v, f) { return v * (1 - f + 2 * f * Math.random()); }
+    state.demoTruth = {
+      gamma: C.CURRENT_GAMMA.map(function (g) { return +jitter(g, 0.15).toFixed(3); }),
+      pdGain: [1, +jitter(C.PD_GAIN[1], 0.1).toFixed(3), +jitter(C.PD_GAIN[2], 0.1).toFixed(3)],
+      offset: +jitter(C.RSS_OFFSET, 0.3).toFixed(4)
+    };
+    // the "robot" sits a few degrees off the heading typed in, as when turned by hand
+    var thetaErr = {};
     state.rssLines = 0;
     setSource('demo');
     showNotice('');
-    renderFit();
+    renderAll();
     demoTimer = setInterval(function () {
       var x = parseFloat(el.x.value) || 0, y = parseFloat(el.y.value) || 0, t = parseFloat(el.th.value) || 0;
-      var h = C.modelRow({ x: x, y: y, theta: t });
-      var rss = h.map(function (hv, i) {
-        var row = Math.floor(i / C.N_PD), g = state.demoTruth[row];
-        return isLit(C.ROW_LED[row]) ? g * hv * (1 + 0.02 * (Math.random() - 0.5)) : 0;
-      });
+      var k = x + ',' + y + ',' + t;
+      if (thetaErr[k] === undefined) thetaErr[k] = 6 * (Math.random() - 0.5);
+      var th = (t + thetaErr[k]) * Math.PI / 180, rss = [];
+      for (var row = 0; row < C.N_LED; row++)
+        for (var l = 0; l < C.N_PD; l++)
+          rss.push(isLit(C.ROW_LED[row])
+            ? C.predictRss(row, l, x / 100, y / 100, 0, th, state.demoTruth) * (1 + 0.02 * (Math.random() - 0.5)) : 0);
       onLine(C.formatRssLine(rss));
     }, 150);
   }
@@ -415,7 +506,7 @@
     clearInterval(demoTimer); demoTimer = null;
     state.demoTruth = null;
     setSource('idle');
-    renderFit();
+    renderAll();
   }
   el.demo.addEventListener('click', function () { if (state.source === 'demo') stopDemo(); else startDemo(); });
 

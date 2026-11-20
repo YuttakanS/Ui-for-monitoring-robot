@@ -110,6 +110,10 @@
     var minRel = opts.minRel !== undefined ? opts.minRel : 0.1;
     var minPoints = opts.minPoints !== undefined ? opts.minPoints : 3;
     var H = samples.map(modelRow);
+    // opts.selectH: model rows that decide which values are used (default H).
+    // fitModel() passes the rows at the entered headings, so nudging a pose's
+    // theta never adds or drops a value (the residual keeps its length).
+    var S = opts.selectH || H;
     var results = [];
     for (var row = 0; row < N_LED; row++) {
       var led = ROW_LED[row];
@@ -129,13 +133,13 @@
       if (lit.indexOf(true) < 0) { res.skipped = 'no signal'; results.push(res); continue; }
       var hMax = 0, si, l, h;
       for (si = 0; si < samples.length; si++)
-        for (l = 0; l < N_PD; l++) if (lit[si]) hMax = Math.max(hMax, H[si][row * N_PD + l]);
+        for (l = 0; l < N_PD; l++) if (lit[si]) hMax = Math.max(hMax, S[si][row * N_PD + l]);
       var used = [];
       for (si = 0; si < samples.length; si++)
         for (l = 0; l < N_PD; l++) {
           if (!lit[si]) continue;
-          h = H[si][row * N_PD + l];
-          if (h > 0 && h >= minRel * hMax) used.push({ h: pdGain[l] * h, r: samples[si].rss[row * N_PD + l] - off, l: l });
+          h = S[si][row * N_PD + l];
+          if (h > 0 && h >= minRel * hMax) used.push({ h: pdGain[l] * H[si][row * N_PD + l], r: samples[si].rss[row * N_PD + l] - off, l: l });
         }
       res.n = used.length;
       if (used.length < minPoints) { res.skipped = 'too few points'; results.push(res); continue; }
@@ -172,26 +176,102 @@
   // RSS_OFFSET, by least squares on the absolute RSS (as the EKF weighs it).
   // With fewer than opts.minPoses poses (default 4) the photodiode gains and
   // offset are not fitted: they stay at PD_GAIN / RSS_OFFSET.
-  // Returns { leds: fitGamma() results, pdGain, offset, fitted }.
+  //
+  // Poses taken at several headings (task E): turning the robot by hand puts
+  // it a few degrees off the heading entered, which the fit would otherwise
+  // blame on the photodiode gains. So each pose's heading may move by up to
+  // opts.fitTheta degrees (default THETA_FIT_MAX when the poses use two or more
+  // headings, else 0 = off). A soft prior (THETA_SIGMA degrees ~ RSS_SIGMA of
+  // RSS) keeps the nudges small when the data do not ask for them.
+  // Returns { leds: fitGamma() results, pdGain, offset, fitted,
+  //           dTheta: degrees added to each pose's heading, or null }.
+  var THETA_FIT_MAX = 10, THETA_SIGMA = 5, RSS_SIGMA = 0.01;
+  function headings(samples) {
+    var seen = {};
+    samples.forEach(function (s) { seen[s.theta || 0] = true; });
+    return Object.keys(seen).length;
+  }
   function fitModel(samples, opts) {
     opts = opts || {};
     var minPoses = opts.minPoses !== undefined ? opts.minPoses : 4;
+    var thMax = opts.fitTheta !== undefined ? opts.fitTheta : (headings(samples) >= 2 ? THETA_FIT_MAX : 0);
+    var nS = samples.length, selectH = samples.map(modelRow);
+    function shifted(dth) {
+      if (!dth) return samples;
+      return samples.map(function (s, i) {
+        var o = {}; for (var k in s) o[k] = s[k];
+        o.theta = (s.theta || 0) + dth[i];
+        return o;
+      });
+    }
     function inner(q) {
       var o = {}; for (var k in opts) o[k] = opts[k];
-      o.pdGain = [1, q[0], q[1]]; o.offset = q[2];
-      return fitGamma(samples, o);
+      o.pdGain = [1, q[0], q[1]]; o.offset = q[2]; o.selectH = selectH;
+      return fitGamma(shifted(thMax ? q.slice(3) : null), o);
     }
     function resid(q) {
       var out = [];
       inner(q).forEach(function (r) { if (r.resid) out = out.concat(r.resid); });
+      if (thMax) for (var i = 3; i < q.length; i++) out.push(RSS_SIGMA * q[i] / THETA_SIGMA);
       return out;
     }
+    function clamp(q) { for (var i = 3; i < q.length; i++) q[i] = Math.max(-thMax, Math.min(thMax, q[i])); }
     var q = [PD_GAIN[1] / PD_GAIN[0], PD_GAIN[2] / PD_GAIN[0], RSS_OFFSET], fitted = false;
-    if (samples.length >= minPoses && resid(q).length > q.length) {
-      q = levMar(resid, q, { step: 1e-5 }).q;
+    if (thMax) for (var i = 0; i < nS; i++) q.push(0);
+    if (nS >= minPoses && resid(q).length - (thMax ? nS : 0) > 3) {
+      q = levMar(resid, q, { step: 1e-5, clamp: clamp }).q;
       fitted = true;
+    } else {
+      thMax = 0; q = q.slice(0, 3);
     }
-    return { leds: inner(q), pdGain: [1, q[0], q[1]], offset: q[2], fitted: fitted };
+    return {
+      leds: inner(q), pdGain: [1, q[0], q[1]], offset: q[2], fitted: fitted,
+      dTheta: thMax ? q.slice(3) : null
+    };
+  }
+
+  // Model constants of a fitModel() result, as solvePose() / predictRss() take
+  // them (unfitted LEDs keep CURRENT_GAMMA).
+  function fitParams(fit) {
+    return {
+      gamma: fit.leds.map(function (r, i) { return r.gamma !== null ? r.gamma : CURRENT_GAMMA[i]; }),
+      pdGain: fit.pdGain, offset: fit.offset
+    };
+  }
+
+  // ---- Does the position move with the heading? -------------------------------
+  // For each recorded pose, the pose the EKF would settle at (solvePose()) with
+  // the model constants in opts (default: the firmware's), against the pose
+  // entered. Returns one entry per sample:
+  //   { x, y, theta, est: { x, y, z, theta, rms }, err: cm in x / y,
+  //     dTheta: estimated - entered heading, deg (-180..180) }
+  function poseErrors(samples, opts) {
+    return samples.map(function (s) {
+      var e = solvePose(s.rss, opts);
+      if (!e) return { x: s.x, y: s.y, theta: s.theta || 0, est: null, err: null, dTheta: null };
+      var d = e.theta - (s.theta || 0);
+      d = ((d + 180) % 360 + 360) % 360 - 180;
+      return { x: s.x, y: s.y, theta: s.theta || 0, est: e, err: Math.hypot(e.x - s.x, e.y - s.y), dTheta: d };
+    });
+  }
+  // poseErrors() grouped by place (x, y): how far the estimates at the
+  // different headings lie from their own mean (drift = the largest such
+  // distance, cm; 0 = the heading does not move the position) and the mean
+  // error against the true place. Places in the order first seen.
+  function driftByPlace(errs) {
+    var groups = [], byKey = {};
+    errs.forEach(function (e) {
+      if (!e.est) return;
+      var k = e.x + ',' + e.y;
+      if (!byKey[k]) { byKey[k] = { x: e.x, y: e.y, list: [] }; groups.push(byKey[k]); }
+      byKey[k].list.push(e);
+    });
+    return groups.map(function (g) {
+      var mx = 0, my = 0, n = g.list.length, drift = 0, meanErr = 0;
+      g.list.forEach(function (e) { mx += e.est.x / n; my += e.est.y / n; meanErr += e.err / n; });
+      g.list.forEach(function (e) { drift = Math.max(drift, Math.hypot(e.est.x - mx, e.est.y - my)); });
+      return { x: g.x, y: g.y, n: n, headings: g.list.map(function (e) { return e.theta; }), drift: drift, meanErr: meanErr };
+    });
   }
 
   // The lines to paste into copy.ino for a fitModel() result.
@@ -223,6 +303,32 @@
     var out = [], x, y;
     for (y = y1; y >= y0; y -= 50) for (x = x0; x <= x1; x += 50) out.push({ x: x, y: y });
     for (y = y1 - 25; y > y0; y -= 50) for (x = x0 + 25; x < x1; x += 50) out.push({ x: x, y: y });
+    return out;
+  }
+
+  // Headings for the poses that separate the photodiode gains (task E). The
+  // photodiodes are 120 deg apart, so 0 / 120 / -120 at one place put each
+  // photodiode where another was (the RSS ratios give the gains without the
+  // model); 180 and +-60 check the model in between. theta > 0 = clockwise
+  // seen from above (firmware Omega0 = R(-theta)).
+  var ANGLES = [0, 60, 120, 180, -120, -60];
+
+  // Suggested poses at every heading in ANGLES: the centre of the box around
+  // the lit LEDs, then the centre of each 50 x 50 cell (as presetPoses()).
+  // LED 1, 2, 7, 8 -> (-25, 0), (-25, 25), (-25, -25) x 6 = 18 poses.
+  function anglePoses(lit) {
+    var grid = presetPoses(lit);
+    if (!grid.length) return [];
+    var xs = grid.map(function (p) { return p.x; }), ys = grid.map(function (p) { return p.y; });
+    var cx = (Math.min.apply(null, xs) + Math.max.apply(null, xs)) / 2;
+    var cy = (Math.min.apply(null, ys) + Math.max.apply(null, ys)) / 2;
+    var places = [{ x: cx, y: cy }];
+    grid.forEach(function (p) {
+      var cell = p.x % 50 !== 0 && p.y % 50 !== 0;   // LEDs sit on multiples of 50 cm
+      if (cell && !places.some(function (q) { return q.x === p.x && q.y === p.y; })) places.push(p);
+    });
+    var out = [];
+    places.forEach(function (p) { ANGLES.forEach(function (t) { out.push({ x: p.x, y: p.y, theta: t }); }); });
     return out;
   }
 
@@ -423,6 +529,8 @@
   var api = {
     N_PD: N_PD, N_LED: N_LED, ROW_LED: ROW_LED, P: P, CURRENT_GAMMA: CURRENT_GAMMA,
     M: M, FOV: FOV, BETA: BETA, ALPHA: ALPHA, DEFAULT_LIT: DEFAULT_LIT, presetPoses: presetPoses,
+    ANGLES: ANGLES, anglePoses: anglePoses, THETA_FIT_MAX: THETA_FIT_MAX,
+    fitParams: fitParams, poseErrors: poseErrors, driftByPlace: driftByPlace,
     pathLoss: pathLoss, modelRow: modelRow, parseRssLine: parseRssLine,
     PD_GAIN: PD_GAIN, RSS_OFFSET: RSS_OFFSET, Z_MIN: Z_MIN, Z_MAX: Z_MAX, predictRss: predictRss,
     fitGamma: fitGamma, firmwareLine: firmwareLine, fitModel: fitModel, firmwareLines: firmwareLines,

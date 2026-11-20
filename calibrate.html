@@ -28,6 +28,15 @@
     .lit-pick { margin-top: 12px; display: grid; gap: 6px; }
     .lit-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 92px)); gap: 6px; }
     .bar a { color: var(--text2); }
+    h3.sub { font-size: 13px; margin: 16px 0 0; color: var(--text2); }
+    .angle-presets { display: grid; gap: 6px; margin-top: 8px; }
+    .angle-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+    .angle-row .place { min-width: 84px; color: var(--text2); font-variant-numeric: tabular-nums; }
+    .angle-row .btn.done { border-color: var(--good); }
+    .angle-row .btn.done::after { content: " ✓"; color: var(--good); }
+    .drift-detail { margin-top: 10px; }
+    .drift-detail summary { cursor: pointer; color: var(--text2); }
+    td.good { color: var(--good); font-weight: 600; }
     @media (max-width: 900px) { .cal { grid-template-columns: minmax(0, 1fr); } }
     @media (max-width: 480px) { .cal { padding: 12px; } }
   </style>
@@ -59,7 +68,7 @@
       <ol class="steps">
         <li>ใน <code>firmware/copy/copy.ino</code> ตั้ง <code>mode = 3</code> และ <code>ESTIMATE_Z = false</code> แล้ว upload</li>
         <li>เลือก LED ที่ติดอยู่จริงด้านล่าง แล้วปิดหน้า Position Monitor ก่อน (เปิดพอร์ตพร้อมกันไม่ได้) กด <b>เชื่อมต่อ Serial</b> หน้านี้จะเปิด/ปิด LED ในบอร์ดตามที่เลือกให้เอง</li>
-        <li>วางหุ่นบนพื้น หันมุม <b>θ = 0°</b>: photodiode ที่ต่อขา <b>GP28</b> หันไปทาง <b>+X</b> (ทางขวาของแผนที่)</li>
+        <li>วางหุ่นบนพื้น หันมุม <b>θ = 0°</b>: photodiode ที่ต่อขา <b>GP28</b> หันไปทาง <b>+X</b> (ทางขวาของแผนที่) แล้วเก็บจุด "หลายมุม" ในข้อ 2 ด้วย เพื่อแยก PD_GAIN ออกจากแบบจำลอง</li>
         <li>ปิดไฟห้องหรือคุมแสงให้เหมือนกันทุกจุด อย่าแตะหุ่นตอนเก็บค่า</li>
         <li>เก็บครบทุกจุดที่แนะนำ แล้ว copy บรรทัด <code>PtxGamma</code> ในข้อ 4 ไปใส่ <code>copy.ino</code> เปลี่ยนกลับเป็น <code>mode = 2</code></li>
       </ol>
@@ -83,6 +92,10 @@
       <p id="recText" class="note">เชื่อมต่อบอร์ดหรือกด Demo ก่อน</p>
       <div class="presets" id="presets" aria-label="จุดที่แนะนำ"></div>
       <p class="note">จุดที่แนะนำ (θ = 0) ตาม LED ที่เลือก: จุดใต้ LED ในกรอบของ LED ที่ใช้ และกึ่งกลางแต่ละช่อง กดเพื่อกรอก x, y ให้ เก็บจุดเดิมซ้ำจะแทนที่ค่าเก่า</p>
+      <h3 class="sub">หลายมุม (หา PD_GAIN และตรวจตำแหน่งเลื่อนตามมุม)</h3>
+      <div id="anglePresets" class="angle-presets" aria-label="จุดที่แนะนำแบบหลายมุม"></div>
+      <p class="note">วางหุ่นที่จุดเดิมแล้วหมุนทีละ 60° <b>θ บวก = หมุนตามเข็มนาฬิกามองจากด้านบน</b> (θ = 90° คือ PD ขา GP28 หันไป −Y) หมุนรอบจุดกลางของหุ่น ให้จุดกลางอยู่ที่เดิม
+        ใช้กระดาษที่ขีดเส้นทุก 60° รองใต้หุ่นจะได้มุมแม่นขึ้น ถ้ามุมคลาดไปบ้างไม่เป็นไร ตอนคำนวณจะปรับมุมของแต่ละจุดให้ได้ไม่เกิน ±<span id="thMax"></span>° (ดูคอลัมน์ "θ ปรับ" ในข้อ 3)</p>
     </section>
 
     <section class="card">
@@ -108,7 +121,7 @@
       </div>
       <div class="table-scroll">
         <table id="poseTable">
-          <thead><tr><th>#</th><th>x</th><th>y</th><th>θ</th><th>บรรทัด</th><th>แกว่ง</th><th>คำเตือน</th><th></th></tr></thead>
+          <thead><tr><th>#</th><th>x</th><th>y</th><th>θ</th><th>θ ปรับ</th><th>บรรทัด</th><th>แกว่ง</th><th>คำเตือน</th><th></th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -133,6 +146,36 @@
       <p class="note">คำนวณ γ ของแต่ละ LED พร้อมกับ PD_GAIN (ความไวของ PD1, PD2 เทียบกับ PD0) และ RSS_OFFSET (ค่าคงที่ที่บวกเพิ่ม เช่นแสงสะท้อน) ให้ copy ทั้ง 3 บรรทัดไปแทนใน <code>copy.ino</code> และแก้ <code>CURRENT_GAMMA</code>, <code>PD_GAIN</code>, <code>RSS_OFFSET</code> ใน <code>calibrate.js</code> ให้ตรงกัน (<code>npm test</code> ตรวจให้)
         PD0–PD2 = photodiode แต่ละตัวอ่านสูง (+) หรือต่ำ (−) กว่าแบบจำลอง (ที่รวม PD_GAIN แล้ว) โดยเฉลี่ย ถ้ายังเกิน ±5% ให้จดไว้
         สีแดง = คลาดเกิน 10% หรือ photodiode เอียงเกิน 5% หรือหุ่นแกว่งเกิน 5% ระหว่างเก็บ LED ที่ไม่ได้คำนวณใช้ค่าเดิม</p>
+    </section>
+
+    <section class="card wide">
+      <div class="card-head"><h2>5. ตำแหน่งเลื่อนตามมุมหรือเปล่า</h2></div>
+      <p id="driftEmpty" class="empty">เก็บจุดเดียวกันอย่างน้อย 2 มุมก่อน (ปุ่ม "หลายมุม" ในข้อ 2)</p>
+      <div class="table-scroll">
+        <table id="driftTable">
+          <thead>
+            <tr><th rowspan="2">จุด (x, y)</th><th rowspan="2">มุม</th><th colspan="2">ค่าใน firmware ตอนนี้</th><th colspan="2">ค่าใหม่ (ข้อ 4)</th></tr>
+            <tr><th>เลื่อนตามมุม</th><th>คลาดเฉลี่ย</th><th>เลื่อนตามมุม</th><th>คลาดเฉลี่ย</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <details class="drift-detail">
+        <summary>รายจุด</summary>
+        <div class="table-scroll">
+          <table id="driftPoseTable">
+            <thead>
+              <tr><th rowspan="2">x</th><th rowspan="2">y</th><th rowspan="2">θ</th><th colspan="4">ค่าใน firmware ตอนนี้</th><th colspan="3">ค่าใหม่</th></tr>
+              <tr><th>ได้ (x, y)</th><th>z</th><th>คลาด</th><th>θ ได้ − θ จริง</th><th>ได้ (x, y)</th><th>z</th><th>คลาด</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </details>
+      <p class="note">ตำแหน่งที่ EKF จะนิ่งอยู่เมื่อหุ่นวางนิ่งที่แต่ละจุด (คำนวณจาก RSS เฉลี่ย ประมาณ z ด้วยเหมือน <code>ESTIMATE_Z = true</code>)
+        "เลื่อนตามมุม" = ระยะไกลสุดของค่าที่ได้ในแต่ละมุมจากค่าเฉลี่ยของจุดนั้น ถ้า 0 แปลว่ามุมไม่ทำให้ตำแหน่งเลื่อน
+        "ค่าใหม่" ใช้ข้อมูลชุดเดียวกับที่ใช้ fit จึงดูดีกว่าความจริงเล็กน้อย ให้ยืนยันบนบอร์ดอีกครั้ง
+        "θ ได้ − θ จริง" ที่ห่างจาก 0 มาก (เช่นราว ±120° หรือ 180°) แปลว่าหมุนผิดทางหรือกรอกมุมผิด</p>
     </section>
   </main>
 

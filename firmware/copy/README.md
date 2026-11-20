@@ -82,6 +82,20 @@ checks that its constants still match this file.
    LED 1, 2, 7, 8; 13 for all 9). Re-record a pose whose spread is red (the
    robot moved). Poses where an LED reads 0 (it was off) are left out of
    that LED's fit.
+4b. **Several headings (task E, 2026-11-20).** At theta = 0 alone the fit
+   cannot tell a photodiode that is less sensitive from one the model gets
+   wrong, and the position moved with the heading (up to 10 cm at 180°,
+   `calib/motion_20261119/rotate.csv`). So also record the "หลายมุม"
+   poses: the centre of the lit LEDs and each cell centre, each at 0, ±60,
+   ±120 and 180° (18 poses for LED 1, 2, 7, 8). theta > 0 = clockwise
+   seen from above; turn the robot about its centre. Because the
+   photodiodes are 120° apart, 0 / 120 / −120° at one place put each
+   photodiode where another one was. Turning by hand is a few degrees off,
+   so with two or more headings the fit also nudges each pose's heading by
+   up to ±10° (column "θ ปรับ"; red = at the limit, check the heading
+   typed in). Card 5 shows, per place, how far the position the EKF would
+   settle at moves with the heading, with the firmware constants and with
+   the new fit (same data as the fit, so a little optimistic).
 5. Export the CSV as a record, copy the 3 lines (`PtxGamma`, `PD_GAIN`,
    `RSS_OFFSET`) into this file and into `calibrate.js` (`CURRENT_GAMMA`,
    `PD_GAIN`, `RSS_OFFSET`; `npm test` checks they match), set `mode = 2`
