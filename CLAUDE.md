@@ -79,7 +79,7 @@ branch `feature/task-1-ui` แบ่งงานเป็น 4 phase / 18 ข้
 - เครื่องนี้มี `arduino-cli` มากับ Arduino IDE ที่ `%LOCALAPPDATA%\Programs\Arduino IDE\resources\app\lib\backend\resources\arduino-cli.exe` และ core rp2040 6.4.0 จึง compile firmware เองได้ (`--fqbn rp2040:rp2040:rpipicow`) ให้ compile ในสำเนาชั่วคราวที่มี `wifi_secrets.h` แต่ยังต้องให้ผู้ใช้ upload และทดสอบบนบอร์ด
 - หน้า Position Monitor ข้ามบรรทัด RSS (mode 1/3) โดยไม่นับเป็น error แล้ว (เพราะผ่าน WiFi เปิดสองหน้าพร้อมกันได้)
 - ทดสอบโดยไม่ใช้บอร์ด: `node tools/fake-robot.js 8080` แล้วต่อหน้าเว็บไปที่ `127.0.0.1:8080`
-- **ยังไม่ได้วัดบนบอร์ด:** 20 Hz ยังได้ไหมตอน WiFi เปิด, noise ของ ADC เทียบ `USE_WIFI 0/1`, ใช้แบตเตอรี่โดยไม่มี USB, Chrome/Edge จะถามสิทธิ์ local network หรือเปล่า
+- **ทดสอบบนบอร์ดแล้ว (2026-11-20): WiFi ใช้งานได้** (ผู้ใช้ยืนยัน) ยังไม่ได้รายงานตัวเลข: `total` จาก `TIMING 1` ตอน WiFi เปิด (ควร ≈ 50 ms), noise ของ ADC เทียบ `USE_WIFI 0/1`, ใช้แบตเตอรี่โดยไม่มี USB
 - **pitch/roll (2026-11-20, branch `feature/task-3-tilt` แตกจาก branch นี้):** หน้าเว็บรองรับค่าที่ 5–6 (`pitch_deg,roll_deg` ท้าย CSV) และ firmware `ESTIMATE_TILT` (EKF 12 state คำนวณ pitch/roll จาก PD เอง ไม่มี IMU) **ผู้ใช้ลองบนบอร์ดแล้ว: x/y แย่ลงอย่างเห็นได้ชัด และ pitch/roll มี error สูงตามที่จำลองไว้** (แบบจำลองยังคลาด 8–10% จึงเกิดค่าเอียงหลอก) ผู้ใช้จึงให้ย้อนกลับมาใช้ branch นี้ (ไม่มีการเอียง) งานเอียงเก็บไว้ใน `feature/task-3-tilt` อย่าเปิด `ESTIMATE_TILT` อีกจนกว่า calibrate หลายมุม (งาน E) จะลดความคลาดของแบบจำลองได้ และลองบน PC ด้วยข้อมูลจริงก่อน ทางเลือกอื่นคือใช้ IMU (เช่น MPU6050)
 
 ## การทำงาน
