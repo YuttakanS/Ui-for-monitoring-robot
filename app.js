@@ -5,10 +5,12 @@
    * Pure logic (no DOM) - also loadable from Node for testing
    * ===================================================================== */
 
-  // Firmware line format:  Quadrant 3: -33.84, -47.30, -23.71
-  //                        Quadrant <n>: <x>, <y>, <incidence angle>[, <z>]
-  // z (cm, up) is optional: 0 = the robot on the floor. The current firmware
-  // does not send it; Demo does. hasZ tells the two apart.
+  // Firmware line format:  Quadrant 3: -33.84, -47.30, -23.71, 0.00
+  //                        Quadrant <n>: <x>, <y>, <heading>[, <z>]
+  // (cm, cm, degrees, cm; the third value is the robot's heading, kept in the
+  // CSV column incidence_angle_deg). z (up) is optional: copy.ino sends it,
+  // older firmware (copy2) does not, and then z = 0 (on the floor). hasZ
+  // tells the two apart.
   var LINE_RE = /^Quadrant\s*(\d+)\s*:\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)(?:\s*,\s*(-?\d+(?:\.\d+)?))?$/i;
 
   function parseLine(raw) {
@@ -16,6 +18,24 @@
     if (!m) return null;
     var hasZ = m[5] !== undefined;
     return { quadrant: +m[1], x: +m[2], y: +m[3], angle: +m[4], z: hasZ ? +m[5] : 0, hasZ: hasZ };
+  }
+
+  // The board's reply to the command "LED <n> <0|1>": "# LED <n> <0|1>".
+  // Returns { led, on } or null for any other line.
+  var ACK_RE = /^#\s*LED\s+(\d+)\s+([01])\b/i;
+  function parseLedAck(raw) {
+    var m = ACK_RE.exec(String(raw).trim());
+    return m ? { led: +m[1], on: m[2] === '1' } : null;
+  }
+
+  // The row the CSV log keeps for a parsed sample: raw values as the board
+  // sent them (cm, z not shifted by the page's z zero, which only changes
+  // what is shown). s.zRaw is z as sent; s.z may already be shifted.
+  function logEntry(s, source) {
+    return {
+      wall: s.wall, t: s.t, quadrant: s.quadrant, x: s.x, y: s.y, angle: s.angle, source: source,
+      z: s.zRaw !== undefined ? s.zRaw : s.z, hasZ: s.hasZ
+    };
   }
 
   // Standard numbering: Q1 = +x,+y, then counter-clockwise.
@@ -301,6 +321,19 @@
   };
   var DEFAULT_LANG = 'th';
 
+  // LEDs in firmware coordinates [x, y, label, on]: a 3x3 grid centred on
+  // LED 4 at the origin, numbered 8 7 6 / 5 4 3 / 2 1 0 from the top left.
+  // Change LED_SPACING if the layout changes.
+  // on = false draws the LED as switched off; keep it in step with the
+  // firmware's LED_ON (tests/app.test.js checks positions and on/off
+  // against copy.ino).
+  var LED_SPACING = 50;    // cm between neighbouring LEDs
+  var LEDS = [
+    [-LED_SPACING, LED_SPACING, '8', true], [0, LED_SPACING, '7', true], [LED_SPACING, LED_SPACING, '6', false],
+    [-LED_SPACING, 0, '5', false], [0, 0, '4', false], [LED_SPACING, 0, '3', false], // only LED 1, 2, 7, 8 on for now
+    [-LED_SPACING, -LED_SPACING, '2', true], [0, -LED_SPACING, '1', true], [LED_SPACING, -LED_SPACING, '0', false]
+  ];
+
   function translate(lang, key, n) {
     var dict = I18N[lang] || I18N[DEFAULT_LANG];
     var s = dict[key] !== undefined ? dict[key] : I18N[DEFAULT_LANG][key];
@@ -310,10 +343,10 @@
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-      parseLine: parseLine, createLineSplitter: createLineSplitter,
+      parseLine: parseLine, parseLedAck: parseLedAck, logEntry: logEntry, createLineSplitter: createLineSplitter,
       quadrantOf: quadrantOf, wrapDeg: wrapDeg,
       niceStep: niceStep, niceCeil: niceCeil, fmtTick: fmtTick,
-      fileStamp: fileStamp, toCsv: toCsv, I18N: I18N, translate: translate, UNITS: UNITS
+      fileStamp: fileStamp, toCsv: toCsv, I18N: I18N, translate: translate, UNITS: UNITS, LEDS: LEDS
     };
   }
   if (typeof document === 'undefined') return;
@@ -330,17 +363,6 @@
   // Break the line only on a real dropout. Must stay well above 1000 ms: a hidden
   // tab throttles the Demo timer to ~1 sample/s, which must still draw as one line.
   var GAP_MS = 2500;
-  // LEDs in firmware coordinates [x, y, label, on]: a 3x3 grid centred on
-  // LED 4 at the origin, numbered 8 7 6 / 5 4 3 / 2 1 0 from the top left.
-  // Change LED_SPACING if the layout changes.
-  // on = false draws the LED as switched off; keep it in step with the
-  // firmware's LED_ON.
-  var LED_SPACING = 50;    // cm between neighbouring LEDs
-  var LEDS = [
-    [-LED_SPACING, LED_SPACING, '8', true], [0, LED_SPACING, '7', true], [LED_SPACING, LED_SPACING, '6', false],
-    [-LED_SPACING, 0, '5', false], [0, 0, '4', false], [LED_SPACING, 0, '3', false], // only LED 1, 2, 7, 8 on for now
-    [-LED_SPACING, -LED_SPACING, '2', true], [0, -LED_SPACING, '1', true], [LED_SPACING, -LED_SPACING, '0', false]
-  ];
   // LED on/off as chosen on the page (label -> bool). Starts from the `on`
   // flags above, then the saved choice; sent to the board as "LED <n> <0|1>".
   var ledOn = {};
@@ -465,8 +487,8 @@
     state.lastRaw = line.length > 120 ? line.slice(0, 120) + '…' : line;
     // "#" lines are replies from the board, not data (not counted as errors)
     if (line.charAt(0) === '#') {
-      var ack = /^#\s*LED\s+(\d+)\s+([01])\b/i.exec(line);
-      if (ack) { ledFw[ack[1]] = ack[2] === '1'; updateLedUI(); }
+      var ack = parseLedAck(line);
+      if (ack) { ledFw[ack.led] = ack.on; updateLedUI(); }
       return;
     }
     var s = parseLine(line);
@@ -486,10 +508,7 @@
 
 
     if (state.recording && keepForLog(s.t)) {
-      state.log.push({
-        wall: s.wall, t: s.t, quadrant: s.quadrant, x: s.x, y: s.y, angle: s.angle, source: state.source,
-        z: s.zRaw, hasZ: s.hasZ // raw, not shifted by the z zero
-      });
+      state.log.push(logEntry(s, state.source)); // raw, not shifted by the z zero
       state.logSaved = false;
     }
     state.dirty = state.tilesDirty = true;
