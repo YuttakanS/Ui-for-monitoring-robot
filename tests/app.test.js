@@ -89,7 +89,11 @@ test('parseLine keeps the quadrant the board sent', function () {
 
 test('copy.ino prints the line parseLine reads: Quadrant <n>: x, y, heading, z', function () {
   // (out = USB serial + WiFi since task #3)
-  assert.match(INO, /out\.print\("Quadrant "\); out\.print\(q\); out\.print\(": "\);\s*out\.print\(xcm\); out\.print\(", "\);\s*out\.print\(ycm\); out\.print\(", "\);\s*out\.print\(deg\); out\.print\(", "\);\s*out\.println\(zcm\);/);
+  assert.match(INO, /out\.print\("Quadrant "\); out\.print\(q\); out\.print\(": "\);\s*out\.print\(xcm\); out\.print\(", "\);\s*out\.print\(ycm\); out\.print\(", "\);\s*out\.print\(deg\); out\.print\(", "\);/);
+  // then z, and with ESTIMATE_TILT pitch and roll in degrees (values 5 and 6)
+  assert.match(INO, /if \(ESTIMATE_TILT\) \{\s*out\.print\(zcm\); out\.print\(", "\);\s*out\.print\(xHnm1nm1\(IPI\) \/ M_PI \* 180\.0\); out\.print\(", "\);\s*out\.println\(xHnm1nm1\(IRO\) \/ M_PI \* 180\.0\);\s*\} else \{\s*out\.println\(zcm\);\s*\}/);
+  var line = 'Quadrant 3: -49.46, -16.73, -7.18, 0.00, 1.25, -0.50';  // as it then prints
+  assert.deepEqual([A.parseLine(line).pitch, A.parseLine(line).roll], [1.25, -0.5]);
   // same quadrant numbering as quadrantOf()
   assert.match(INO, /int q = \(xcm >= 0\) \? \(ycm >= 0 \? 1 : 4\) : \(ycm >= 0 \? 2 : 3\);/);
 });

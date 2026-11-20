@@ -281,6 +281,43 @@ To check on the board (not done yet):
 Without the board, `node tools/fake-robot.js 8080` serves the same endpoints
 with simulated lines (mode 3); connect the pages to `127.0.0.1:8080`.
 
+## Tilt: pitch and roll from the photodiodes (task #3, 2026-11-20, branch `feature/task-3-tilt`)
+The user asked to see the robot tilt on the web page with the board as it
+is (no tilt sensor), accepting the error. `ESTIMATE_TILT = true` adds pitch,
+roll and their rates to the EKF (`N_STATE` 8 -> 12, `IPI = 8`, `IRO = 10`, at
+the end so the earlier states keep their index) and the position line gets
+two more values:
+
+```
+Quadrant 3: -49.46, -16.73, -7.18, 0.00, 1.25, -0.50
+                     x       y     yaw    z  pitch  roll
+```
+
+pitch > 0 = the front (photodiode GP28) up, roll > 0 = the right side down,
+degrees; the web page turns its 3D model the same way. `pathLossTilt()` turns
+each photodiode normal by roll, then pitch, then the heading;
+`pathLossCS()` is the level case. calibrate.js `pathLossTilt()` / `pdNormal()`
+repeat it, and the tests check it against the web page's three.js model.
+
+What to expect (PC, EKF replica at 20 Hz, LED 1, 2, 7, 8):
+
+| Case | pitch / roll read | x / y |
+|---|---|---|
+| model exact, level, RSS noise 1 % | −0.1 / −0.1° (±0.1) | 0.2 cm |
+| model exact, pitch 5°, noise 1 % | 5.0 / 0.0°, within 1° after 3 s | 0.0 cm |
+| model exact, pitch 5° roll −5°, noise 3 % | 5.1 / −4.6° (±0.2) | 0.6 cm |
+| **level, PD 1 gain 5 % above the model** | **−2.2 / −2.5°** | **2.1 cm** |
+
+So the tilt read is only as good as the model: today's calibration still
+misfits by 8–10 %, which will show as a false tilt of a few degrees on a
+level robot (and may move x / y). The multi-angle calibration (task E)
+should shrink it. Set `ESTIMATE_TILT = false` to go back to a level robot.
+
+To check on the board: `TIMING 1` (the EKF does 6 columns instead of 4 and
+12 x 12 matrices: it may no longer fit in 50 ms, i.e. under 20 Hz); the
+robot level on the floor (false tilt); a known tilt (a 3 mm shim under one
+edge of the 8.6 cm base is about 2°).
+
 ## Update rate (2026-11-19, branch `feature/task-2-realtime`)
 One update took about 0.33 s (3.0 Hz) with LED 1, 2, 7, 8: 0.1 s to collect
 2500 samples at 25 kHz and the rest to compute, on a Pico without an FPU.

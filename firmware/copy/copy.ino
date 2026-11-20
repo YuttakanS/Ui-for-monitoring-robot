@@ -31,7 +31,8 @@ const int samplingFreq = 25000;
 const int N_PD = 3;
 const int N_LED = 9;
 const int N_Z = N_LED * N_PD;  // number of RSS measurements (was 12 with 4 LEDs, 18 with 6)
-const int N_STATE = 8;  // x, vx, y, vy, theta, omega, z, vz (was 6 without z)
+const int N_STATE = 12;  // x, vx, y, vy, theta, omega, z, vz, pitch, pitch rate, roll, roll rate
+                         // (was 6 without z, 8 without pitch / roll)
 const int pins[N_PD] = { 28, 27, 26 };
 
 // Same order as p:           LED4     LED5     LED7     LED8     LED1     LED2     LED0     LED3     LED6
@@ -120,11 +121,25 @@ BLA::Matrix<3, 1> uk = { 0.0, 0.0, -1.0 };
 BLA::Matrix<3, 3> v = { cos(be) * cos(al[0]), -cos(be) * sin(al[0]), sin(be),
                         cos(be) * cos(al[1]), -cos(be) * sin(al[1]), sin(be),
                         cos(be) * cos(al[2]), -cos(be) * sin(al[2]), sin(be) };
-// EKF state (N_STATE = 8): x, vx, y, vy, theta, omega, z, vz  (m, rad, per s).
+// EKF state (N_STATE = 12): x, vx, y, vy, theta, omega, z, vz, pitch, pitch
+// rate, roll, roll rate (m, rad, per s).
 // z is the robot's height above its place on the floor: the photodiodes are at
-// z = 0 when it sits on the floor, the LEDs at p(k, 2). z and vz were added at
-// the end so x (0), y (2) and theta (4) keep their index.
-const int IX = 0, IY = 2, ITH = 4, IZ = 6;
+// z = 0 when it sits on the floor, the LEDs at p(k, 2). z / vz and then pitch /
+// roll were added at the end so the earlier states keep their index.
+const int IX = 0, IY = 2, ITH = 4, IZ = 6, IPI = 8, IRO = 10;
+// Tilt (task #3, 2026-11-20; the user asked to see the robot tilt on the web
+// page from the photodiodes alone, accepting the error). Robot frame: forward
+// = photodiode 0 (GP28), left, up.
+//   pitch > 0: the front is up    roll > 0: the right side is down
+// (same as the web page). The tilt turns the three photodiode normals; the
+// photodiodes stay where they are (they are about 1 cm from the axis).
+// The photodiodes tell a tilt apart from a move only partly: on the PC, with
+// the model exact and 1 % RSS noise, pitch / roll came out within about 0.6
+// deg; but a photodiode 5 % off in gain, or a face 5 deg off, reads as a tilt
+// of up to 4 deg on a level robot (and can move x / y by up to 2.5 cm). Set
+// false to keep the robot level (pitch = roll = 0), as before.
+const bool ESTIMATE_TILT = true;
+const float TILT_MAX = 25.0f * M_PI / 180.0f;  // pitch and roll are kept within +-25 deg
 // false = keep z at 0 (robot always on the floor), as before z was added.
 // On since 2026-11-19 (task #2 z axis). z follows any brightness error of the
 // model: +1 cm of z changes RSS by only about 0.8 %, so a 5 % error reads as
@@ -157,8 +172,10 @@ BLA::Matrix<N_STATE, N_STATE> I6 = { 0.0 };  // identity (name kept from the 6-s
 // about 8 cm past a robot that stopped and took about 10 s to come back
 // (move_straight test, 2026-11-19). 1e-4 settles in about 2-3 s with
 // under 1 cm of jitter when still (EKF replica on the PC).
-//                          x     vx    y     vy    th    om    z     vz
-const float Q0[N_STATE] = { 1e-4, 1e-4, 1e-4, 1e-4, 1e-2, 1e-2, 1e-4, 1e-4 };
+// Pitch / roll change slowly and are weakly seen, so their noise is small
+// (about 0.2 deg per update at 20 Hz).
+//                          x     vx    y     vy    th    om    z     vz    pi    pir   ro    ror
+const float Q0[N_STATE] = { 1e-4, 1e-4, 1e-4, 1e-4, 1e-2, 1e-2, 1e-4, 1e-4, 1e-4, 1e-4, 1e-4, 1e-4 };
 // Q0 was tuned as the noise added per update when one update took T_REF
 // seconds. loop() scales it by T / T_REF, so the filter keeps the same
 // behaviour per second when the updates come faster. (Q added unscaled at,
@@ -174,8 +191,9 @@ const bool EKF_SEQUENTIAL = true;
 // Same values as the 6-state version for x, y and theta; z / vz use the same
 // as x / y. (Earlier tuning tries are in git history.)
 void initEkf() {
-  //                          x     vx    y     vy    th    om    z     vz
-  const float P0[N_STATE] = { 0.01, 1,    0.01, 1,    0.01, 1,    0.01, 1    };
+  // pitch / roll start level with about 3 deg of doubt (0.003 rad^2)
+  //                          x     vx    y     vy    th    om    z     vz    pi     pir   ro     ror
+  const float P0[N_STATE] = { 0.01, 1,    0.01, 1,    0.01, 1,    0.01, 1,    0.003, 0.1,  0.003, 0.1 };
   for (int i = 0; i < N_STATE; i++) {
     A(i, i) = 1.0;
     I6(i, i) = 1.0;
@@ -231,19 +249,37 @@ const float COS_FOV = cos(FoV);
 //   if (cosPsikl > cos(FoV)) return (m + 1) * pow(cosPhikl, m) * cosPsikl / pow(dk, 2);
 //   else return 0;
 // Callers multiply by PtxGamma[k], so it must not be applied here as well.
-float pathLossCS(int k, int l, float x0, float y0, float z0, float c0, float s0) {
+//
+// pathLossTilt() also tilts the robot: cp / sp and cr / sr are the cosine and
+// sine of pitch and roll (see ESTIMATE_TILT). The photodiode normal vl (robot
+// frame: forward, left, up) is turned by roll about forward, then by pitch
+// about left, then by the heading (Omega0), i.e. yaw-pitch-roll as the web
+// page's 3D model (three.js order ZYX). Level (cp = cr = 1, sp = sr = 0) gives
+// exactly pathLossCS().
+float pathLossTilt(int k, int l, float x0, float y0, float z0, float c0, float s0,
+                   float cp, float sp, float cr, float sr) {
   const float dx = x0 - p(k, 0), dy = y0 - p(k, 1), dz = z0 - p(k, 2);  // p0 - pk
   const float dk = sqrtf(dx * dx + dy * dy + dz * dz);
   const float cosPhikl = (dx * uk(0) + dy * uk(1) + dz * uk(2)) / dk;
-  // w = Omega0 * vl
-  const float w0 = c0 * v(l, 0) + s0 * v(l, 1);
-  const float w1 = -s0 * v(l, 0) + c0 * v(l, 1);
-  const float w2 = v(l, 2);
+  // n = Rpitch * Rroll * vl: roll lifts the left side, pitch lifts the front
+  const float r1 = cr * v(l, 1) - sr * v(l, 2);
+  const float r2 = sr * v(l, 1) + cr * v(l, 2);
+  const float n0 = cp * v(l, 0) - sp * r2;
+  const float n2 = sp * v(l, 0) + cp * r2;
+  // w = Omega0 * n
+  const float w0 = c0 * n0 + s0 * r1;
+  const float w1 = -s0 * n0 + c0 * r1;
+  const float w2 = n2;
   const float cosPsikl = -(dx * w0 + dy * w1 + dz * w2) / dk;
   if (cosPsikl > COS_FOV)
     return (m + 1) * (m == 1.0f ? cosPhikl : powf(cosPhikl, m)) * cosPsikl / (dk * dk);
   else
     return 0;
+}
+
+// The robot level (pitch = roll = 0).
+float pathLossCS(int k, int l, float x0, float y0, float z0, float c0, float s0) {
+  return pathLossTilt(k, l, x0, y0, z0, c0, s0, 1.0f, 0.0f, 1.0f, 0.0f);
 }
 
 float pathLossWithoutGamma(int k, int l, float x0, float y0, float z0, float t0) {
@@ -254,23 +290,27 @@ float pathLossWithoutGamma(int k, int l, float x0, float y0, float z0, float t0)
 void computeJacobian(const BLA::Matrix<N_STATE, 1>& xHnnm1) {
   float tmp1, tmp2;
   for (int j = 0; j < N_STATE; j++) {
-    // measurements depend on x, y, theta and z only (not on the velocities);
-    // with ESTIMATE_Z off the z column stays 0, so z is never corrected
-    if (j != IX && j != IY && j != ITH && !(ESTIMATE_Z && j == IZ))
+    // measurements depend on x, y, theta, z, pitch and roll only (not on the
+    // rates); with ESTIMATE_Z / ESTIMATE_TILT off those columns stay 0, so z
+    // and the tilt are never corrected
+    if (j != IX && j != IY && j != ITH && !(ESTIMATE_Z && j == IZ) &&
+        !(ESTIMATE_TILT && (j == IPI || j == IRO)))
       continue;
     BLA::Matrix<N_STATE, 1> xp = xHnnm1;
     BLA::Matrix<N_STATE, 1> xm = xHnnm1;
     xp(j) += eps;
     xm(j) -= eps;
-    // cos / sin of the heading once per shifted state, not once per LED and PD
+    // cos / sin of the heading and tilt once per shifted state, not once per LED and PD
     const float cosP = cosf(xp(ITH)), sinP = sinf(xp(ITH));
     const float cosM = cosf(xm(ITH)), sinM = sinf(xm(ITH));
+    const float cpP = cosf(xp(IPI)), spP = sinf(xp(IPI)), crP = cosf(xp(IRO)), srP = sinf(xp(IRO));
+    const float cpM = cosf(xm(IPI)), spM = sinf(xm(IPI)), crM = cosf(xm(IRO)), srM = sinf(xm(IRO));
     for (int k = 0; k < N_LED; k++)
       for (int l = 0; l < N_PD; l++) {
         if (!LED_ON[k]) { Jn(N_PD * k + l, j) = 0; continue; }  // LED off: no influence
         // RSS_OFFSET is the same on both sides, so it drops out here
-        tmp1 = PtxGamma[k] * PD_GAIN[l] * pathLossCS(k, l, xp(IX), xp(IY), xp(IZ), cosP, sinP);
-        tmp2 = PtxGamma[k] * PD_GAIN[l] * pathLossCS(k, l, xm(IX), xm(IY), xm(IZ), cosM, sinM);
+        tmp1 = PtxGamma[k] * PD_GAIN[l] * pathLossTilt(k, l, xp(IX), xp(IY), xp(IZ), cosP, sinP, cpP, spP, crP, srP);
+        tmp2 = PtxGamma[k] * PD_GAIN[l] * pathLossTilt(k, l, xm(IX), xm(IY), xm(IZ), cosM, sinM, cpM, spM, crM, srM);
         Jn(N_PD * k + l, j) = (tmp1 - tmp2) / (2.0f * eps);
       }
   }
@@ -654,10 +694,12 @@ void loop() {
   //Correction step
   computeJacobian(xHnnm1);
   const float cosTh = cosf(xHnnm1(ITH)), sinTh = sinf(xHnnm1(ITH));
+  const float cosPi = cosf(xHnnm1(IPI)), sinPi = sinf(xHnnm1(IPI));
+  const float cosRo = cosf(xHnnm1(IRO)), sinRo = sinf(xHnnm1(IRO));
   for (int f = 0; f < N_LED; f++)
     for (int g = 0; g < N_PD; g++)
       // LED off: predicted = measured, so its innovation is 0
-      zHn(N_PD * f + g) = LED_ON[f] ? PtxGamma[f] * PD_GAIN[g] * pathLossCS(f, g, xHnnm1(IX), xHnnm1(IY), xHnnm1(IZ), cosTh, sinTh) + RSS_OFFSET
+      zHn(N_PD * f + g) = LED_ON[f] ? PtxGamma[f] * PD_GAIN[g] * pathLossTilt(f, g, xHnnm1(IX), xHnnm1(IY), xHnnm1(IZ), cosTh, sinTh, cosPi, sinPi, cosRo, sinRo) + RSS_OFFSET
                                     : zn(N_PD * f + g);
   if (EKF_SEQUENTIAL) {
     ekfUpdateSequential();
@@ -676,11 +718,18 @@ void loop() {
     xHnm1nm1(IZ) = 0;
     xHnm1nm1(IZ + 1) = 0;
   }
+  for (int i = IPI; i <= IRO; i += 2) {
+    if (!ESTIMATE_TILT) { xHnm1nm1(i) = 0; xHnm1nm1(i + 1) = 0; continue; }
+    // keep the tilt within TILT_MAX; stop the rate pushing past a limit
+    if (xHnm1nm1(i) > TILT_MAX) { xHnm1nm1(i) = TILT_MAX; if (xHnm1nm1(i + 1) > 0) xHnm1nm1(i + 1) = 0; }
+    if (xHnm1nm1(i) < -TILT_MAX) { xHnm1nm1(i) = -TILT_MAX; if (xHnm1nm1(i + 1) < 0) xHnm1nm1(i + 1) = 0; }
+  }
   //Serial.print("Covariance"); Serial.println(Pnm1nm1);
   unsigned long tEkf = micros();
   if (mode == 2 || mode == 3){
-    // Web format:  Quadrant <n>: <x cm>, <y cm>, <angle deg>, <z cm>
-    // (the page also accepts the old line without z, and then takes z = 0)
+    // Web format:  Quadrant <n>: <x cm>, <y cm>, <angle deg>, <z cm>[, <pitch deg>, <roll deg>]
+    // (the page also accepts the old line without z, and then takes z = 0;
+    // pitch / roll only with ESTIMATE_TILT, else the page takes the robot as level)
     float xcm = xHnm1nm1(IX) * 100.0;
     float ycm = xHnm1nm1(IY) * 100.0;
     float deg = xHnm1nm1(ITH) / M_PI * 180.0;
@@ -690,7 +739,13 @@ void loop() {
     out.print(xcm); out.print(", ");
     out.print(ycm); out.print(", ");
     out.print(deg); out.print(", ");
-    out.println(zcm);
+    if (ESTIMATE_TILT) {
+      out.print(zcm); out.print(", ");
+      out.print(xHnm1nm1(IPI) / M_PI * 180.0); out.print(", ");
+      out.println(xHnm1nm1(IRO) / M_PI * 180.0);
+    } else {
+      out.println(zcm);
+    }
   }
   if (PRINT_TIMING) {
     // ms spent waiting for the window, demodulating and in the EKF (which

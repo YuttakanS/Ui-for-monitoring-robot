@@ -48,24 +48,40 @@
   // row = row of p (0..8), l = photodiode (0..2), x/y/z in m, theta in rad
   // (firmware convention: Omega0 = R(-theta)).
   function pathLoss(row, l, x, y, z, theta) {
-    var pk = P[row], v = V[l];
+    return pathLossTilt(row, l, x, y, z, theta, 0, 0);
+  }
+
+  // Normal of photodiode l for a robot turned by theta (firmware sign) and
+  // tilted by pitch (front up) / roll (right side down), rad. Same as
+  // pathLossTilt() in copy.ino: roll about forward, pitch about left, then the
+  // heading (Omega0).
+  function pdNormal(l, theta, pitch, roll) {
+    var v = V[l], cp = Math.cos(pitch), sp = Math.sin(pitch), cr = Math.cos(roll), sr = Math.sin(roll);
+    var r1 = cr * v[1] - sr * v[2], r2 = sr * v[1] + cr * v[2];
+    var n0 = cp * v[0] - sp * r2, n2 = sp * v[0] + cp * r2;
+    var c = Math.cos(theta), s = Math.sin(theta);
+    return [c * n0 + s * r1, -s * n0 + c * r1, n2];   // Omega0 * n
+  }
+
+  // pathLoss() for a tilted robot (pathLossTilt() in copy.ino, ESTIMATE_TILT).
+  function pathLossTilt(row, l, x, y, z, theta, pitch, roll) {
+    var pk = P[row], w = pdNormal(l, theta, pitch || 0, roll || 0);
     var dx = x - pk[0], dy = y - pk[1], dz = z - pk[2];
     var d = Math.sqrt(dx * dx + dy * dy + dz * dz);
     var cosPhi = -dz / d;                       // (p0 - pk) . uk / d, uk = (0, 0, -1)
-    var c = Math.cos(theta), s = Math.sin(theta);
-    var w0 = c * v[0] + s * v[1], w1 = -s * v[0] + c * v[1], w2 = v[2]; // Omega0 * v
-    var cosPsi = (-dx * w0 - dy * w1 - dz * w2) / d; // (pk - p0) . w / d
+    var cosPsi = (-dx * w[0] - dy * w[1] - dz * w[2]) / d; // (pk - p0) . w / d
     if (!(cosPsi > Math.cos(FOV))) return 0;
     return (M + 1) * Math.pow(cosPhi, M) * cosPsi / (d * d);
   }
 
   // RSS the firmware expects (zHn in copy.ino) from LED row / photodiode l.
-  // opts.gamma / pdGain / offset override PtxGamma / PD_GAIN / RSS_OFFSET.
+  // opts.gamma / pdGain / offset override PtxGamma / PD_GAIN / RSS_OFFSET;
+  // opts.pitch / opts.roll (rad) tilt the robot.
   function predictRss(row, l, x, y, z, theta, opts) {
     opts = opts || {};
     var g = (opts.gamma || CURRENT_GAMMA)[row] * (opts.pdGain || PD_GAIN)[l];
     var off = opts.offset !== undefined ? opts.offset : RSS_OFFSET;
-    return g * pathLoss(row, l, x, y, z, theta) + off;
+    return g * pathLossTilt(row, l, x, y, z, theta, opts.pitch, opts.roll) + off;
   }
 
   // h for every RSS value of one pose, in firmware order (row * 3 + l).
@@ -423,7 +439,7 @@
   var api = {
     N_PD: N_PD, N_LED: N_LED, ROW_LED: ROW_LED, P: P, CURRENT_GAMMA: CURRENT_GAMMA,
     M: M, FOV: FOV, BETA: BETA, ALPHA: ALPHA, DEFAULT_LIT: DEFAULT_LIT, presetPoses: presetPoses,
-    pathLoss: pathLoss, modelRow: modelRow, parseRssLine: parseRssLine,
+    pathLoss: pathLoss, pathLossTilt: pathLossTilt, pdNormal: pdNormal, modelRow: modelRow, parseRssLine: parseRssLine,
     PD_GAIN: PD_GAIN, RSS_OFFSET: RSS_OFFSET, Z_MIN: Z_MIN, Z_MAX: Z_MAX, predictRss: predictRss,
     fitGamma: fitGamma, firmwareLine: firmwareLine, fitModel: fitModel, firmwareLines: firmwareLines,
     solvePose: solvePose, levMar: levMar,

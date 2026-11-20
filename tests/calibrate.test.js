@@ -40,9 +40,10 @@ test('constants match copy.ino', function () {
   assert.ok(zr, 'Z_MIN / Z_MAX not found in copy.ino');
   assert.equal(parseFloat(zr[1]), C.Z_MIN); assert.equal(parseFloat(zr[2]), C.Z_MAX);
   // the EKF prediction and Jacobian use the same model as predictRss()
-  // (pathLossCS is pathLossWithoutGamma with cos / sin of the heading passed in)
-  assert.match(INO, /PtxGamma\[f\] \* PD_GAIN\[g\] \* pathLossCS\([^;]*\) \+ RSS_OFFSET/);
-  assert.equal((INO.match(/PtxGamma\[k\] \* PD_GAIN\[l\] \* pathLossCS/g) || []).length, 2);
+  // (pathLossTilt is pathLossWithoutGamma with cos / sin of the heading and
+  // of pitch / roll passed in; predictRss() uses calibrate.js pathLossTilt)
+  assert.match(INO, /PtxGamma\[f\] \* PD_GAIN\[g\] \* pathLossTilt\([^;]*\) \+ RSS_OFFSET/);
+  assert.equal((INO.match(/PtxGamma\[k\] \* PD_GAIN\[l\] \* pathLossTilt/g) || []).length, 2);
   assert.match(INO, /return \(m \+ 1\) \* \(m == 1\.0f \? cosPhikl : powf\(cosPhikl, m\)\) \* cosPsikl \/ \(dk \* dk\);/);
 });
 
@@ -259,4 +260,55 @@ test('solvePose finds a known pose, with and without z', function () {
   var flat = C.solvePose(rssAt({ x: -25, y: -25, theta: 0 }), { z: false });
   assert.equal(flat.z, 0);
   close(flat.x, -25, 0.5, 'x'); close(flat.y, -25, 0.5, 'y');
+});
+
+/* ---------- tilt (pitch / roll, ESTIMATE_TILT in copy.ino) ---------- */
+
+test('copy.ino pathLossTilt turns the normal like calibrate.js pdNormal', function () {
+  // the same four lines, in the same order
+  assert.match(INO, /const float r1 = cr \* v\(l, 1\) - sr \* v\(l, 2\);\s*const float r2 = sr \* v\(l, 1\) \+ cr \* v\(l, 2\);\s*const float n0 = cp \* v\(l, 0\) - sp \* r2;\s*const float n2 = sp \* v\(l, 0\) \+ cp \* r2;/);
+  assert.match(INO, /const float w0 = c0 \* n0 \+ s0 \* r1;\s*const float w1 = -s0 \* n0 \+ c0 \* r1;\s*const float w2 = n2;/);
+  assert.match(INO, /return pathLossTilt\(k, l, x0, y0, z0, c0, s0, 1\.0f, 0\.0f, 1\.0f, 0\.0f\);/);
+  assert.match(INO, /const int IX = 0, IY = 2, ITH = 4, IZ = 6, IPI = 8, IRO = 10;/);
+  assert.match(INO, /const int N_STATE = 12;/);
+});
+
+test('pathLossTilt: level is pathLoss; the normal turns as the web page 3D model', function () {
+  var T = require('../vendor/three.min.js'), A = require('../app.js'), d = Math.PI / 180;
+  for (var row = 0; row < 9; row++) for (var l = 0; l < 3; l++)
+    close(C.pathLossTilt(row, l, -0.2, 0.1, 0.05, 0.7, 0, 0), C.pathLoss(row, l, -0.2, 0.1, 0.05, 0.7), 1e-15);
+  // copy.ino: w = Omega0 * Rpitch * Rroll * v (Omega0 = turn by -theta).
+  // app.js: robot model turned by Euler(roll, -pitch, mapYaw, 'ZYX') with
+  // mapYaw = -theta (HEADING_SIGN = -1). Both must give the same normal.
+  [[0, 10, 0], [0, 0, 10], [30, 5, -7], [-120, -12, 8], [170, 20, 15]].forEach(function (c) {
+    var e = A.robotEuler(-c[0], c[1], c[2]), eu = new T.Euler(e.x, e.y, e.z, e.order);
+    for (var k = 0; k < 3; k++) {
+      var level = C.pdNormal(k, 0, 0, 0);                     // robot frame: forward, left, up
+      var web = new T.Vector3(level[0], level[1], level[2]).applyEuler(eu);
+      var fw = C.pdNormal(k, c[0] * d, c[1] * d, c[2] * d);
+      close(fw[0], web.x, 1e-12, 'x ' + c); close(fw[1], web.y, 1e-12, 'y ' + c); close(fw[2], web.z, 1e-12, 'z ' + c);
+    }
+  });
+  // pitch + = front up: a face looking forward (PD 0 at heading 0) tips up
+  assert.ok(C.pdNormal(0, 0, 10 * d, 0)[2] > C.pdNormal(0, 0, 0, 0)[2]);
+});
+
+test('a tilt can be told apart from a move when the model is exact (6 unknowns)', function () {
+  var lit = [1, 2, 7, 8], d = Math.PI / 180;
+  var truth = { x: -0.25, y: 0.1, z: 0, th: 30 * d, pitch: 4 * d, roll: -3 * d };
+  var rows = [];
+  C.ROW_LED.forEach(function (led, row) { if (lit.indexOf(led) >= 0) rows.push(row); });
+  function rss(q) {
+    var out = [];
+    rows.forEach(function (row) {
+      for (var l = 0; l < 3; l++) out.push(C.predictRss(row, l, q[0], q[1], q[2], q[3], { pitch: q[4], roll: q[5] }));
+    });
+    return out;
+  }
+  var meas = rss([truth.x, truth.y, truth.z, truth.th, truth.pitch, truth.roll]);
+  // start level at a nearby place, as an EKF that was tracking the robot
+  var fit = C.levMar(function (q) { var p = rss(q); return meas.map(function (m, i) { return m - p[i]; }); },
+    [truth.x + 0.02, truth.y - 0.02, 0, truth.th + 2 * d, 0, 0], { step: 1e-6 }).q;
+  close(fit[4] / d, 4, 0.05, 'pitch'); close(fit[5] / d, -3, 0.05, 'roll');
+  close(fit[0], truth.x, 1e-3, 'x'); close(fit[1], truth.y, 1e-3, 'y');
 });
