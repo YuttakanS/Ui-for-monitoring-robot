@@ -30,7 +30,7 @@ branch `feature/task-1-ui` แบ่งงานเป็น 4 phase / 18 ข้
 - รายงานผลหลังจบแต่ละ phase ได้แก่ ไฟล์ที่แก้ commit ผลทดสอบ และคำถามที่ยังค้าง
 
 ## Task #2 — อุปกรณ์จริงและสิ่งที่ตัดสินใจแล้ว (2026-11-18, อัปเดต 2026-11-19, ไม่ต้องถามซ้ำ)
-- **ข้อมูล serial:** `Quadrant <n>: <x cm>, <y cm>, <มุม>[, <z cm>]` ค่าที่ 3 คือ **orientation ของหุ่น** (องศา ±180) ไม่ใช่มุมตกกระทบ แต่คอลัมน์ CSV ยังชื่อ `incidence_angle_deg` (ถ้าจะเปลี่ยนชื่อต้องถามก่อน เพราะติดกฎ CSV raw) หัว CSV ตอนนี้คือ `timestamp_iso,t_ms,quadrant,x,y,incidence_angle_deg,source,z` firmware ใช้ baud 115200 และ `mode` 1 = พิมพ์ RSS ดิบ, 2 = พิมพ์พิกัด (ค่าเริ่มต้น), 3 = พิมพ์ทั้งสองอย่าง
+- **ข้อมูล serial:** `Quadrant <n>: <x cm>, <y cm>, <มุม>[, <z cm>[, <pitch°>[, <roll°>]]]` ค่าที่ 3 คือ **orientation ของหุ่น (yaw)** (องศา ±180) ไม่ใช่มุมตกกระทบ แต่คอลัมน์ CSV ยังชื่อ `incidence_angle_deg` (ถ้าจะเปลี่ยนชื่อต้องถามก่อน เพราะติดกฎ CSV raw) หัว CSV ตอนนี้คือ `timestamp_iso,t_ms,quadrant,x,y,incidence_angle_deg,source,z,pitch_deg,roll_deg` (pitch/roll เพิ่มท้ายเมื่อ 2026-11-20 ผู้ใช้เลือกทาง A: หน้าเว็บรองรับก่อน ยังไม่มี firmware ส่ง ต้องมีเซนเซอร์เอียง เช่น IMU · pitch + = ด้านหน้า (PD ขา GP28) ยกขึ้น, roll + = ด้านขวาต่ำลง · ช่องว่างเมื่อบอร์ดไม่ส่ง · branch `feature/task-3-tilt` แตกจาก `feature/task-3-wifi`) firmware ใช้ baud 115200 และ `mode` 1 = พิมพ์ RSS ดิบ, 2 = พิมพ์พิกัด (ค่าเริ่มต้น), 3 = พิมพ์ทั้งสองอย่าง
 - **แกนพิกัด:** ใช้พิกัดของ firmware ตรง ๆ แกนมาตรฐาน **+X ขวา, +Y ขึ้น** (มองจากฝั่ง Q3/Q4) ไม่มีการหมุนแกน แผนที่ใช้ **scale คงที่** ไม่ซูมตามข้อมูล
 - **LED 9 ดวง** (ระยะห่าง 50 cm, สูงจาก photodiode 92 cm, LED 4 คือ origin) ตำแหน่งและความถี่:
 

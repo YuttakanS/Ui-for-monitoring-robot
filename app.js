@@ -6,18 +6,30 @@
    * ===================================================================== */
 
   // Firmware line format:  Quadrant 3: -33.84, -47.30, -23.71, 0.00
-  //                        Quadrant <n>: <x>, <y>, <heading>[, <z>]
-  // (cm, cm, degrees, cm; the third value is the robot's heading, kept in the
-  // CSV column incidence_angle_deg). z (up) is optional: copy.ino sends it,
-  // older firmware (copy2) does not, and then z = 0 (on the floor). hasZ
-  // tells the two apart.
-  var LINE_RE = /^Quadrant\s*(\d+)\s*:\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)(?:\s*,\s*(-?\d+(?:\.\d+)?))?$/i;
+  //                        Quadrant <n>: <x>, <y>, <yaw>[, <z>[, <pitch>[, <roll>]]]
+  // (cm, cm, degrees, cm, degrees, degrees; the third value is the robot's
+  // heading (yaw), kept in the CSV column incidence_angle_deg).
+  // z (up) is optional: copy.ino sends it, older firmware (copy2) does not,
+  // and then z = 0 (on the floor). pitch and roll (task #3, 2026-11-20) are
+  // optional too and 0 (level) when not sent; no firmware sends them yet (they
+  // need a tilt sensor), Demo does. hasZ / hasPitch / hasRoll tell sent values
+  // from defaults. Robot frame: forward = the way photodiode 1 (GP28) faces.
+  //   pitch > 0: the front is up (nose up)
+  //   roll  > 0: the right side is down (seen from behind, facing forward)
+  var NUM = '(-?\\d+(?:\\.\\d+)?)', SEP = '\\s*,\\s*';
+  var LINE_RE = new RegExp('^Quadrant\\s*(\\d+)\\s*:\\s*' + NUM + SEP + NUM + SEP + NUM +
+    '(?:' + SEP + NUM + '(?:' + SEP + NUM + '(?:' + SEP + NUM + ')?)?)?$', 'i');
 
   function parseLine(raw) {
     var m = LINE_RE.exec(String(raw).trim());
     if (!m) return null;
-    var hasZ = m[5] !== undefined;
-    return { quadrant: +m[1], x: +m[2], y: +m[3], angle: +m[4], z: hasZ ? +m[5] : 0, hasZ: hasZ };
+    var hasZ = m[5] !== undefined, hasPitch = m[6] !== undefined, hasRoll = m[7] !== undefined;
+    return {
+      quadrant: +m[1], x: +m[2], y: +m[3], angle: +m[4],
+      z: hasZ ? +m[5] : 0, hasZ: hasZ,
+      pitch: hasPitch ? +m[6] : 0, hasPitch: hasPitch,
+      roll: hasRoll ? +m[7] : 0, hasRoll: hasRoll
+    };
   }
 
   // The raw RSS line that copy.ino prints in mode 1 / 3 for the calibration
@@ -42,8 +54,20 @@
   function logEntry(s, source) {
     return {
       wall: s.wall, t: s.t, quadrant: s.quadrant, x: s.x, y: s.y, angle: s.angle, source: source,
-      z: s.zRaw !== undefined ? s.zRaw : s.z, hasZ: s.hasZ
+      z: s.zRaw !== undefined ? s.zRaw : s.z, hasZ: s.hasZ,
+      pitch: s.pitch, hasPitch: !!s.hasPitch, roll: s.roll, hasRoll: !!s.hasRoll
     };
+  }
+
+  // Euler angles (radians, three.js order 'ZYX': yaw, then pitch, then roll
+  // about the robot's own axes) for the 3D model. Model axes: local +X =
+  // forward (photodiode 1), +Y = left, +Z = up. mapYaw = heading on the map
+  // (deg, counter-clockwise from +X). Turning about +Y by +a drops the front,
+  // so pitch (front up) goes in negated; turning about +X by +a lifts the left
+  // side, i.e. right side down = roll as defined above.
+  function robotEuler(mapYawDeg, pitchDeg, rollDeg) {
+    var d = Math.PI / 180;
+    return { x: rollDeg * d, y: -pitchDeg * d, z: mapYawDeg * d, order: 'ZYX' };
   }
 
   // Standard numbering: Q1 = +x,+y, then counter-clockwise.
@@ -91,15 +115,17 @@
   }
 
   function toCsv(rows) {
-    // z is the last column so the earlier columns keep their place; it is
-    // empty when the board did not send z (not 0, so the CSV stays raw)
-    var out = ['timestamp_iso,t_ms,quadrant,x,y,incidence_angle_deg,source,z'];
+    // New columns go at the end so the earlier ones keep their place: z
+    // (2026-11-19), then pitch_deg and roll_deg (2026-11-20). Each is empty
+    // when the board did not send it (not 0, so the CSV stays raw).
+    var out = ['timestamp_iso,t_ms,quadrant,x,y,incidence_angle_deg,source,z,pitch_deg,roll_deg'];
     var t0 = rows.length ? rows[0].t : 0;
     for (var i = 0; i < rows.length; i++) {
       var r = rows[i];
       out.push([
         new Date(r.wall).toISOString(), Math.round(r.t - t0),
-        r.quadrant, r.x, r.y, r.angle, r.source, r.hasZ ? r.z : ''
+        r.quadrant, r.x, r.y, r.angle, r.source, r.hasZ ? r.z : '',
+        r.hasPitch ? r.pitch : '', r.hasRoll ? r.roll : ''
       ].join(','));
     }
     return out.join('\r\n') + '\r\n';
@@ -170,6 +196,9 @@
       zZeroNote: 'ศูนย์ z: {n} (CSV ยังเป็นค่าดิบ)',
       zBar: 'Z',
       orientation: 'ทิศของหุ่น (Orientation)',
+      tiltValues: '{n}',
+      tiltNone: 'Pitch / Roll: บอร์ดยังไม่ส่ง (ถือว่าหุ่นวางระดับ)',
+      tiltNote: 'Pitch + = ด้านหน้ายกขึ้น · Roll + = ด้านขวาต่ำลง',
       compassAria: 'เข็มทิศแสดงทิศที่หุ่นหัน',
       headingCW: '0° = หันไป +X · ค่าบวก = หมุนตามเข็มนาฬิกา',
       headingCCW: '0° = หันไป +X · ค่าบวก = หมุนทวนเข็มนาฬิกา',
@@ -284,6 +313,9 @@
       zZeroNote: 'z zero: {n} (the CSV stays raw)',
       zBar: 'Z',
       orientation: 'Orientation',
+      tiltValues: '{n}',
+      tiltNone: 'Pitch / Roll: not sent by the board (taken as level)',
+      tiltNote: 'Pitch + = front up · Roll + = right side down',
       compassAria: 'Compass showing where the robot faces',
       headingCW: '0° = facing +X · positive = clockwise',
       headingCCW: '0° = facing +X · positive = counter-clockwise',
@@ -371,7 +403,7 @@
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-      parseLine: parseLine, isRssLine: isRssLine, parseLedAck: parseLedAck, logEntry: logEntry, createLineSplitter: createLineSplitter,
+      parseLine: parseLine, isRssLine: isRssLine, robotEuler: robotEuler, parseLedAck: parseLedAck, logEntry: logEntry, createLineSplitter: createLineSplitter,
       quadrantOf: quadrantOf, wrapDeg: wrapDeg,
       niceStep: niceStep, niceCeil: niceCeil, fmtTick: fmtTick,
       fileStamp: fileStamp, toCsv: toCsv, I18N: I18N, translate: translate, UNITS: UNITS, LEDS: LEDS
@@ -483,7 +515,7 @@
     mapTitle: document.querySelector('[data-i18n=mapTitle]'),
     valX: $('valX'), valY: $('valY'), valZ: $('valZ'), mmZ: $('mmZ'),
     zZeroRow: $('zZeroRow'), btnZZero: $('btnZZero'), btnZZeroReset: $('btnZZeroReset'), zZeroNote: $('zZeroNote'), valQ: $('valQ'), valR: $('valR'),
-    valH: $('valH'), cNeedle: $('cNeedle'), headingNote: $('headingNote'),
+    valH: $('valH'), valTilt: $('valTilt'), cNeedle: $('cNeedle'), headingNote: $('headingNote'),
     cComp: $('cComp'), cVx: $('cVx'), cVy: $('cVy'), cDashX: $('cDashX'), cDashY: $('cDashY'), hComp: $('hComp'),
     qMini: $('qMini'), mmX: $('mmX'), mmY: $('mmY'), mmR: $('mmR'), lastTime: $('lastTime'),
     btnRecord: $('btnRecord'), recCount: $('recCount'), recEvery: $('recEvery'), btnCsv: $('btnCsv'), btnClearLog: $('btnClearLog'),
@@ -807,8 +839,10 @@
       // face the direction of travel (derivative of the path above)
       var mh = Math.atan2(40 * 0.55 * Math.cos(t * 0.55), -40 * 0.35 * Math.sin(t * 0.35)) * 180 / Math.PI;
       var a = wrapDeg((mh - HEADING_OFFSET) * HEADING_SIGN) + (Math.random() - 0.5) * 0.6;
+      // tilt, as a board with a tilt sensor would send it (degrees)
+      var pitch = 8 * Math.sin(t * 0.7), roll = 6 * Math.sin(t * 0.45 + 1);
       var q = quadrantOf(x, y);
-      var line = 'Quadrant ' + q + ': ' + x.toFixed(2) + ', ' + y.toFixed(2) + ', ' + a.toFixed(2) + ', ' + z.toFixed(2) + '\r\n';
+      var line = 'Quadrant ' + q + ': ' + [x, y, a, z, pitch, roll].map(function (v) { return v.toFixed(2); }).join(', ') + '\r\n';
       var cut = Math.floor(Math.random() * line.length); // arrive in two chunks, like real serial
       split(line.slice(0, cut));
       split(line.slice(cut));
@@ -893,6 +927,7 @@
       el.cNeedle.style.visibility = 'hidden';
       el.cComp.style.visibility = 'hidden';
       el.hComp.textContent = '';
+      el.valTilt.textContent = '';
       return;
     }
     var st = state.stats;
@@ -914,6 +949,9 @@
     // Compass: the value is the firmware's raw angle; the needle points the way
     // the robot faces on the map (SVG rotates clockwise, so negate).
     el.valH.textContent = s.angle.toFixed(2) + '°';
+    el.valTilt.textContent = s.hasPitch || s.hasRoll
+      ? t('tiltValues', 'Pitch ' + (s.hasPitch ? s.pitch.toFixed(2) + '°' : '—') + '  ·  Roll ' + (s.hasRoll ? s.roll.toFixed(2) + '°' : '—'))
+      : t('tiltNone');
     el.cNeedle.style.visibility = 'visible';
     el.cNeedle.setAttribute('transform', 'rotate(' + (-mapHeading(s.angle)).toFixed(2) + ' 70 70)');
     // X / Y parts of the heading vector (seen from above) and
@@ -942,7 +980,8 @@
     for (var i = S.length - 1; i >= 0 && i >= S.length - 20; i--) {
       var s = S[i], tr = document.createElement('tr');
       [clockTime(s.wall) + '.' + String(s.wall % 1000).padStart(3, '0'),
-        s.quadrant, fmtLen(s.x), fmtLen(s.y), s.hasZ ? fmtLen(s.z) : '—'].forEach(function (v) {
+        s.quadrant, fmtLen(s.x), fmtLen(s.y), s.hasZ ? fmtLen(s.z) : '—',
+        s.hasPitch ? s.pitch.toFixed(2) : '—', s.hasRoll ? s.roll.toFixed(2) : '—'].forEach(function (v) {
         var td = document.createElement('td');
         td.textContent = v;
         tr.appendChild(td);
@@ -2170,7 +2209,8 @@
       v3.drop.computeLineDistances();
       v3.drop.visible = v3.shadow.visible = s.z > 0.5;
       v3.shadow.position.set(s.x, s.y, 0.08);
-      v3.robot.rotation.z = mapHeading(s.angle) * Math.PI / 180;
+      var eu = robotEuler(mapHeading(s.angle), s.pitch, s.roll);
+      v3.robot.rotation.set(eu.x, eu.y, eu.z, eu.order);
       var op = v3.toOrigin.geometry.attributes.position;
       op.setXYZ(0, 0, 0, 0.1);
       op.setXYZ(1, s.x, s.y, 0.1);
