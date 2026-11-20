@@ -96,6 +96,13 @@ checks that its constants still match this file.
    typed in). Card 5 shows, per place, how far the position the EKF would
    settle at moves with the heading, with the firmware constants and with
    the new fit (same data as the fit, so a little optimistic).
+   To compare models on the exported CSV(s), run
+   `node tools/analyze-calib.js firmware/copy/calib/<file>.csv [...]`:
+   firmware constants vs (a) gamma + `PD_GAIN` + `RSS_OFFSET` refitted vs
+   (b) (a) plus each photodiode's own `be` / `al` (needs a firmware
+   change), each also with every place left out of the fit in turn
+   ("held out"). With theta = 0 data only, (b) overfits (held out 3.9 cm
+   against 3.6 cm for (a) on `ra_calib_20261119_130953.csv`).
 5. Export the CSV as a record, copy the 3 lines (`PtxGamma`, `PD_GAIN`,
    `RSS_OFFSET`) into this file and into `calibrate.js` (`CURRENT_GAMMA`,
    `PD_GAIN`, `RSS_OFFSET`; `npm test` checks they match), set `mode = 2`

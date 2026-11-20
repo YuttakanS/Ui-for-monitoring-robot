@@ -47,8 +47,17 @@
   // Same as pathLossWithoutGamma(k, l, x0, y0, z0, t0) in copy.ino.
   // row = row of p (0..8), l = photodiode (0..2), x/y/z in m, theta in rad
   // (firmware convention: Omega0 = R(-theta)).
-  function pathLoss(row, l, x, y, z, theta) {
-    var pk = P[row], v = V[l];
+  // geo (optional, analysis only, not in the firmware): { beta: [3], alpha: [3] }
+  // degrees added to each photodiode's elevation be / azimuth al, for a
+  // pyramid whose faces are not all exactly 35 deg / 120 deg apart (task E).
+  function normal(l, geo) {
+    if (!geo) return V[l];
+    var b = BETA + (geo.beta ? geo.beta[l] : 0) * Math.PI / 180;
+    var a = ALPHA[l] + (geo.alpha ? geo.alpha[l] : 0) * Math.PI / 180;
+    return [Math.cos(b) * Math.cos(a), -Math.cos(b) * Math.sin(a), Math.sin(b)];
+  }
+  function pathLoss(row, l, x, y, z, theta, geo) {
+    var pk = P[row], v = normal(l, geo);
     var dx = x - pk[0], dy = y - pk[1], dz = z - pk[2];
     var d = Math.sqrt(dx * dx + dy * dy + dz * dz);
     var cosPhi = -dz / d;                       // (p0 - pk) . uk / d, uk = (0, 0, -1)
@@ -60,22 +69,23 @@
   }
 
   // RSS the firmware expects (zHn in copy.ino) from LED row / photodiode l.
-  // opts.gamma / pdGain / offset override PtxGamma / PD_GAIN / RSS_OFFSET.
+  // opts.gamma / pdGain / offset override PtxGamma / PD_GAIN / RSS_OFFSET;
+  // opts.geo as in pathLoss().
   function predictRss(row, l, x, y, z, theta, opts) {
     opts = opts || {};
     var g = (opts.gamma || CURRENT_GAMMA)[row] * (opts.pdGain || PD_GAIN)[l];
     var off = opts.offset !== undefined ? opts.offset : RSS_OFFSET;
-    return g * pathLoss(row, l, x, y, z, theta) + off;
+    return g * pathLoss(row, l, x, y, z, theta, opts.geo) + off;
   }
 
   // h for every RSS value of one pose, in firmware order (row * 3 + l).
   // Pose in the units the user measures: cm and degrees.
-  function modelRow(pose) {
+  function modelRow(pose, geo) {
     var x = pose.x / 100, y = pose.y / 100, z = (pose.z || 0) / 100;
     var th = (pose.theta || 0) * Math.PI / 180;
     var out = [];
     for (var row = 0; row < N_LED; row++)
-      for (var l = 0; l < N_PD; l++) out.push(pathLoss(row, l, x, y, z, th));
+      for (var l = 0; l < N_PD; l++) out.push(pathLoss(row, l, x, y, z, th, geo));
     return out;
   }
 
@@ -109,7 +119,7 @@
     var pdGain = opts.pdGain || [1, 1, 1], off = opts.offset || 0;
     var minRel = opts.minRel !== undefined ? opts.minRel : 0.1;
     var minPoints = opts.minPoints !== undefined ? opts.minPoints : 3;
-    var H = samples.map(modelRow);
+    var H = samples.map(function (s) { return modelRow(s, opts.geo); });
     // opts.selectH: model rows that decide which values are used (default H).
     // fitModel() passes the rows at the entered headings, so nudging a pose's
     // theta never adds or drops a value (the residual keeps its length).
@@ -183,9 +193,16 @@
   // opts.fitTheta degrees (default THETA_FIT_MAX when the poses use two or more
   // headings, else 0 = off). A soft prior (THETA_SIGMA degrees ~ RSS_SIGMA of
   // RSS) keeps the nudges small when the data do not ask for them.
+  //
+  // opts.fitGeometry (analysis only, task E model (b); the firmware has one be
+  // and al = 0 / 120 / -120): also fit each photodiode's elevation (3) and
+  // the azimuth of PD 1 and 2 (PD 0 stays at 0: turning all three is the same
+  // as turning the robot), within +-GEO_MAX deg with a soft prior GEO_SIGMA.
   // Returns { leds: fitGamma() results, pdGain, offset, fitted,
-  //           dTheta: degrees added to each pose's heading, or null }.
+  //           dTheta: degrees added to each pose's heading, or null,
+  //           geo: { beta: [3], alpha: [3] } degrees, or null }.
   var THETA_FIT_MAX = 10, THETA_SIGMA = 5, RSS_SIGMA = 0.01;
+  var GEO_MAX = 15, GEO_SIGMA = 5, N_GEO = 5;
   function headings(samples) {
     var seen = {};
     samples.forEach(function (s) { seen[s.theta || 0] = true; });
@@ -195,7 +212,9 @@
     opts = opts || {};
     var minPoses = opts.minPoses !== undefined ? opts.minPoses : 4;
     var thMax = opts.fitTheta !== undefined ? opts.fitTheta : (headings(samples) >= 2 ? THETA_FIT_MAX : 0);
-    var nS = samples.length, selectH = samples.map(modelRow);
+    var nGeo = opts.fitGeometry ? N_GEO : 0;
+    var nS = samples.length, selectH = samples.map(function (s) { return modelRow(s); });
+    var T0 = 3 + nGeo;                            // index of the first heading nudge in q
     function shifted(dth) {
       if (!dth) return samples;
       return samples.map(function (s, i) {
@@ -204,29 +223,39 @@
         return o;
       });
     }
+    function geoOf(q) {
+      return nGeo ? { beta: [q[3], q[4], q[5]], alpha: [0, q[6], q[7]] } : null;
+    }
     function inner(q) {
       var o = {}; for (var k in opts) o[k] = opts[k];
-      o.pdGain = [1, q[0], q[1]]; o.offset = q[2]; o.selectH = selectH;
-      return fitGamma(shifted(thMax ? q.slice(3) : null), o);
+      o.pdGain = [1, q[0], q[1]]; o.offset = q[2]; o.selectH = selectH; o.geo = geoOf(q);
+      return fitGamma(shifted(thMax ? q.slice(T0) : null), o);
     }
     function resid(q) {
-      var out = [];
+      var out = [], i;
       inner(q).forEach(function (r) { if (r.resid) out = out.concat(r.resid); });
-      if (thMax) for (var i = 3; i < q.length; i++) out.push(RSS_SIGMA * q[i] / THETA_SIGMA);
+      for (i = 3; i < T0; i++) out.push(RSS_SIGMA * q[i] / GEO_SIGMA);
+      if (thMax) for (i = T0; i < q.length; i++) out.push(RSS_SIGMA * q[i] / THETA_SIGMA);
       return out;
     }
-    function clamp(q) { for (var i = 3; i < q.length; i++) q[i] = Math.max(-thMax, Math.min(thMax, q[i])); }
-    var q = [PD_GAIN[1] / PD_GAIN[0], PD_GAIN[2] / PD_GAIN[0], RSS_OFFSET], fitted = false;
-    if (thMax) for (var i = 0; i < nS; i++) q.push(0);
-    if (nS >= minPoses && resid(q).length - (thMax ? nS : 0) > 3) {
+    function clamp(q) {
+      var i;
+      for (i = 3; i < T0; i++) q[i] = Math.max(-GEO_MAX, Math.min(GEO_MAX, q[i]));
+      for (i = T0; i < q.length; i++) q[i] = Math.max(-thMax, Math.min(thMax, q[i]));
+    }
+    var q = [PD_GAIN[1] / PD_GAIN[0], PD_GAIN[2] / PD_GAIN[0], RSS_OFFSET], fitted = false, i;
+    for (i = 0; i < nGeo; i++) q.push(0);
+    if (thMax) for (i = 0; i < nS; i++) q.push(0);
+    var nPrior = nGeo + (thMax ? nS : 0);
+    if (nS >= minPoses && resid(q).length - nPrior > 3 + nGeo) {
       q = levMar(resid, q, { step: 1e-5, clamp: clamp }).q;
       fitted = true;
     } else {
-      thMax = 0; q = q.slice(0, 3);
+      thMax = 0; nGeo = 0; T0 = 3; q = q.slice(0, 3);
     }
     return {
       leds: inner(q), pdGain: [1, q[0], q[1]], offset: q[2], fitted: fitted,
-      dTheta: thMax ? q.slice(3) : null
+      dTheta: thMax ? q.slice(T0) : null, geo: geoOf(q)
     };
   }
 
@@ -235,8 +264,25 @@
   function fitParams(fit) {
     return {
       gamma: fit.leds.map(function (r, i) { return r.gamma !== null ? r.gamma : CURRENT_GAMMA[i]; }),
-      pdGain: fit.pdGain, offset: fit.offset
+      pdGain: fit.pdGain, offset: fit.offset, geo: fit.geo || null
     };
+  }
+
+  // Honest check of a fit (task E): leave out every pose of one place (x, y),
+  // fit on the rest with fitOpts, and see where the EKF would put the poses
+  // left out. Returns poseErrors() entries for all samples, in sample order
+  // (est = null for a place that could not be checked).
+  function leaveOnePlaceOut(samples, fitOpts) {
+    var out = new Array(samples.length), keys = [];
+    samples.forEach(function (s) { var k = s.x + ',' + s.y; if (keys.indexOf(k) < 0) keys.push(k); });
+    keys.forEach(function (k) {
+      var test = [], train = [];
+      samples.forEach(function (s, i) { (s.x + ',' + s.y === k ? test : train).push(i); });
+      var fit = fitModel(train.map(function (i) { return samples[i]; }), fitOpts);
+      var errs = poseErrors(test.map(function (i) { return samples[i]; }), fitParams(fit));
+      test.forEach(function (si, j) { out[si] = errs[j]; });
+    });
+    return out;
   }
 
   // ---- Does the position move with the heading? -------------------------------
@@ -530,7 +576,7 @@
     N_PD: N_PD, N_LED: N_LED, ROW_LED: ROW_LED, P: P, CURRENT_GAMMA: CURRENT_GAMMA,
     M: M, FOV: FOV, BETA: BETA, ALPHA: ALPHA, DEFAULT_LIT: DEFAULT_LIT, presetPoses: presetPoses,
     ANGLES: ANGLES, anglePoses: anglePoses, THETA_FIT_MAX: THETA_FIT_MAX,
-    fitParams: fitParams, poseErrors: poseErrors, driftByPlace: driftByPlace,
+    fitParams: fitParams, poseErrors: poseErrors, driftByPlace: driftByPlace, leaveOnePlaceOut: leaveOnePlaceOut,
     pathLoss: pathLoss, modelRow: modelRow, parseRssLine: parseRssLine,
     PD_GAIN: PD_GAIN, RSS_OFFSET: RSS_OFFSET, Z_MIN: Z_MIN, Z_MAX: Z_MAX, predictRss: predictRss,
     fitGamma: fitGamma, firmwareLine: firmwareLine, fitModel: fitModel, firmwareLines: firmwareLines,

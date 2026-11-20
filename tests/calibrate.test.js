@@ -322,3 +322,32 @@ test('poseErrors / driftByPlace: unequal photodiodes move the position with the 
   // the heading the EKF would read matches the one entered (sign of theta)
   C.poseErrors(samples, C.fitParams(fit)).forEach(function (e) { close(e.dTheta, 0, 2, 'heading at ' + e.theta); });
 });
+
+test('fitModel fitGeometry finds a tilted face; leaveOnePlaceOut checks it on unseen places', function () {
+  var lit = [1, 2, 7, 8], r = rng(21);
+  var truth = { gamma: [0.49, 0.49, 0.45, 0.43, 0.54, 0.51, 0.46, 0.46, 0.46], pdGain: [1, 0.88, 0.95], offset: 0.065,
+    geo: { beta: [0, -5, 2], alpha: [0, 0, 4] } };
+  var dth = C.anglePoses(lit).map(function () { return 6 * (r() - 0.5); });
+  var samples = multiHeadingSamples(lit, truth, dth, r);
+  var f = C.fitModel(samples, { leds: lit, fitGeometry: true });
+  close(f.geo.beta[1], -5, 1, 'be PD1'); close(f.geo.beta[2], 2, 1, 'be PD2'); close(f.geo.alpha[2], 4, 1.5, 'al PD2');
+  assert.equal(f.geo.alpha[0], 0);
+  close(f.pdGain[1], 0.88, 0.02, 'pd1'); close(f.pdGain[2], 0.95, 0.02, 'pd2');
+  assert.equal(C.fitModel(samples, { leds: lit }).geo, null);
+  // held out: geometry beats gains only, which beats the firmware constants
+  function meanErr(errs) { return errs.reduce(function (s, e) { return s + e.err; }, 0) / errs.length; }
+  var fw = meanErr(C.poseErrors(samples));
+  var a = C.leaveOnePlaceOut(samples, { leds: lit }), b = C.leaveOnePlaceOut(samples, { leds: lit, fitGeometry: true });
+  assert.equal(a.length, samples.length);
+  assert.ok(meanErr(b) < meanErr(a) && meanErr(a) < fw, fw + ' ' + meanErr(a) + ' ' + meanErr(b));
+  assert.ok(meanErr(b) < 0.5, 'held out with geometry ' + meanErr(b));
+});
+
+test('tools/analyze-calib.js runs on a calibration CSV', function () {
+  var out = require('node:child_process').execFileSync(process.execPath,
+    [path.join(__dirname, '..', 'tools', 'analyze-calib.js'), path.join(__dirname, '..', 'firmware', 'copy', 'calib', 'ra_calib_20261119_130953.csv')],
+    { encoding: 'utf8' });
+  assert.match(out, /^8 poses, 8 places, LEDs 7, 8, 1, 2/);
+  assert.match(out, /\(b\) gains \+ be\/al/);
+  assert.match(out, /const float PD_GAIN\[N_PD\]/);
+});
