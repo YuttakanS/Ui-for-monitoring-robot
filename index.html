@@ -11,6 +11,7 @@
     <h1>Position Monitor</h1>
     <div class="controls">
       <button id="btnConnect" class="btn primary" type="button">เชื่อมต่อ Serial</button>
+      <button id="btnWifi" class="btn primary" type="button">เชื่อมต่อ WiFi</button>
       <button id="btnDemo" class="btn secondary" type="button">Demo</button>
       <label class="field"><span data-i18n="unitField">หน่วยพิกัด</span>
         <select id="unit">
@@ -33,6 +34,9 @@
               <option>230400</option>
               <option>921600</option>
             </select>
+          </label>
+          <label class="field"><span data-i18n="wifiHostField">ที่อยู่หุ่น (WiFi)</span>
+            <input id="wifiHost" class="wifi-host" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="192.168.42.1">
           </label>
           <label class="field"><span data-i18n="langField">ภาษา</span>
             <select id="lang">
@@ -266,6 +270,7 @@
   <script src="vendor/OrbitControls.js"></script>
   <script src="vendor/OBJLoader.js"></script>
   <script src="models/models.js"></script>
+  <script src="wifi-link.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

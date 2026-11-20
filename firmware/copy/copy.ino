@@ -3,6 +3,28 @@
 #include <math.h>
 #include <BasicLinearAlgebra.h>
 
+// Task #3 (2026-11-20): the robot also talks to the web pages over WiFi. It
+// creates its own network (access point) and serves the same lines it prints
+// on USB serial as Server-Sent Events; commands arrive as HTTP GET:
+//   GET /events          the output lines, one "data: <line>" event each
+//   GET /cmd?c=LED%204%201   a command, as typed on serial ("LED 4 1")
+//   GET /                "RA robot ok" (to test from a browser)
+// USB serial keeps working as before. 0 = no WiFi (also for a Pico without W).
+// Needs the board "Raspberry Pi Pico W" in Arduino IDE (Tools > Board) and
+// wifi_secrets.h (copy wifi_secrets.example.h; it is not in git).
+#define USE_WIFI 1
+#if USE_WIFI
+#if !defined(ARDUINO_RASPBERRY_PI_PICO_W) && !defined(PICO_CYW43_SUPPORTED)
+#error "USE_WIFI needs Tools > Board > Raspberry Pi Pico W (or set USE_WIFI 0)"
+#endif
+#if __has_include("wifi_secrets.h")
+#include "wifi_secrets.h"
+#else
+#error "Copy wifi_secrets.example.h to wifi_secrets.h (same folder) and set the password"
+#endif
+#include <WiFi.h>
+#endif
+
 repeating_timer_t timer;
 const int N = 2500;  //number of samples in each buffer
 const int samplingFreq = 25000;
@@ -312,11 +334,78 @@ float boundAngle(float a) {
   return a;
 }
 
-// Commands from the web page over USB serial, one per line:
+//----------------------------------------------------------------------
+// Output: every line goes to USB serial and, with USE_WIFI, to the WiFi
+// clients. Print to `out` instead of `Serial` (same print() / println()).
+#if USE_WIFI
+// Lines waiting for the WiFi clients, already framed as SSE events
+// ("data: <line>\n\n"). Each client sends from its own position; one that
+// falls more than a ring behind skips to the newest event. Never blocks.
+const uint32_t TX_RING = 8192;            // bytes, power of 2 (~1.5 s of mode 3 output)
+char txRing[TX_RING];
+uint32_t txHead = 0;                      // bytes ever added
+uint32_t txEventStart = 0;                // txHead where the newest event starts
+void ringPut(const char* s, int n) {
+  for (int i = 0; i < n; i++) txRing[(txHead++) & (TX_RING - 1)] = s[i];
+}
+void pushEvent(const char* line, int n) {
+  txEventStart = txHead;
+  ringPut("data: ", 6);
+  ringPut(line, n);
+  ringPut("\n\n", 2);
+}
+#endif
+
+class Out : public Print {
+ public:
+  size_t write(uint8_t c) override { return write(&c, 1); }
+  size_t write(const uint8_t* buf, size_t n) override {
+    Serial.write(buf, n);  // returns at once when no computer has the port open
+#if USE_WIFI
+    for (size_t i = 0; i < n; i++) {
+      const char c = (char)buf[i];
+      if (c == '\r') continue;
+      if (c != '\n') {
+        if (len < (int)sizeof(line)) line[len++] = c;
+        continue;
+      }
+      pushEvent(line, len);
+      len = 0;
+    }
+#endif
+    return n;
+  }
+ private:
+#if USE_WIFI
+  char line[400];  // longest line: the RSS line, 27 values (~220 chars)
+  int len = 0;
+#endif
+};
+Out out;
+
+// Commands from the web page, one per line (USB serial or WiFi /cmd):
 //   LED <number> <0|1>     e.g. "LED 4 0" stops using LED 4, "LED 4 1" uses it again
 //   TIMING <0|1>           print a "# T ..." line with the loop timing after each loop
+//   WIFI                   print the "# WIFI ..." line again
 // Each accepted command is answered with "# LED <number> <0|1>" or
 // "# TIMING <0|1>" (the web page ignores lines that start with #).
+void printWifiInfo();
+void handleCommand(const char* buf) {
+  int num, on;
+  if (sscanf(buf, "LED %d %d", &num, &on) == 2) {
+    for (int k = 0; k < N_LED; k++) {
+      if (LED_NUM[k] != num) continue;
+      LED_ON[k] = (on != 0);
+      out.print("# LED "); out.print(num); out.print(" "); out.println(LED_ON[k] ? 1 : 0);
+    }
+  } else if (sscanf(buf, "TIMING %d", &on) == 1) {
+    PRINT_TIMING = (on != 0);
+    out.print("# TIMING "); out.println(PRINT_TIMING ? 1 : 0);
+  } else if (strcmp(buf, "WIFI") == 0) {
+    printWifiInfo();
+  }
+}
+
 void readCommands() {
   static char buf[32];
   static int len = 0;
@@ -329,19 +418,141 @@ void readCommands() {
     }
     buf[len] = 0;
     len = 0;
-    int num, on;
-    if (sscanf(buf, "LED %d %d", &num, &on) == 2) {
-      for (int k = 0; k < N_LED; k++) {
-        if (LED_NUM[k] != num) continue;
-        LED_ON[k] = (on != 0);
-        Serial.print("# LED "); Serial.print(num); Serial.print(" "); Serial.println(LED_ON[k] ? 1 : 0);
-      }
-    } else if (sscanf(buf, "TIMING %d", &on) == 1) {
-      PRINT_TIMING = (on != 0);
-      Serial.print("# TIMING "); Serial.println(PRINT_TIMING ? 1 : 0);
-    }
+    handleCommand(buf);
   }
 }
+
+//----------------------------------------------------------------------
+// WiFi access point + tiny HTTP server (core 0 only: arduino-pico allows
+// WiFi code on core 0 only without FreeRTOS). wifiPoll() never waits for
+// the network; loop() calls it while it waits for the next sample window,
+// which is idle time (about 20 ms of every 50 ms loop).
+#if USE_WIFI
+static_assert(sizeof(WIFI_AP_PASS) - 1 >= 8, "WIFI_AP_PASS needs at least 8 characters (WPA2)");
+const IPAddress WIFI_IP(192, 168, 42, 1);  // set explicitly: the core's default differs between versions
+WiFiServer server(80);
+const int MAX_CONN = 4;                   // the Pico W access point takes 4 stations
+struct Conn {
+  WiFiClient c;
+  bool sse;            // true = /events stream, else still reading the request
+  uint32_t pos;        // next ring byte to send (sse)
+  char req[256];       // request so far
+  int len;
+  unsigned long since; // millis() when accepted
+};
+Conn conns[MAX_CONN];
+bool wifiOk = false;
+
+void printWifiInfo() {
+  out.print("# WIFI ap="); out.print(WIFI_AP_SSID);
+  out.print(wifiOk ? " ip=" : " FAILED ip="); out.println(WiFi.softAPIP());
+}
+
+void wifiBegin() {
+  WiFi.mode(WIFI_AP);
+  WiFi.softAPConfig(WIFI_IP, WIFI_IP, IPAddress(255, 255, 255, 0));
+  wifiOk = WiFi.beginAP(WIFI_AP_SSID, WIFI_AP_PASS) == WL_CONNECTED;
+  server.begin();
+  server.setNoDelay(true);
+  printWifiInfo();  // lost on serial if no computer is listening yet: send "WIFI" to see it
+}
+
+// Every reply lets a page opened from file:// read it (CORS) and allows
+// Chrome's private-network check (the robot is on a local address).
+const char CORS[] = "Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Private-Network: true\r\n";
+
+// (slot numbers, not Conn&: the Arduino IDE puts its own function
+// prototypes above struct Conn)
+void replyAndClose(int slot, const char* status, const char* extra, const char* body) {
+  Conn& k = conns[slot];
+  char head[400];
+  const int n = snprintf(head, sizeof(head),
+    "HTTP/1.1 %s\r\n%s%sContent-Type: text/plain\r\nContent-Length: %u\r\nConnection: close\r\n\r\n%s",
+    status, CORS, extra, (unsigned)strlen(body), body);
+  k.c.write((const uint8_t*)head, n < (int)sizeof(head) ? n : (int)sizeof(head) - 1);
+  k.c.stop();
+}
+
+// "%20" and "+" -> " "; stops at '&', ' ' or the end
+void urlDecode(const char* s, char* dst, int size) {
+  int n = 0;
+  while (*s && *s != '&' && *s != ' ' && n < size - 1) {
+    if (*s == '+') { dst[n++] = ' '; s++; }
+    else if (*s == '%' && isxdigit((unsigned char)s[1]) && isxdigit((unsigned char)s[2])) {
+      const char hex[3] = { s[1], s[2], 0 };
+      dst[n++] = (char)strtol(hex, NULL, 16);
+      s += 3;
+    } else dst[n++] = *s++;
+  }
+  dst[n] = 0;
+}
+
+void handleRequest(int slot) {
+  Conn& k = conns[slot];
+  const char* r = k.req;
+  if (strncmp(r, "OPTIONS ", 8) == 0) {
+    replyAndClose(slot, "204 No Content",
+      "Access-Control-Allow-Methods: GET\r\nAccess-Control-Allow-Headers: *\r\n", "");
+  } else if (strncmp(r, "GET /events", 11) == 0) {
+    char head[300];
+    const int n = snprintf(head, sizeof(head),
+      "HTTP/1.1 200 OK\r\n%sContent-Type: text/event-stream\r\nCache-Control: no-cache\r\n"
+      "Connection: keep-alive\r\n\r\nretry: 1000\n\n", CORS);
+    k.c.write((const uint8_t*)head, n);
+    k.sse = true;
+    k.pos = txHead;  // only lines from now on
+  } else if (strncmp(r, "GET /cmd?", 9) == 0) {
+    const char* p = strstr(r + 9, "c=");
+    char cmd[32];
+    urlDecode(p ? p + 2 : "", cmd, sizeof(cmd));
+    replyAndClose(slot, "204 No Content", "", "");
+    handleCommand(cmd);
+  } else if (strncmp(r, "GET / ", 6) == 0) {
+    replyAndClose(slot, "200 OK", "", "RA robot ok\n");
+  } else {
+    replyAndClose(slot, "404 Not Found", "", "not found\n");
+  }
+}
+
+void wifiPoll() {
+  WiFiClient nc = server.accept();
+  if (nc) {
+    int i = 0;
+    while (i < MAX_CONN && conns[i].c.connected()) i++;
+    if (i == MAX_CONN) nc.stop();  // all slots busy
+    else {
+      nc.setNoDelay(true);
+      conns[i].c = nc;
+      conns[i].sse = false;
+      conns[i].len = 0;
+      conns[i].since = millis();
+    }
+  }
+  for (int i = 0; i < MAX_CONN; i++) {
+    Conn& k = conns[i];
+    if (!k.c.connected()) continue;
+    if (!k.sse) {
+      while (k.c.available() > 0 && k.len < (int)sizeof(k.req) - 1) k.req[k.len++] = (char)k.c.read();
+      k.req[k.len] = 0;
+      if (strstr(k.req, "\r\n\r\n") || k.len == (int)sizeof(k.req) - 1) handleRequest(i);
+      else if (millis() - k.since > 2000) k.c.stop();  // never finished its request
+      continue;
+    }
+    while (k.c.available() > 0) k.c.read();           // nothing expected from an SSE client
+    if (txHead - k.pos > TX_RING - 512) k.pos = txEventStart;  // too slow: skip to the newest event
+    const uint32_t pending = txHead - k.pos;
+    const int room = k.c.availableForWrite();
+    if (!pending || room <= 0) continue;
+    const uint32_t off = k.pos & (TX_RING - 1);
+    uint32_t n = pending;
+    if (n > (uint32_t)room) n = room;
+    if (n > TX_RING - off) n = TX_RING - off;           // up to the end of the ring; the rest next time
+    k.pos += k.c.write((const uint8_t*)txRing + off, n);
+  }
+}
+#else
+void printWifiInfo() {}
+#endif
 
 //----------------------------------------------------------------------
 void setup() {
@@ -349,6 +560,9 @@ void setup() {
   analogReadResolution(10);
   initEkf();
   initDemod();
+#if USE_WIFI
+  wifiBegin();  // before the sampling timer starts
+#endif
   hardware_alarm_claim(0);
   add_repeating_timer_us(-40, timer_callback, NULL, &timer);
 }
@@ -366,8 +580,14 @@ void loop() {
   // of the windows falling behind the newest samples.
   static uint32_t lastEnd = 0;
   uint32_t end;
+#if USE_WIFI
+  wifiPoll();   // at least once per loop, even when there is no time to wait
+#endif
   do {
     end = sampleCount;  // one 32-bit read: atomic on the Cortex-M0+
+#if USE_WIFI
+    if (end < N || end < lastEnd + (uint32_t)UPDATE_EVERY) wifiPoll();  // serve WiFi while idle
+#endif
   } while (end < N || end < lastEnd + (uint32_t)UPDATE_EVERY);
   lastEnd = end;
   // the window is the N samples before slot `end`
@@ -409,12 +629,12 @@ void loop() {
       zn(N_PD*f+g) = RSS[f][g];
       // Serial.print("RSS"); 
       if (mode == 1 || mode == 3){
-        Serial.print(RSS[f][g], 4);  // 4 decimals: the default 2 is too coarse for calibration
-        Serial.print(", ");
+        out.print(RSS[f][g], 4);  // 4 decimals: the default 2 is too coarse for calibration
+        out.print(", ");
       }
     }
   if (mode == 1 || mode == 3){  
-    Serial.println("");
+    out.println("");
   }
 
   // Use the real time since the previous update as T (it was fixed at 0.2 s
@@ -466,21 +686,21 @@ void loop() {
     float deg = xHnm1nm1(ITH) / M_PI * 180.0;
     float zcm = xHnm1nm1(IZ) * 100.0;
     int q = (xcm >= 0) ? (ycm >= 0 ? 1 : 4) : (ycm >= 0 ? 2 : 3);
-    Serial.print("Quadrant "); Serial.print(q); Serial.print(": ");
-    Serial.print(xcm); Serial.print(", ");
-    Serial.print(ycm); Serial.print(", ");
-    Serial.print(deg); Serial.print(", ");
-    Serial.println(zcm);
+    out.print("Quadrant "); out.print(q); out.print(": ");
+    out.print(xcm); out.print(", ");
+    out.print(ycm); out.print(", ");
+    out.print(deg); out.print(", ");
+    out.println(zcm);
   }
   if (PRINT_TIMING) {
     // ms spent waiting for the window, demodulating and in the EKF (which
     // here includes printing the RSS line in mode 1 / 3); total = the whole
     // loop up to here, with the position line. total is the update period.
     // wait = time spent waiting for the next window (sampling runs all the time)
-    Serial.print("# T wait="); Serial.print((tSampled - tStart) / 1000.0f, 1);
-    Serial.print(" demod="); Serial.print((tDemod - tSampled) / 1000.0f, 1);
-    Serial.print(" ekf="); Serial.print((tEkf - tDemod) / 1000.0f, 1);
-    Serial.print(" total="); Serial.println((micros() - tStart) / 1000.0f, 1);
+    out.print("# T wait="); out.print((tSampled - tStart) / 1000.0f, 1);
+    out.print(" demod="); out.print((tDemod - tSampled) / 1000.0f, 1);
+    out.print(" ekf="); out.print((tEkf - tDemod) / 1000.0f, 1);
+    out.print(" total="); out.println((micros() - tStart) / 1000.0f, 1);
   }
 //
   unsigned long time2 = millis();

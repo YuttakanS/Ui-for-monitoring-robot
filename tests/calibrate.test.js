@@ -148,7 +148,7 @@ test('fitGamma shows a photodiode that reads 10 % high', function () {
 });
 
 test('copy.ino prints RSS with 4 decimals', function () {
-  assert.match(INO, /Serial\.print\(RSS\[f\]\[g\], 4\);/);
+  assert.match(INO, /out\.print\(RSS\[f\]\[g\], 4\);/);
 });
 
 test('averageRss: mean and spread', function () {

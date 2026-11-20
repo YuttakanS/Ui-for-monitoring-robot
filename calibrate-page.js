@@ -10,7 +10,7 @@
 
   function $(id) { return document.getElementById(id); }
   var el = {
-    connect: $('btnConnect'), demo: $('btnDemo'), dot: $('statusDot'), status: $('statusText'), rate: $('rate'),
+    connect: $('btnConnect'), wifiBtn: $('btnWifi'), wifiHost: $('wifiHost'), demo: $('btnDemo'), dot: $('statusDot'), status: $('statusText'), rate: $('rate'),
     notice: $('notice'), noticeText: $('noticeText'),
     form: $('poseForm'), x: $('inX'), y: $('inY'), th: $('inTh'), n: $('inN'), record: $('btnRecord'),
     bar: $('progressBar'), recText: $('recText'), presets: $('presets'),
@@ -28,7 +28,8 @@
   } catch (e) { /* storage unavailable */ }
 
   var state = {
-    source: 'idle',          // idle | serial | demo
+    source: 'idle',          // idle | serial | wifi | demo
+    wifiUp: false,           // WiFi event stream open
     poses: [],
     rec: null,               // { pose, need, lines }
     rssTimes: [],            // arrival times of RSS lines (rate)
@@ -56,9 +57,12 @@
   function setSource(src) {
     state.source = src;
     el.connect.textContent = src === 'serial' ? 'ตัดการเชื่อมต่อ' : 'เชื่อมต่อ Serial';
+    el.wifiBtn.textContent = src === 'wifi' ? 'ตัด WiFi' : 'เชื่อมต่อ WiFi';
     el.demo.textContent = src === 'demo' ? 'หยุด Demo' : 'Demo';
-    el.demo.disabled = src === 'serial';
-    el.connect.disabled = src === 'demo';
+    el.demo.disabled = src === 'serial' || src === 'wifi';
+    el.connect.disabled = src === 'demo' || src === 'wifi';
+    el.wifiBtn.disabled = src === 'demo' || src === 'serial';
+    el.wifiHost.disabled = src === 'wifi';
     if (src === 'idle') cancelRec();
     updateStatus();
   }
@@ -67,13 +71,16 @@
     state.rssTimes = state.rssTimes.filter(function (t) { return now - t < 5000; });
     var hz = state.rssTimes.length / 5;
     el.rate.textContent = (hz < 10 ? hz.toFixed(1) : Math.round(hz)) + ' Hz';
-    el.dot.className = 'dot' + (state.source === 'serial' ? (state.rssLines ? ' on' : ' warn') : state.source === 'demo' ? ' demo' : '');
-    el.status.textContent = state.source === 'serial' ? (state.rssLines ? 'เชื่อมต่อแล้ว' : 'เชื่อมต่อแล้ว รอบรรทัด RSS')
+    var live = state.source === 'serial' || state.source === 'wifi';
+    var up = state.source === 'serial' || state.wifiUp;
+    el.dot.className = 'dot' + (live ? (up && state.rssLines ? ' on' : ' warn') : state.source === 'demo' ? ' demo' : '');
+    el.status.textContent = state.source === 'wifi' && !state.wifiUp ? 'กำลังติดต่อหุ่นทาง WiFi…'
+      : live ? (state.rssLines ? 'เชื่อมต่อแล้ว' + (state.source === 'wifi' ? ' (WiFi)' : '') : 'เชื่อมต่อแล้ว รอบรรทัด RSS')
       : state.source === 'demo' ? 'Demo (ข้อมูลจำลอง)' : 'ยังไม่เชื่อมต่อ';
     el.record.disabled = state.source === 'idle' && !state.rec;
     if (!state.rec) el.recText.textContent = state.source === 'idle' ? 'เชื่อมต่อบอร์ดหรือกด Demo ก่อน' : 'พร้อมเก็บค่า';
     // a board in mode 2 sends only Quadrant lines
-    if (state.source === 'serial' && !state.rssLines && now - state.connectedAt > 3000) {
+    if (live && up && !state.rssLines && now - state.connectedAt > 3000) {
       showNotice(state.quadLines
         ? 'บอร์ดส่งแต่บรรทัดพิกัด ไม่มีบรรทัด RSS: ตั้ง mode = 3 (หรือ 1) ใน copy.ino แล้ว upload ใหม่'
         : 'ยังไม่มีข้อมูลจากบอร์ด: ตรวจว่า upload firmware แล้ว และไม่มีโปรแกรมอื่นเปิดพอร์ตอยู่');
@@ -92,7 +99,7 @@
   }
 
   function onRss(rss) {
-    if (!state.rssLines && state.source === 'serial') showNotice('');
+    if (!state.rssLines && (state.source === 'serial' || state.source === 'wifi')) showNotice('');
     state.rssLines++;
     state.rssTimes.push(performance.now());
     renderLive(rss);
@@ -335,6 +342,7 @@
   }
 
   function send(text) {
+    if (state.source === 'wifi') { if (wifi) wifi.send(text); return; }
     var p = port;
     if (!p || !p.writable) return;
     sendChain = sendChain.then(async function () {
@@ -390,6 +398,50 @@
 
   el.connect.addEventListener('click', function () { if (state.source === 'serial') disconnect(); else connect(); });
 
+  /* ---------- WiFi (task #3): the robot's access point, wifi-link.js ---------- */
+  var wifi = null;
+  function connectWifi() {
+    var host = el.wifiHost.value;
+    if (!RAWifi.normalizeHost(host)) { showNotice('ที่อยู่หุ่นไม่ถูกต้อง: ' + host + ' (ตัวอย่าง 192.168.42.1)'); return; }
+    RAWifi.saveHost(host);
+    state.rssLines = 0; state.quadLines = 0; state.connectedAt = performance.now(); state.wifiUp = false;
+    showNotice('');
+    var link = RAWifi.openWifi(host, {
+      onLine: onLine,
+      onOpen: function () {
+        if (wifi !== link) return;
+        state.wifiUp = true; state.connectedAt = performance.now();
+        showNotice('');
+        sendLit();   // the robot may have restarted
+        updateStatus();
+      },
+      onError: function (kind) {
+        if (wifi !== link) return;
+        state.wifiUp = false;
+        if (kind === 'closed') {
+          disconnectWifi();
+          showNotice('หุ่นที่ ' + link.base + ' ไม่ตอบเป็นข้อมูลที่อ่านได้: ตรวจที่อยู่ แล้วกดเชื่อมต่อ WiFi ใหม่');
+        } else {
+          showNotice('ติดต่อหุ่นที่ ' + link.base + ' ไม่ได้: ตรวจว่าคอมต่อ WiFi ของหุ่น (เช่น RA-Robot) อยู่ กำลังลองใหม่เอง… (จุดที่เก็บแล้วยังอยู่)');
+        }
+        updateStatus();
+      }
+    });
+    wifi = link;
+    setSource('wifi');
+  }
+  function disconnectWifi() {
+    if (wifi) wifi.close();
+    wifi = null;
+    state.wifiUp = false;
+    if (state.source === 'wifi') setSource('idle');
+  }
+  el.wifiHost.value = RAWifi.savedHost();
+  el.wifiBtn.addEventListener('click', function () { if (state.source === 'wifi') disconnectWifi(); else connectWifi(); });
+  el.wifiHost.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && state.source === 'idle') { e.preventDefault(); connectWifi(); }
+  });
+
   /* ---------- demo: RSS lines from the model at the pose in the form ---------- */
   var demoTimer = null;
   function startDemo() {
@@ -419,7 +471,7 @@
   }
   el.demo.addEventListener('click', function () { if (state.source === 'demo') stopDemo(); else startDemo(); });
 
-  if (!navigator.serial) showNotice('Browser นี้ไม่รองรับ Web Serial ใช้ Chrome หรือ Edge (ปุ่ม Demo ยังใช้ได้)');
+  if (!navigator.serial) showNotice('Browser นี้ไม่รองรับ Web Serial ใช้ Chrome หรือ Edge (WiFi และปุ่ม Demo ยังใช้ได้)');
   renderLit();
   renderLive(new Array(C.N_LED * C.N_PD).fill(0));
   setSource('idle');

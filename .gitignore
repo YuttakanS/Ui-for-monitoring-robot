@@ -1,0 +1,4 @@
+# Secrets (CLAUDE.md: never commit credentials)
+.env
+*.pem
+firmware/**/wifi_secrets.h

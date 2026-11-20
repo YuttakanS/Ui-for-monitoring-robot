@@ -56,13 +56,25 @@ test('parseLine: anything else is rejected (counted as a parse error, never a sa
   ].forEach(function (l) { assert.equal(A.parseLine(l), null, JSON.stringify(l)); });
 });
 
+test('isRssLine: the mode 1 / 3 RSS line is skipped, not a parse error', function () {
+  var C = require('../calibrate.js');
+  var rss = []; for (var i = 0; i < 27; i++) rss.push(i % 4 ? 0.1234 * i : 0);
+  var line = C.formatRssLine(rss);                     // exactly as copy.ino prints it
+  assert.ok(A.isRssLine(line));
+  assert.ok(A.isRssLine(line.trim().replace(/,$/, ''))); // without the trailing ", "
+  assert.equal(A.parseLine(line), null);
+  ['0.1, 0.2, 0.3', line.replace('0.0000', 'nan'), line + '1.0, ', 'Quadrant 1: 1, 2, 3', '']
+    .forEach(function (l) { assert.equal(A.isRssLine(l), false, l.slice(0, 30)); });
+});
+
 test('parseLine keeps the quadrant the board sent', function () {
   // the page shows the board's quadrant, even if it disagrees with x / y
   assert.equal(A.parseLine('Quadrant 2: 10.00, 10.00, 0.00').quadrant, 2);
 });
 
 test('copy.ino prints the line parseLine reads: Quadrant <n>: x, y, heading, z', function () {
-  assert.match(INO, /Serial\.print\("Quadrant "\); Serial\.print\(q\); Serial\.print\(": "\);\s*Serial\.print\(xcm\); Serial\.print\(", "\);\s*Serial\.print\(ycm\); Serial\.print\(", "\);\s*Serial\.print\(deg\); Serial\.print\(", "\);\s*Serial\.println\(zcm\);/);
+  // (out = USB serial + WiFi since task #3)
+  assert.match(INO, /out\.print\("Quadrant "\); out\.print\(q\); out\.print\(": "\);\s*out\.print\(xcm\); out\.print\(", "\);\s*out\.print\(ycm\); out\.print\(", "\);\s*out\.print\(deg\); out\.print\(", "\);\s*out\.println\(zcm\);/);
   // same quadrant numbering as quadrantOf()
   assert.match(INO, /int q = \(xcm >= 0\) \? \(ycm >= 0 \? 1 : 4\) : \(ycm >= 0 \? 2 : 3\);/);
 });
@@ -74,7 +86,7 @@ test('parseLedAck: the board\'s reply to LED <n> <0|1>', function () {
   ['# TIMING 1', '# LED 4', '# LED 4 2', '# LED x 1', 'LED 4 1', '# LED 4 10', 'Quadrant 1: 1, 2, 3']
     .forEach(function (l) { assert.equal(A.parseLedAck(l), null, l); });
   // copy.ino answers in that form
-  assert.match(INO, /Serial\.print\("# LED "\); Serial\.print\(num\); Serial\.print\(" "\); Serial\.println\(LED_ON\[k\] \? 1 : 0\);/);
+  assert.match(INO, /out\.print\("# LED "\); out\.print\(num\); out\.print\(" "\); out\.println\(LED_ON\[k\] \? 1 : 0\);/);
 });
 
 test('createLineSplitter: chunks split anywhere, any line ending', function () {
