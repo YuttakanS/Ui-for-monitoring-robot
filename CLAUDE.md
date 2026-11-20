@@ -72,6 +72,15 @@ branch `feature/task-1-ui` แบ่งงานเป็น 4 phase / 18 ข้
   - ถ้าปิด LED ทุกดวง ตำแหน่งจะไหลไปตามความเร็วล่าสุด ยังไม่มีอะไรกันไว้
   - `npm test` มี test ของ calibration (`tests/calibrate.test.js`), คณิตศาสตร์ firmware (`tests/firmware-math.test.js`) และหน้าหลัก (`tests/app.test.js`, 2026-11-20: ตัวแยกบรรทัด serial, คำตอบ `# LED`, CSV raw และ z ดิบ, `LEDS` ตรงกับ `LED_ON`/`p` ใน `copy.ino`, I18N) ยังไม่มี lint หรือ build
 
+## Task #3 WiFi (2026-11-20, branch `feature/task-3-wifi`)
+- ผู้ใช้ต้องการให้หน้าเว็บคุยกับหุ่นผ่าน WiFi บอร์ดเป็น **Pico W** ใช้โหมด **AP** (หุ่นปล่อย WiFi เอง) ใช้ได้ **ทั้งสองหน้า** และสาย USB ยังใช้ได้
+- วิธีที่ใช้: HTTP + Server-Sent Events (`/events`, `/cmd?c=`) ที่ `192.168.42.1` ข้อความรูปแบบเดิมทั้งหมด firmware ส่ง output ผ่าน `out` (Serial + ring 8 KB) WiFi อยู่บน **core 0** เท่านั้น (ข้อจำกัดของ arduino-pico แบบไม่มี FreeRTOS) โดยเรียก `wifiPoll()` ตอนรอ window ถัดไป
+- SSID/รหัสอยู่ใน `firmware/copy/wifi_secrets.h` (gitignore) commit แค่ `wifi_secrets.example.h`
+- เครื่องนี้มี `arduino-cli` มากับ Arduino IDE ที่ `%LOCALAPPDATA%\Programs\Arduino IDE\resources\app\lib\backend\resources\arduino-cli.exe` และ core rp2040 6.4.0 จึง compile firmware เองได้ (`--fqbn rp2040:rp2040:rpipicow`) ให้ compile ในสำเนาชั่วคราวที่มี `wifi_secrets.h` แต่ยังต้องให้ผู้ใช้ upload และทดสอบบนบอร์ด
+- หน้า Position Monitor ข้ามบรรทัด RSS (mode 1/3) โดยไม่นับเป็น error แล้ว (เพราะผ่าน WiFi เปิดสองหน้าพร้อมกันได้)
+- ทดสอบโดยไม่ใช้บอร์ด: `node tools/fake-robot.js 8080` แล้วต่อหน้าเว็บไปที่ `127.0.0.1:8080`
+- **ยังไม่ได้วัดบนบอร์ด:** 20 Hz ยังได้ไหมตอน WiFi เปิด, noise ของ ADC เทียบ `USE_WIFI 0/1`, ใช้แบตเตอรี่โดยไม่มี USB, Chrome/Edge จะถามสิทธิ์ local network หรือเปล่า
+
 ## การทำงาน
 - ก่อนแก้โค้ดขนาดใหญ่ ให้สรุปแผนสั้น ๆ และรอการยืนยัน
 - หลังแก้โค้ด ให้รันการตรวจสอบที่มีอยู่ (test / lint / build) และรายงานผล

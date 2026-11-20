@@ -229,6 +229,58 @@ collected its own window),
 demodulating and in the EKF, and the whole loop. The web pages skip lines
 that start with `#`, so use the Serial Monitor to read them.
 
+```
+WIFI                   prints  # WIFI ap=<name> ip=<address>  again
+```
+
+## WiFi (task #3, 2026-11-20, branch `feature/task-3-wifi`)
+The Pico W creates its own WiFi network (access point) and sends the same
+lines as on USB serial to the web pages; both pages have a "เชื่อมต่อ WiFi"
+button. USB serial keeps working as before, and both can be used together.
+
+Set up once:
+1. Copy `wifi_secrets.example.h` to `wifi_secrets.h` (same folder) and set
+   the network name and a password (8–63 characters). `wifi_secrets.h` is in
+   `.gitignore`: never commit it.
+2. Arduino IDE: Tools > Board > **Raspberry Pi Pico W** (with "Raspberry Pi
+   Pico" the build stops with a message). Upload.
+3. Serial Monitor: `# WIFI ap=RA-Robot ip=192.168.42.1` at power-up (send
+   `WIFI` to see it again).
+4. Join the robot's network from the computer, open `index.html` or
+   `calibrate.html`, check the address (Settings on the main page; default
+   `192.168.42.1`) and press "เชื่อมต่อ WiFi". The computer has no internet
+   while it is on the robot's network.
+
+`USE_WIFI 0` turns all of it off (and builds for a Pico without W).
+
+How it works:
+- HTTP on port 80: `GET /events` is a Server-Sent Events stream, one
+  `data: <line>` event per output line; `GET /cmd?c=LED%204%201` runs a
+  command (same as typing it on serial); `GET /` answers `RA robot ok`.
+  Replies carry `Access-Control-Allow-Origin: *` (the pages are opened from
+  `file://`) and `Access-Control-Allow-Private-Network: true`.
+- Everything printed goes through `out` (USB serial + a ring of 8 KB for the
+  WiFi clients; a client that falls behind skips to the newest line, the
+  loop never waits for the network). Up to 4 clients, e.g. both pages at once.
+- arduino-pico allows WiFi code on core 0 only (without FreeRTOS), so
+  `wifiPoll()` runs in `loop()` while it waits for the next sample window
+  (about 20 ms of every 50 ms loop).
+- Built with arduino-cli 6.4.0 core for `rp2040:rp2040:rpipicow`: 367 KB
+  flash (17 %), 120 KB RAM (45 %). Without WiFi: 68 KB / 47 KB.
+
+To check on the board (not done yet):
+- `TIMING 1` with a page connected over WiFi: `total` should stay about
+  50 ms (20 Hz).
+- ADC noise: with the robot still, record one pose (100 lines) on the
+  calibration page with `USE_WIFI 1` and with `USE_WIFI 0`; the spread and
+  the position jitter should not get worse (the radio draws current in
+  bursts).
+- Unplug USB and run from the battery: the pages should keep receiving
+  over WiFi (`Serial` drops output at once when no computer has it open).
+
+Without the board, `node tools/fake-robot.js 8080` serves the same endpoints
+with simulated lines (mode 3); connect the pages to `127.0.0.1:8080`.
+
 ## Update rate (2026-11-19, branch `feature/task-2-realtime`)
 One update took about 0.33 s (3.0 Hz) with LED 1, 2, 7, 8: 0.1 s to collect
 2500 samples at 25 kHz and the rest to compute, on a Pico without an FPU.

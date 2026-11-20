@@ -37,6 +37,8 @@
     <h1>Calibrate PtxGamma</h1>
     <div class="controls">
       <button id="btnConnect" class="btn primary" type="button">เชื่อมต่อ Serial</button>
+      <button id="btnWifi" class="btn primary" type="button">เชื่อมต่อ WiFi</button>
+      <label class="field">ที่อยู่หุ่น <input id="wifiHost" class="wifi-host" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="192.168.42.1"></label>
       <button id="btnDemo" class="btn secondary" type="button">Demo</button>
       <a href="index.html">← Position Monitor</a>
     </div>
@@ -58,7 +60,8 @@
       <div class="card-head"><h2>1. เตรียม</h2></div>
       <ol class="steps">
         <li>ใน <code>firmware/copy/copy.ino</code> ตั้ง <code>mode = 3</code> และ <code>ESTIMATE_Z = false</code> แล้ว upload</li>
-        <li>เลือก LED ที่ติดอยู่จริงด้านล่าง แล้วปิดหน้า Position Monitor ก่อน (เปิดพอร์ตพร้อมกันไม่ได้) กด <b>เชื่อมต่อ Serial</b> หน้านี้จะเปิด/ปิด LED ในบอร์ดตามที่เลือกให้เอง</li>
+        <li>เลือก LED ที่ติดอยู่จริงด้านล่าง แล้วปิดหน้า Position Monitor ก่อน (เปิดพอร์ตพร้อมกันไม่ได้) กด <b>เชื่อมต่อ Serial</b> หน้านี้จะเปิด/ปิด LED ในบอร์ดตามที่เลือกให้เอง
+          หรือต่อคอมเข้า WiFi ของหุ่นแล้วกด <b>เชื่อมต่อ WiFi</b> (ไม่ต้องปิดหน้า Position Monitor)</li>
         <li>วางหุ่นบนพื้น หันมุม <b>θ = 0°</b>: photodiode ที่ต่อขา <b>GP28</b> หันไปทาง <b>+X</b> (ทางขวาของแผนที่)</li>
         <li>ปิดไฟห้องหรือคุมแสงให้เหมือนกันทุกจุด อย่าแตะหุ่นตอนเก็บค่า</li>
         <li>เก็บครบทุกจุดที่แนะนำ แล้ว copy บรรทัด <code>PtxGamma</code> ในข้อ 4 ไปใส่ <code>copy.ino</code> เปลี่ยนกลับเป็น <code>mode = 2</code></li>
@@ -136,6 +139,7 @@
     </section>
   </main>
 
+  <script src="wifi-link.js"></script>
   <script src="calibrate.js"></script>
   <script src="calibrate-page.js"></script>
 </body>

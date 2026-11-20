@@ -20,6 +20,14 @@
     return { quadrant: +m[1], x: +m[2], y: +m[3], angle: +m[4], z: hasZ ? +m[5] : 0, hasZ: hasZ };
   }
 
+  // The raw RSS line that copy.ino prints in mode 1 / 3 for the calibration
+  // page: "0.0000, 0.0000, 0.9100, ..., " (N_LED x N_PD = 27 numbers). This
+  // page has no use for it, but it is not a broken line either, so it is
+  // skipped without counting a parse error (over WiFi both pages can be open
+  // while the board is in mode 3).
+  var RSS_RE = /^-?\d+(?:\.\d+)?(?:\s*,\s*-?\d+(?:\.\d+)?){26}\s*,?$/;
+  function isRssLine(raw) { return RSS_RE.test(String(raw).trim()); }
+
   // The board's reply to the command "LED <n> <0|1>": "# LED <n> <0|1>".
   // Returns { led, on } or null for any other line.
   var ACK_RE = /^#\s*LED\s+(\d+)\s+([01])\b/i;
@@ -113,6 +121,9 @@
     th: {
       connect: 'เชื่อมต่อ Serial',
       disconnect: 'ตัดการเชื่อมต่อ',
+      wifiConnect: 'เชื่อมต่อ WiFi',
+      wifiDisconnect: 'ตัด WiFi',
+      wifiHostField: 'ที่อยู่หุ่น (WiFi)',
       demo: 'Demo',
       demoStop: 'หยุด Demo',
       unitField: 'หน่วยพิกัด',
@@ -126,6 +137,8 @@
       statusDemo: 'Demo (ข้อมูลจำลอง)',
       statusStale: 'เชื่อมต่อแล้ว — ยังไม่มีข้อมูลที่อ่านได้',
       statusOn: 'เชื่อมต่อ Serial แล้ว',
+      statusOnWifi: 'เชื่อมต่อ WiFi แล้ว',
+      statusWifiWait: 'กำลังติดต่อหุ่นทาง WiFi…',
       mapTitle: 'แผนที่ตำแหน่ง (มุมมองบน)',
       trail: 'เส้นทาง (จุด)',
       off: 'ปิด',
@@ -145,6 +158,8 @@
       hintStep2: '2. กด "เชื่อมต่อ Serial" แล้วเลือกพอร์ตของบอร์ด',
       hintDemo: 'หรือกด Demo เพื่อทดลองด้วยข้อมูลจำลอง',
       hintNoSerial: 'เบราว์เซอร์นี้ใช้ Serial ไม่ได้ — กด Demo เพื่อทดลองด้วยข้อมูลจำลอง',
+      hintWifi: 'หรือต่อคอมเข้า WiFi ของหุ่น แล้วกด "เชื่อมต่อ WiFi"',
+      hintWaitWifi1: 'ตรวจว่าคอมต่อ WiFi ของหุ่นอยู่ และที่อยู่ในเมนูตั้งค่าถูกต้อง',
       hintWaitTitle: 'เชื่อมต่อแล้ว — กำลังรอข้อมูล',
       hintWait1: 'ตรวจว่า baud rate ในเมนูตั้งค่าตรงกับที่บอร์ดใช้',
       hintWait2: 'บอร์ดต้องส่งบรรทัดแบบ  Quadrant 1: x, y, มุม',
@@ -209,6 +224,9 @@
       errOpen: 'เปิดพอร์ตไม่ได้: {n}',
       errLost: 'การเชื่อมต่อหลุด — สายอาจถูกถอดหรือบอร์ดรีเซ็ต เสียบบอร์ดกลับแล้วกด "เชื่อมต่อใหม่"',
       errLostBack: 'พบบอร์ดเสียบกลับมาแล้ว — กด "เชื่อมต่อใหม่" เพื่ออ่านข้อมูลต่อ',
+      errWifi: 'ติดต่อหุ่นที่ {n} ไม่ได้ — ตรวจว่าคอมต่อ WiFi ของหุ่น (เช่น RA-Robot) อยู่ และหุ่นเปิดอยู่ กำลังลองใหม่เอง…',
+      errWifiClosed: 'หุ่นที่ {n} ไม่ตอบเป็นข้อมูลที่อ่านได้ — ตรวจที่อยู่ในเมนูตั้งค่า แล้วกด "เชื่อมต่อ WiFi" ใหม่',
+      errWifiHost: 'ที่อยู่หุ่นไม่ถูกต้อง: {n} (ตัวอย่าง 192.168.42.1)',
       reconnect: 'เชื่อมต่อใหม่',
       errUnsupported: 'เบราว์เซอร์นี้ไม่รองรับ Web Serial จึงเชื่อมต่อบอร์ดไม่ได้ — ให้เปิดหน้านี้ด้วย Google Chrome หรือ Microsoft Edge (เวอร์ชัน 89 ขึ้นไป) บนคอมพิวเตอร์ ระหว่างนี้ยังกด Demo ดูข้อมูลจำลองได้',
       errInsecure: 'หน้านี้เปิดผ่านที่อยู่ที่ไม่ปลอดภัย เบราว์เซอร์จึงปิด Web Serial — ให้เปิดไฟล์ index.html โดยตรง หรือเปิดผ่าน http://localhost หรือ https:// แทน',
@@ -217,6 +235,9 @@
     en: {
       connect: 'Connect Serial',
       disconnect: 'Disconnect',
+      wifiConnect: 'Connect WiFi',
+      wifiDisconnect: 'Disconnect WiFi',
+      wifiHostField: 'Robot address (WiFi)',
       demo: 'Demo',
       demoStop: 'Stop demo',
       unitField: 'Unit',
@@ -230,6 +251,8 @@
       statusDemo: 'Demo (simulated data)',
       statusStale: 'Connected — no readable data yet',
       statusOn: 'Serial connected',
+      statusOnWifi: 'WiFi connected',
+      statusWifiWait: 'Reaching the robot over WiFi…',
       mapTitle: 'Position map (top view)',
       trail: 'Trail (points)',
       off: 'Off',
@@ -249,6 +272,8 @@
       hintStep2: '2. Press "Connect Serial" and pick its port',
       hintDemo: 'Or press Demo to try with simulated data',
       hintNoSerial: 'This browser can\'t use Serial — press Demo to try with simulated data',
+      hintWifi: 'Or join the robot\'s WiFi and press "Connect WiFi"',
+      hintWaitWifi1: 'Check that this computer is on the robot\'s WiFi and the address in Settings is right',
       hintWaitTitle: 'Connected — waiting for data',
       hintWait1: 'Check that the baud rate in Settings matches the board',
       hintWait2: 'The board must send lines like  Quadrant 1: x, y, angle',
@@ -313,6 +338,9 @@
       errOpen: 'Could not open the port: {n}',
       errLost: 'Connection lost — the cable may be unplugged or the board was reset. Plug it back in and press Reconnect.',
       errLostBack: 'The board is plugged back in — press Reconnect to continue.',
+      errWifi: 'Can\'t reach the robot at {n} — check that this computer is on the robot\'s WiFi (e.g. RA-Robot) and the robot is on. Retrying…',
+      errWifiClosed: 'The robot at {n} did not answer with readable data — check the address in Settings and press "Connect WiFi" again.',
+      errWifiHost: 'Not a valid robot address: {n} (e.g. 192.168.42.1)',
       reconnect: 'Reconnect',
       errUnsupported: 'This browser does not support Web Serial, so it can\'t connect to the board — open this page in Google Chrome or Microsoft Edge (version 89 or later) on a computer. Demo still works in the meantime.',
       errInsecure: 'This page was opened from an insecure address, so the browser turns Web Serial off — open index.html directly, or through http://localhost or https:// instead.',
@@ -343,7 +371,7 @@
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-      parseLine: parseLine, parseLedAck: parseLedAck, logEntry: logEntry, createLineSplitter: createLineSplitter,
+      parseLine: parseLine, isRssLine: isRssLine, parseLedAck: parseLedAck, logEntry: logEntry, createLineSplitter: createLineSplitter,
       quadrantOf: quadrantOf, wrapDeg: wrapDeg,
       niceStep: niceStep, niceCeil: niceCeil, fmtTick: fmtTick,
       fileStamp: fileStamp, toCsv: toCsv, I18N: I18N, translate: translate, UNITS: UNITS, LEDS: LEDS
@@ -444,7 +472,7 @@
   function fmtLen(cm) { var u = unitInfo(); return (cm * u.f).toFixed(u.d); }
 
   var el = {
-    btnConnect: $('btnConnect'), btnDemo: $('btnDemo'), baud: $('baud'), unit: $('unit'), lang: $('lang'), theme: $('theme'),
+    btnConnect: $('btnConnect'), btnWifi: $('btnWifi'), wifiHost: $('wifiHost'), btnDemo: $('btnDemo'), baud: $('baud'), unit: $('unit'), lang: $('lang'), theme: $('theme'),
     btnSettings: $('btnSettings'), settingsPanel: $('settingsPanel'), trailN: $('trailN'),
     btnPause: $('btnPause'), rangeRadios: document.querySelectorAll('input[name=range]'),
     statusDot: $('statusDot'), statusText: $('statusText'), rate: $('rate'), notice: $('notice'),
@@ -492,7 +520,7 @@
       return;
     }
     var s = parseLine(line);
-    if (!s) { state.parseErrors++; return; }
+    if (!s) { if (!isRssLine(line)) state.parseErrors++; return; }
 
     s.t = performance.now();
     s.wall = Date.now();
@@ -555,8 +583,12 @@
     el.notice.hidden = !key;
   }
 
+  // reading a real board, over USB serial or WiFi (not idle, not Demo)
+  function isLive() { return state.source === 'serial' || state.source === 'wifi'; }
+
   function updateButtons() {
     el.btnConnect.textContent = t(state.source === 'serial' ? 'disconnect' : 'connect');
+    el.btnWifi.textContent = t(state.source === 'wifi' ? 'wifiDisconnect' : 'wifiConnect');
     el.btnDemo.textContent = t(state.source === 'demo' ? 'demoStop' : 'demo');
     el.btnRecord.textContent = t(state.recording ? 'recStop' : 'recStart');
     el.btnPause.textContent = t(state.paused ? 'resume' : 'pause');
@@ -565,8 +597,11 @@
   function setSource(src) {
     state.source = src;
     updateButtons();
-    el.btnDemo.disabled = src === 'serial';
+    el.btnDemo.disabled = src === 'serial' || src === 'wifi';
+    el.btnConnect.disabled = !HAS_SERIAL || src === 'wifi';
+    el.btnWifi.disabled = src === 'serial';
     el.baud.disabled = src === 'serial';
+    el.wifiHost.disabled = src === 'wifi';
     state.dirty = true;
     updateStatus();
     updateLedUI();
@@ -576,6 +611,7 @@
   // Writes are chained so two quick toggles never fight over the writer lock.
   var sendChain = Promise.resolve();
   function sendSerial(text) {
+    if (state.source === 'wifi') { if (wifi) wifi.send(text); return; }
     var p = port;
     if (!p || !p.writable) return;
     sendChain = sendChain.then(async function () {
@@ -613,7 +649,7 @@
       btns[i].setAttribute('aria-pressed', ledOn[label] ? 'true' : 'false');
       if (ledFw[label] !== ledOn[label]) synced = false;
     }
-    el.ledNote.textContent = t(state.source !== 'serial' ? 'ledNoteOffline' : synced ? 'ledSynced' : 'ledPending');
+    el.ledNote.textContent = t(!isLive() ? 'ledNoteOffline' : synced ? 'ledSynced' : 'ledPending');
   }
 
   async function connectSerial() {
@@ -706,6 +742,51 @@
   }
 
   /* =====================================================================
+   * WiFi (task #3) - the robot's access point, wifi-link.js
+   * ===================================================================== */
+
+  var wifi = null;      // RAWifi.openWifi() handle while state.source === 'wifi'
+  var wifiUp = false;   // event stream open (false while connecting / retrying)
+
+  function connectWifi() {
+    var host = el.wifiHost.value;
+    if (!window.RAWifi || !RAWifi.normalizeHost(host)) { showNotice('errWifiHost', host); return; }
+    RAWifi.saveHost(host);
+    stopDemo();
+    clearData();
+    showNotice('');
+    ledFw = {};
+    wifiUp = false;
+    var link = RAWifi.openWifi(host, {
+      onLine: feedLine,
+      onOpen: function () {
+        if (wifi !== link) return;
+        wifiUp = true;
+        showNotice('');
+        ledFw = {};      // the robot may have restarted: confirm the LEDs again
+        sendAllLeds();
+        updateStatus(); updateLedUI();
+      },
+      onError: function (kind) {
+        if (wifi !== link) return;
+        wifiUp = false;
+        if (kind === 'closed') { disconnectWifi(); showNotice('errWifiClosed', link.base); }
+        else showNotice('errWifi', link.base);
+        updateStatus();
+      }
+    });
+    wifi = link;
+    setSource('wifi');
+  }
+
+  function disconnectWifi() {
+    if (wifi) wifi.close();
+    wifi = null;
+    wifiUp = false;
+    if (state.source === 'wifi') setSource('idle');
+  }
+
+  /* =====================================================================
    * Demo mode - synthetic lines through the same splitter + parser
    * ===================================================================== */
 
@@ -771,6 +852,9 @@
     else if (state.source === 'serial') {
       cls = stale ? 'dot warn' : 'dot on';
       text = t(stale ? 'statusStale' : 'statusOn');
+    } else if (state.source === 'wifi') {
+      cls = wifiUp && !stale ? 'dot on' : 'dot warn';
+      text = t(!wifiUp ? 'statusWifiWait' : stale ? 'statusStale' : 'statusOnWifi');
     }
     el.statusDot.className = cls;
     setText(el.statusText, text);
@@ -778,7 +862,7 @@
     setText(el.errCount, state.parseErrors.toLocaleString('en-US'));
     el.errCount.classList.toggle('bad', state.parseErrors > 0);
     setText(el.lastAge, state.latest ? ageText(performance.now() - state.latest.t) : '—');
-    el.lastAge.classList.toggle('bad', state.source === 'serial' && stale);
+    el.lastAge.classList.toggle('bad', isLive() && stale);
 
     setText(el.lastRaw, state.lastRaw || '—');
 
@@ -1258,8 +1342,9 @@
   // Next-step guidance shown on the empty map; depends on what the user can do now.
   function hintLines() {
     if (state.source === 'serial') return [t('hintWaitTitle'), t('hintWait1'), t('hintWait2')];
-    if (!HAS_SERIAL) return [t('hintTitle'), t('hintNoSerial')];
-    return [t('hintTitle'), t('hintStep1'), t('hintStep2'), t('hintDemo')];
+    if (state.source === 'wifi') return [t('hintWaitTitle'), t('hintWaitWifi1'), t('hintWait2')];
+    if (!HAS_SERIAL) return [t('hintTitle'), t('hintNoSerial'), t('hintWifi')];
+    return [t('hintTitle'), t('hintStep1'), t('hintStep2'), t('hintWifi'), t('hintDemo')];
   }
 
   function drawHint(ctx, x, yMid) {
@@ -2151,6 +2236,12 @@
   el.btnConnect.addEventListener('click', function () {
     if (state.source === 'serial') disconnectSerial(); else connectSerial();
   });
+  el.btnWifi.addEventListener('click', function () {
+    if (state.source === 'wifi') disconnectWifi(); else connectWifi();
+  });
+  el.wifiHost.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && state.source !== 'wifi' && state.source !== 'serial') { e.preventDefault(); connectWifi(); }
+  });
   el.btnDemo.addEventListener('click', function () {
     if (state.source === 'demo') stopDemo(); else startDemo();
   });
@@ -2256,6 +2347,7 @@
     if (isFinite(savedEvery) && savedEvery > 0) state.recEvery = savedEvery;
   } catch (e) { /* storage unavailable */ }
   el.recEvery.value = String(state.recEvery);
+  el.wifiHost.value = window.RAWifi ? RAWifi.savedHost() : '192.168.42.1';
   var savedTheme = null;
   try { savedTheme = localStorage.getItem('ra.theme'); } catch (e) { /* storage unavailable */ }
   setTheme(savedTheme, false);
@@ -2300,7 +2392,7 @@
     el.btnConnect.setAttribute('aria-describedby', 'noticeText');
     el.btnConnect.title = t('connectDisabled');
     // Chrome/Edge hide Web Serial on insecure pages (e.g. http://192.168...),
-    // which needs a different fix than switching browsers.
+    // which needs a different fix than switching browsers. WiFi still works.
     showNotice(window.isSecureContext === false ? 'errInsecure' : 'errUnsupported');
   }
 
