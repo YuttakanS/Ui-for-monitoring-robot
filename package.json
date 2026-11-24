@@ -3,6 +3,6 @@
   "private": true,
   "description": "Position monitor web UI and Pico firmware for the LED positioning robot",
   "scripts": {
-    "test": "node --test tests/"
+    "test": "node --test \"tests/*.test.js\""
   }
 }

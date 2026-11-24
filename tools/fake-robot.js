@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-/* A stand-in for the robot's WiFi server (copy.ino, USE_WIFI 1), to try the
+/* A stand-in for the robot's WiFi server (robot.ino, USE_WIFI 1), to try the
  * web pages over "WiFi" without the board (task #3).
  *
  *   node tools/fake-robot.js [port]        (default 8080)
  *
  * then on the page connect WiFi to 127.0.0.1:8080. Same endpoints and lines
  * as the firmware in mode 3, at 20 Hz:
- *   GET /events   SSE: an RSS line (the model in calibrate.js) and a
+ *   GET /events   SSE: an RSS line (the model in calib-model.js) and a
  *                 Quadrant line per update; "# ..." replies to commands
  *   GET /cmd?c=   LED <n> <0|1>, TIMING <0|1>, WIFI
  *   GET /         "RA robot ok"
@@ -17,14 +17,14 @@
 'use strict';
 var http = require('node:http');
 var path = require('node:path');
-var C = require(path.join(__dirname, '..', 'calibrate.js'));
+var C = require(path.join(__dirname, '..', 'web', 'js', 'calib-model.js'));
 
 var CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Private-Network': 'true' };
 
 function createRobot(opts) {
   opts = opts || {};
   var periodMs = opts.periodMs || 50;
-  // LED_ON at power-up, as in copy.ino (LED 1, 2, 7, 8)
+  // LED_ON at power-up, as in robot.ino (LED 1, 2, 7, 8)
   var ledOn = {}; C.ROW_LED.forEach(function (led) { ledOn[led] = C.DEFAULT_LIT.indexOf(led) >= 0; });
   var timing = false, hold = null, t0 = Date.now();
   var clients = new Set();
