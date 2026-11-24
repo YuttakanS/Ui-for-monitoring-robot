@@ -59,12 +59,12 @@
     <section class="card">
       <div class="card-head"><h2>1. เตรียม</h2></div>
       <ol class="steps">
-        <li>ใน <code>firmware/copy/copy.ino</code> ตั้ง <code>mode = 3</code> และ <code>ESTIMATE_Z = false</code> แล้ว upload</li>
+        <li>ใน <code>firmware/robot/robot.ino</code> ตั้ง <code>mode = 3</code> และ <code>ESTIMATE_Z = false</code> แล้ว upload</li>
         <li>เลือก LED ที่ติดอยู่จริงด้านล่าง แล้วปิดหน้า Position Monitor ก่อน (เปิดพอร์ตพร้อมกันไม่ได้) กด <b>เชื่อมต่อ Serial</b> หน้านี้จะเปิด/ปิด LED ในบอร์ดตามที่เลือกให้เอง
           หรือต่อคอมเข้า WiFi ของหุ่นแล้วกด <b>เชื่อมต่อ WiFi</b> (ไม่ต้องปิดหน้า Position Monitor)</li>
         <li>วางหุ่นบนพื้น หันมุม <b>θ = 0°</b>: photodiode ที่ต่อขา <b>GP28</b> หันไปทาง <b>+X</b> (ทางขวาของแผนที่)</li>
         <li>ปิดไฟห้องหรือคุมแสงให้เหมือนกันทุกจุด อย่าแตะหุ่นตอนเก็บค่า</li>
-        <li>เก็บครบทุกจุดที่แนะนำ แล้ว copy บรรทัด <code>PtxGamma</code> ในข้อ 4 ไปใส่ <code>copy.ino</code> เปลี่ยนกลับเป็น <code>mode = 2</code></li>
+        <li>เก็บครบทุกจุดที่แนะนำ แล้ว copy บรรทัด <code>PtxGamma</code> ในข้อ 4 ไปใส่ <code>robot.ino</code> เปลี่ยนกลับเป็น <code>mode = 2</code></li>
       </ol>
       <div class="lit-pick">
         <span class="field">LED ที่ใช้ (มองจากด้านบน, +X ขวา)</span>
@@ -133,14 +133,14 @@
         </table>
       </div>
       <code id="fwLine" class="fw-line">—</code>
-      <p class="note">คำนวณ γ ของแต่ละ LED พร้อมกับ PD_GAIN (ความไวของ PD1, PD2 เทียบกับ PD0) และ RSS_OFFSET (ค่าคงที่ที่บวกเพิ่ม เช่นแสงสะท้อน) ให้ copy ทั้ง 3 บรรทัดไปแทนใน <code>copy.ino</code> และแก้ <code>CURRENT_GAMMA</code>, <code>PD_GAIN</code>, <code>RSS_OFFSET</code> ใน <code>calibrate.js</code> ให้ตรงกัน (<code>npm test</code> ตรวจให้)
+      <p class="note">คำนวณ γ ของแต่ละ LED พร้อมกับ PD_GAIN (ความไวของ PD1, PD2 เทียบกับ PD0) และ RSS_OFFSET (ค่าคงที่ที่บวกเพิ่ม เช่นแสงสะท้อน) ให้ copy ทั้ง 3 บรรทัดไปแทนใน <code>robot.ino</code> และแก้ <code>CURRENT_GAMMA</code>, <code>PD_GAIN</code>, <code>RSS_OFFSET</code> ใน <code>calib-model.js</code> ให้ตรงกัน (<code>npm test</code> ตรวจให้)
         PD0–PD2 = photodiode แต่ละตัวอ่านสูง (+) หรือต่ำ (−) กว่าแบบจำลอง (ที่รวม PD_GAIN แล้ว) โดยเฉลี่ย ถ้ายังเกิน ±5% ให้จดไว้
         สีแดง = คลาดเกิน 10% หรือ photodiode เอียงเกิน 5% หรือหุ่นแกว่งเกิน 5% ระหว่างเก็บ LED ที่ไม่ได้คำนวณใช้ค่าเดิม</p>
     </section>
   </main>
 
-  <script src="wifi-link.js"></script>
-  <script src="calibrate.js"></script>
-  <script src="calibrate-page.js"></script>
+  <script src="js/wifi-link.js"></script>
+  <script src="js/calib-model.js"></script>
+  <script src="js/calib-page.js"></script>
 </body>
 </html>

@@ -1,4 +1,6 @@
-# copy firmware (Raspberry Pi Pico): 9 LEDs, height z, on/off from the web page
+# Robot firmware (Raspberry Pi Pico W): 9 LEDs, height z, on/off from the web page
+
+Named `copy/copy.ino` until 2026-11-24. Open `robot.ino` in Arduino IDE (the folder must keep the same name as the `.ino` file) and keep your `wifi_secrets.h` in this folder.
 
 Pairs with the web page on `feature/task-2-ui-3d` and later (the page reads z).
 It estimates position, height and orientation with an EKF from 3 photodiodes
@@ -58,7 +60,7 @@ Layout seen from above (+X right, +Y up), LED 4 at the origin:
 - The model is `RSS = PtxGamma[k] * PD_GAIN[l] * h + RSS_OFFSET` (the last
   two were added on 2026-11-19, see "z axis" below). `PtxGamma` for LED 7,
   8, 1, 2, `PD_GAIN` and `RSS_OFFSET` are fitted together from
-  `calib/ra_calib_20261119_130953.csv`. LED 0, 3, 6 (off for now) keep the
+  `data/2026-11-19/calib_130953.csv`. LED 0, 3, 6 (off for now) keep the
   placeholder 0.46; LED 4, 5 (not lit) keep 0.49.
 - The frequencies of LED 0, 3 and 6 (1100 / 1900 / 3100 Hz) were checked
   against the real LED drivers on 2026-11-19 and match `Fref`.
@@ -67,7 +69,7 @@ Layout seen from above (+X right, +Y up), LED 4 at the origin:
 Each LED's `PtxGamma` (its brightness times the photodiode and ADC gain) is
 fitted from RSS values taken with the robot at known poses, using
 `calibrate.html` in the repo root (Chrome or Edge, Web Serial). The page
-repeats the path-loss model of this file in `calibrate.js`; `npm test`
+repeats the path-loss model of this file in `calib-model.js`; `npm test`
 checks that its constants still match this file.
 
 1. Temporarily set `mode = 3` (RSS line + position line) and
@@ -83,7 +85,7 @@ checks that its constants still match this file.
    robot moved). Poses where an LED reads 0 (it was off) are left out of
    that LED's fit.
 5. Export the CSV as a record, copy the 3 lines (`PtxGamma`, `PD_GAIN`,
-   `RSS_OFFSET`) into this file and into `calibrate.js` (`CURRENT_GAMMA`,
+   `RSS_OFFSET`) into this file and into `calib-model.js` (`CURRENT_GAMMA`,
    `PD_GAIN`, `RSS_OFFSET`; `npm test` checks they match), set `mode = 2`
    again and upload. With fewer than 4 poses only the gammas are fitted.
 6. Check: at a pose not among the suggested ones (e.g. (-25, 0)), the
@@ -97,7 +99,7 @@ their old value.
 
 ## Calibration results
 
-### 2026-11-19: interim, LED 1, 2, 7, 8 (`calib/ra_calib_20261119_111822.csv`)
+### 2026-11-19: interim, LED 1, 2, 7, 8 (`data/2026-11-19/calib_111822.csv`)
 8 poses at theta = 0, 100 RSS lines each, firmware in `mode = 1`.
 Fitted without (−25, −25), m = 1:
 
@@ -111,7 +113,7 @@ Fitted without (−25, −25), m = 1:
 - **(−25, −25) left out:** PD2 read 34–57 % of the model for every LED,
   the same when recorded again, and no other pose or heading explains it.
   The user found nothing shading it. **Recorded again at 13:09
-  (`calib/ra_calib_20261119_130953.csv`), it reads normally** (0.81–1.10
+  (`data/2026-11-19/calib_130953.csv`), it reads normally** (0.81–1.10
   of the model on every photodiode), so the earlier readings were
   temporary, most likely a loose PD2 wire or connector. Fitting all 8
   poses gives LED 7 0.454, LED 8 0.436, LED 1 0.536, LED 2 0.501, within
@@ -125,7 +127,7 @@ Fitted without (−25, −25), m = 1:
 - The "spread" column (max − min over the lines) read 44–177 % at every
   pose, too sensitive to tell noise from a robot that moved.
 
-### 2026-11-19: position check with the interim gammas (`calib/validate_20261119/`)
+### 2026-11-19: position check with the interim gammas (`data/2026-11-19/validate/`)
 Firmware from commit 13f330e (`mode = 2`, `ESTIMATE_Z = false`, LED 1, 2,
 7, 8 on), robot at theta = 0, about 20 s per pose with REC on the
 Position Monitor (3.0 Hz). Mean of the second half of each file (after
@@ -183,7 +185,7 @@ weak.
 ### 2026-11-19: photodiode tilt be = 55° (measured)
 The pyramid faces measure 35° from the floor; the code assumed 30°
 (`be = M_PI / 3`). Refitted on the 8 poses of
-`calib/ra_calib_20261119_130953.csv` (m = 1), finding each pose from its
+`data/2026-11-19/calib_130953.csv` (m = 1), finding each pose from its
 RSS without the EKF:
 
 | Face tilt | `be` | RSS misfit | Position error, leave-one-out (mean / max) |
@@ -340,9 +342,9 @@ change `UPDATE_EVERY` (samples; 25 000 / `UPDATE_EVERY` = Hz) and keep
   updates in JS and checks they agree. It does not compile the `.ino`.
 
 ## z axis (2026-11-19)
-Checked on the PC first with `solvePose()` in `calibrate.js` (where the EKF
+Checked on the PC first with `solvePose()` in `calib-model.js` (where the EKF
 settles for a still robot), on the 8 floor poses of
-`calib/ra_calib_20261119_130953.csv`, each solved with a model fitted
+`data/2026-11-19/calib_130953.csv`, each solved with a model fitted
 without that pose (leave one out):
 
 | Model | Fit misfit | x / y error, z off | x / y error, z on | z on the floor |
@@ -395,7 +397,7 @@ the board, where the old model gave about 1–3 cm.)
   are worked out once per sample and reused for the 3 photodiodes (from
   `copy2`), and Q for x, y, z and their velocities is 1e-4 (was 1e-6).
 
-  Before (`calib/motion_20261119/move_straight.csv`): moving the robot
+  Before (`data/2026-11-19/motion/move_straight.csv`): moving the robot
   50 cm in a straight line, the position ran about 8 cm past where it
   stopped and took about 10 s to come back; the heading stayed within ±7°.
   An EKF replica on the PC (same model, 4 LEDs, RSS noise 0.01–0.03)
@@ -413,7 +415,7 @@ the board, where the old model gave about 1–3 cm.)
   final position about 5 s after arriving (was about 11 s). The cost is
   more jitter when still: std 0.6–0.8 cm (was 0.1 cm). Update rate is
   unchanged at 3.0 Hz.
-- `calib/motion_20261119/rotate.csv`: turning on the spot at (−25, 0),
+- `data/2026-11-19/motion/rotate.csv`: turning on the spot at (−25, 0),
   clockwise in 90° steps, the heading read 0°, 77–81°, ±180°, −90°, 0°
   (sign correct). The position moved with the heading, up to 10 cm in x
   at 180°; likely photodiodes with different gains, which a calibration

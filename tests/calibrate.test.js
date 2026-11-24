@@ -4,14 +4,14 @@ var test = require('node:test');
 var assert = require('node:assert/strict');
 var fs = require('node:fs');
 var path = require('node:path');
-var C = require('../calibrate.js');
+var C = require('../web/js/calib-model.js');
 
-// copy.ino without // comments (old commented-out values must not match)
-var INO = fs.readFileSync(path.join(__dirname, '..', 'firmware', 'copy', 'copy.ino'), 'utf8')
+// robot.ino without // comments (old commented-out values must not match)
+var INO = fs.readFileSync(path.join(__dirname, '..', 'firmware', 'robot', 'robot.ino'), 'utf8')
   .replace(/\/\/.*$/gm, '');
 function inoArray(decl) {
   var m = new RegExp(decl.replace(/[<>,]/g, '\\$&') + '\\s*(?:\\[[^\\]]*\\])*\\s*=\\s*\\{([^}]*)\\}').exec(INO);
-  assert.ok(m, decl + ' not found in copy.ino');
+  assert.ok(m, decl + ' not found in robot.ino');
   return m[1].split(',').map(function (s) { return parseFloat(s); });
 }
 function close(a, b, tol, msg) { assert.ok(Math.abs(a - b) <= tol, (msg || '') + ' ' + a + ' vs ' + b); }
@@ -19,25 +19,25 @@ function close(a, b, tol, msg) { assert.ok(Math.abs(a - b) <= tol, (msg || '') +
 // deterministic noise so the tests never flake
 function rng(seed) { return function () { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; }; }
 
-test('constants match copy.ino', function () {
+test('constants match robot.ino', function () {
   assert.deepEqual(inoArray('LED_NUM'), C.ROW_LED);
   assert.deepEqual(inoArray('PtxGamma'), C.CURRENT_GAMMA);
   var p = inoArray('BLA::Matrix<N_LED, 3> p');
   assert.deepEqual(p, [].concat.apply([], C.P));
   var mIno = /const float m = ([\d.]+);/.exec(INO);
-  assert.ok(mIno, 'm not found in copy.ino');
+  assert.ok(mIno, 'm not found in robot.ino');
   assert.equal(parseFloat(mIno[1]), C.M);
   assert.match(INO, /const float FoV = M_PI \/ 2;/);
   var beIno = /const float be = ([\d.]+)f? \* M_PI \/ 180\.0f?;/.exec(INO);
-  assert.ok(beIno, 'be not found in copy.ino');
+  assert.ok(beIno, 'be not found in robot.ino');
   close(parseFloat(beIno[1]) * Math.PI / 180, C.BETA, 1e-12, 'be');
   assert.match(INO, /const float al\[N_PD\] = \{ 0, 2\.0\*M_PI\/3\.0, -2\.0\*M_PI\/3\.0 \};/);
   assert.deepEqual(inoArray('PD_GAIN'), C.PD_GAIN);
   var offIno = /const float RSS_OFFSET = ([\d.]+)f?;/.exec(INO);
-  assert.ok(offIno, 'RSS_OFFSET not found in copy.ino');
+  assert.ok(offIno, 'RSS_OFFSET not found in robot.ino');
   assert.equal(parseFloat(offIno[1]), C.RSS_OFFSET);
   var zr = /const float Z_MIN = (-?[\d.]+)f?, Z_MAX = ([\d.]+)f?;/.exec(INO);
-  assert.ok(zr, 'Z_MIN / Z_MAX not found in copy.ino');
+  assert.ok(zr, 'Z_MIN / Z_MAX not found in robot.ino');
   assert.equal(parseFloat(zr[1]), C.Z_MIN); assert.equal(parseFloat(zr[2]), C.Z_MAX);
   // the EKF prediction and Jacobian use the same model as predictRss()
   // (pathLossCS is pathLossWithoutGamma with cos / sin of the heading passed in)
@@ -147,7 +147,7 @@ test('fitGamma shows a photodiode that reads 10 % high', function () {
   });
 });
 
-test('copy.ino prints RSS with 4 decimals', function () {
+test('robot.ino prints RSS with 4 decimals', function () {
   assert.match(INO, /out\.print\(RSS\[f\]\[g\], 4\);/);
 });
 

@@ -1,5 +1,5 @@
 // Run: node --test tests/
-// Checks the arithmetic behind the speed-up of firmware/copy/copy.ino: the
+// Checks the arithmetic behind the speed-up of firmware/robot/robot.ino: the
 // table demodulation and the one-measurement-at-a-time EKF update, written
 // here in JS the same way as in the .ino. They show that the faster methods
 // give the same numbers as the ones they replace; they do not compile or run
@@ -9,13 +9,13 @@ var test = require('node:test');
 var assert = require('node:assert/strict');
 var fs = require('node:fs');
 var path = require('node:path');
-var C = require('../calibrate.js');
+var C = require('../web/js/calib-model.js');
 
-var INO = fs.readFileSync(path.join(__dirname, '..', 'firmware', 'copy', 'copy.ino'), 'utf8')
+var INO = fs.readFileSync(path.join(__dirname, '..', 'firmware', 'robot', 'robot.ino'), 'utf8')
   .replace(/\/\/.*$/gm, '');
 function inoInt(name) {
   var m = new RegExp('const int ' + name + ' = (\\d+);').exec(INO);
-  assert.ok(m, name + ' not found in copy.ino');
+  assert.ok(m, name + ' not found in robot.ino');
   return +m[1];
 }
 function rng(seed) { return function () { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; }; }
@@ -52,7 +52,7 @@ function makeTables() {
   }
   return { s: s, c: c };
 }
-// one LED, one photodiode: the loop of copy.ino with integers
+// one LED, one photodiode: the loop of robot.ino with integers
 function demodTable(x, f, tab) {
   var accS = 0, accC = 0, idx = 0, step = Math.round(f / F_STEP) % LUT_N;
   for (var i = 0; i < N; i++) {
@@ -116,7 +116,7 @@ function inv(A) {
 }
 
 var NS = 8, NZ = 27, SIGMA2 = 0.01;
-// the update copy.ino did before: K = P J' (R + J P J')^-1 over all 27 values
+// the update robot.ino did before: K = P J' (R + J P J')^-1 over all 27 values
 // (rows of LEDs that are off are 0 and their innovation is 0), Joseph form
 function updateBatch(xp, Pp, J, zn, zh) {
   var R = zeros(NZ, NZ), I = zeros(NS, NS), i;
@@ -132,7 +132,7 @@ function updateBatch(xp, Pp, J, zn, zh) {
   for (a = 0; a < NS; a++) for (var b = 0; b < NS; b++) P[a][b] += KRK[a][b];
   return { x: x, P: P };
 }
-// ekfUpdateSequential() of copy.ino, loop for loop
+// ekfUpdateSequential() of robot.ino, loop for loop
 function updateSequential(xp, Pp, J, zn, zh, ledOn) {
   var x = xp.slice(), P = Pp.map(function (r) { return r.slice(); });
   var h = [], Ph = [], hP = [], K = [], Mh = [], M = zeros(NS, NS), a, b, s;
@@ -168,7 +168,7 @@ test('EKF update one value at a time equals the 27 x 27 update', function () {
       for (a = 0; a < NS; a++) for (b = 0; b < NS; b++) G[a][b] = 0.1 * (r() - 0.5);
       var Pp = mul(G, tr(G));
       for (a = 0; a < NS; a++) Pp[a][a] += 1e-3;
-      // Jacobian by central differences and the prediction, as in copy.ino
+      // Jacobian by central differences and the prediction, as in robot.ino
       var J = zeros(NZ, NS), zh = [], zn = [];
       function rssAt(q, row, l) { return C.predictRss(row, l, q[IX], q[IY], q[IZ], q[ITH]); }
       for (var row = 0; row < 9; row++) for (var l = 0; l < 3; l++) {
@@ -191,7 +191,7 @@ test('EKF update one value at a time equals the 27 x 27 update', function () {
   });
 });
 
-test('copy.ino keeps the model of calibrate.js in the faster EKF code', function () {
+test('robot.ino keeps the model of calib-model.js in the faster EKF code', function () {
   // both updates and the Jacobian go through the same prediction
   assert.match(INO, /const bool EKF_SEQUENTIAL = (true|false);/);
   assert.match(INO, /Q\(i, i\) = Q0\[i\] \* T \/ T_REF;/);

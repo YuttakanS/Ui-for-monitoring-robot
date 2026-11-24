@@ -82,7 +82,7 @@ const float be = 55.0f * M_PI / 180.0f;
 const int LED_NUM[N_LED] = {     4,     5,    7,    8,    1,    2,    0,    3,    6 };  // LED number per row of p
 bool LED_ON[N_LED]       = { false, false, true, true, true, true, false, false, false };  // only LED 7, 8, 1, 2 on at start (2026-11-19)
 // LED 7, 8, 1, 2: fitted 2026-11-19 together with PD_GAIN and RSS_OFFSET
-// below (calibrate.js fitModel(), calib/ra_calib_20261119_130953.csv, 8 poses,
+// below (calib-model.js fitModel(), data/2026-11-19/calib_130953.csv, 8 poses,
 // theta = 0, m = 1, be = 55 deg). LED 4, 5 (not lit) and LED 0, 3, 6 (off) are
 // not calibrated.
 // To go back to the model without PD_GAIN / RSS_OFFSET (x / y about 1-2 cm on

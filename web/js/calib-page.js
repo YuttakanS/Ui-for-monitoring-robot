@@ -1,5 +1,5 @@
-/* Calibration page: reads RSS lines (copy.ino with mode = 3), averages them at
- * known poses and fits PtxGamma with calibrate.js. */
+/* Calibration page: reads RSS lines (robot.ino with mode = 3), averages them at
+ * known poses and fits PtxGamma with calib-model.js. */
 (function () {
   'use strict';
   var C = window.RACalib;
@@ -82,7 +82,7 @@
     // a board in mode 2 sends only Quadrant lines
     if (live && up && !state.rssLines && now - state.connectedAt > 3000) {
       showNotice(state.quadLines
-        ? 'บอร์ดส่งแต่บรรทัดพิกัด ไม่มีบรรทัด RSS: ตั้ง mode = 3 (หรือ 1) ใน copy.ino แล้ว upload ใหม่'
+        ? 'บอร์ดส่งแต่บรรทัดพิกัด ไม่มีบรรทัด RSS: ตั้ง mode = 3 (หรือ 1) ใน robot.ino แล้ว upload ใหม่'
         : 'ยังไม่มีข้อมูลจากบอร์ด: ตรวจว่า upload firmware แล้ว และไม่มีโปรแกรมอื่นเปิดพอร์ตอยู่');
     }
   }

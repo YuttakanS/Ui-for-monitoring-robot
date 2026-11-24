@@ -1,6 +1,6 @@
 /* WiFi link to the robot (task #3), shared by index.html and calibrate.html.
  *
- * The Pico W (firmware/copy/copy.ino with USE_WIFI 1) runs an access point
+ * The Pico W (firmware/robot/robot.ino with USE_WIFI 1) runs an access point
  * and a small HTTP server:
  *   GET /events   Server-Sent Events, one "data: <line>" per output line
  *                 (the same lines as on USB serial)
@@ -12,7 +12,7 @@
 (function (root) {
   'use strict';
 
-  var DEFAULT_HOST = '192.168.42.1';   // WIFI_IP in copy.ino
+  var DEFAULT_HOST = '192.168.42.1';   // WIFI_IP in robot.ino
   var STORE = 'ra.wifi.host';
 
   // "192.168.42.1", "http://192.168.42.1/", "robot.local:8080" ->

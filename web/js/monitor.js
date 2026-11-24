@@ -8,7 +8,7 @@
   // Firmware line format:  Quadrant 3: -33.84, -47.30, -23.71, 0.00
   //                        Quadrant <n>: <x>, <y>, <heading>[, <z>]
   // (cm, cm, degrees, cm; the third value is the robot's heading, kept in the
-  // CSV column incidence_angle_deg). z (up) is optional: copy.ino sends it,
+  // CSV column incidence_angle_deg). z (up) is optional: robot.ino sends it,
   // older firmware (copy2) does not, and then z = 0 (on the floor). hasZ
   // tells the two apart.
   var LINE_RE = /^Quadrant\s*(\d+)\s*:\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)(?:\s*,\s*(-?\d+(?:\.\d+)?))?$/i;
@@ -20,7 +20,7 @@
     return { quadrant: +m[1], x: +m[2], y: +m[3], angle: +m[4], z: hasZ ? +m[5] : 0, hasZ: hasZ };
   }
 
-  // The raw RSS line that copy.ino prints in mode 1 / 3 for the calibration
+  // The raw RSS line that robot.ino prints in mode 1 / 3 for the calibration
   // page: "0.0000, 0.0000, 0.9100, ..., " (N_LED x N_PD = 27 numbers). This
   // page has no use for it, but it is not a broken line either, so it is
   // skipped without counting a parse error (over WiFi both pages can be open
@@ -354,7 +354,7 @@
   // Change LED_SPACING if the layout changes.
   // on = false draws the LED as switched off; keep it in step with the
   // firmware's LED_ON (tests/app.test.js checks positions and on/off
-  // against copy.ino).
+  // against robot.ino).
   var LED_SPACING = 50;    // cm between neighbouring LEDs
   var LEDS = [
     [-LED_SPACING, LED_SPACING, '8', true], [0, LED_SPACING, '7', true], [LED_SPACING, LED_SPACING, '6', false],
@@ -1707,7 +1707,7 @@
 
   // Heights from the floor (z = 0), in cm. Photodiodes are 1 cm above the floor
   // and the LEDs 92 cm above the photodiodes (firmware p(k, 2) = 0.920 m).
-  // The models come from Maya (models/build_models.py -> models/models.js).
+  // The models come from Maya (tools/models-src/build_models.py -> models/models.js).
   var MODELS = window.RA_MODELS || null;
   var PD_HEIGHT = MODELS ? MODELS.meta.pdHeight : 1;
   var LED_HEIGHT = MODELS ? MODELS.meta.ledZ : PD_HEIGHT + 92;

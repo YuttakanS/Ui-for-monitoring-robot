@@ -175,7 +175,7 @@
             <text class="g-text" x="2" y="74" text-anchor="start">−X</text>
             <text class="g-text" x="70" y="16" text-anchor="middle">+Y</text>
             <text class="g-text" x="70" y="136" text-anchor="middle">−Y</text>
-            <!-- heading split into its X and Y parts (set from app.js) -->
+            <!-- heading split into its X and Y parts (set from monitor.js) -->
             <g id="cComp" style="visibility:hidden">
               <line id="cDashX" class="c-dash" x1="70" y1="70" x2="70" y2="70"/>
               <line id="cDashY" class="c-dash" x1="70" y1="70" x2="70" y2="70"/>
@@ -193,7 +193,7 @@
 
       <section class="card led-card">
         <div class="tile-label" data-i18n="ledTitle">เปิด/ปิด LED</div>
-        <!-- buttons are built from LEDS in app.js, laid out like the map -->
+        <!-- buttons are built from LEDS in monitor.js, laid out like the map -->
         <div class="led-grid" id="ledGrid"></div>
         <div class="tile-sub" id="ledNote" role="status"></div>
       </section>
@@ -270,7 +270,7 @@
   <script src="vendor/OrbitControls.js"></script>
   <script src="vendor/OBJLoader.js"></script>
   <script src="models/models.js"></script>
-  <script src="wifi-link.js"></script>
-  <script src="app.js"></script>
+  <script src="js/wifi-link.js"></script>
+  <script src="js/monitor.js"></script>
 </body>
 </html>

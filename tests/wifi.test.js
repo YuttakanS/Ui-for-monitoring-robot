@@ -1,5 +1,5 @@
 // Tests for the WiFi link (task #3): wifi-link.js, tools/fake-robot.js and
-// the WiFi part of copy.ino (as text; the .ino is compiled with arduino-cli).
+// the WiFi part of robot.ino (as text; the .ino is compiled with arduino-cli).
 // Run: npm test
 'use strict';
 var test = require('node:test');
@@ -7,13 +7,13 @@ var assert = require('node:assert/strict');
 var fs = require('node:fs');
 var path = require('node:path');
 var cp = require('node:child_process');
-var W = require('../wifi-link.js');
-var A = require('../app.js');
-var C = require('../calibrate.js');
+var W = require('../web/js/wifi-link.js');
+var A = require('../web/js/monitor.js');
+var C = require('../web/js/calib-model.js');
 var robotLib = require('../tools/fake-robot.js');
 
 var ROOT = path.join(__dirname, '..');
-var INO = fs.readFileSync(path.join(ROOT, 'firmware', 'copy', 'copy.ino'), 'utf8');
+var INO = fs.readFileSync(path.join(ROOT, 'firmware', 'robot', 'robot.ino'), 'utf8');
 
 /* ---------- wifi-link.js ---------- */
 
@@ -131,7 +131,7 @@ test('fake robot: SSE lines parse like serial; CORS for a page opened from file:
     assert.ok(r.lines.some(A.parseLine), 'a Quadrant line');
     var rss = r.lines.map(C.parseRssLine).filter(Boolean)[0];
     assert.ok(rss, 'an RSS line');
-    // power-up LEDs as copy.ino: 1, 2, 7, 8 lit
+    // power-up LEDs as robot.ino: 1, 2, 7, 8 lit
     C.ROW_LED.forEach(function (led, row) {
       var sum = rss[row * 3] + rss[row * 3 + 1] + rss[row * 3 + 2];
       assert.equal(sum > 0, C.DEFAULT_LIT.indexOf(led) >= 0, 'LED ' + led);
@@ -158,9 +158,9 @@ test('fake robot: a command sent with openWifi comes back as "# LED"', async fun
   } finally { await robot.close(); }
 });
 
-/* ---------- copy.ino (text) ---------- */
+/* ---------- robot.ino (text) ---------- */
 
-test('copy.ino WiFi: same endpoints, framing, address and CORS as the page and the fake robot', function () {
+test('robot.ino WiFi: same endpoints, framing, address and CORS as the page and the fake robot', function () {
   assert.match(INO, /^#define USE_WIFI 1$/m);
   assert.match(INO, /#include "wifi_secrets\.h"/);
   assert.match(INO, /const IPAddress WIFI_IP\(192, 168, 42, 1\);/);
@@ -180,12 +180,12 @@ test('copy.ino WiFi: same endpoints, framing, address and CORS as the page and t
 });
 
 test('WiFi password stays out of git: wifi_secrets.h is ignored, only the example is tracked', function () {
-  var secrets = 'firmware/copy/wifi_secrets.h';
+  var secrets = 'firmware/robot/wifi_secrets.h';
   var ignored = cp.spawnSync('git', ['check-ignore', '-q', secrets], { cwd: ROOT });
   assert.equal(ignored.status, 0, secrets + ' must be in .gitignore');
   var tracked = cp.spawnSync('git', ['ls-files', '--error-unmatch', secrets], { cwd: ROOT });
   assert.notEqual(tracked.status, 0, secrets + ' must not be tracked');
-  var ex = fs.readFileSync(path.join(ROOT, 'firmware', 'copy', 'wifi_secrets.example.h'), 'utf8');
+  var ex = fs.readFileSync(path.join(ROOT, 'firmware', 'robot', 'wifi_secrets.example.h'), 'utf8');
   var pass = /#define WIFI_AP_PASS "([^"]*)"/.exec(ex);
   assert.ok(pass && pass[1].length >= 8 && pass[1].length <= 63, 'example password: 8-63 characters');
   assert.match(ex, /#define WIFI_AP_SSID "[^"]+"/);

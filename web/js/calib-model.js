@@ -1,20 +1,20 @@
-/* PtxGamma calibration for firmware/copy/copy.ino (pure logic, no DOM).
+/* PtxGamma calibration for firmware/robot/robot.ino (pure logic, no DOM).
  *
  * The firmware models the light that photodiode l sees from LED k as
  *   RSS[k][l] = PtxGamma[k] * h(k, l, x, y, z, theta)
- * where h depends only on geometry (see pathLossWithoutGamma() in copy.ino).
+ * where h depends only on geometry (see pathLossWithoutGamma() in robot.ino).
  * With the robot at known poses, each LED's gamma is the least-squares fit
  *   PtxGamma[k] = sum(RSS * h) / sum(h^2)
  * over every pose and photodiode where h is large enough to trust.
  *
  * Loads in the browser (window.RACalib) and in Node (require) for the tests.
- * The constants below must match copy.ino; tests/calibrate.test.js checks
+ * The constants below must match robot.ino; tests/calibrate.test.js checks
  * them against the .ino file.
  */
 (function (root) {
   'use strict';
 
-  // ---- Firmware constants (copy.ino) --------------------------------------
+  // ---- Firmware constants (robot.ino) --------------------------------------
   var N_PD = 3;
   // LED number for each row of p (LED_NUM), i.e. the order of the RSS values
   var ROW_LED = [4, 5, 7, 8, 1, 2, 0, 3, 6];
@@ -24,7 +24,7 @@
     [0, 0, 0.92], [-0.5, 0, 0.92], [0, 0.5, 0.92], [-0.5, 0.5, 0.92], [0, -0.5, 0.92],
     [-0.5, -0.5, 0.92], [0.5, -0.5, 0.92], [0.5, 0, 0.92], [0.5, 0.5, 0.92]
   ];
-  // PtxGamma as in copy.ino now; kept for LEDs that are not fitted
+  // PtxGamma as in robot.ino now; kept for LEDs that are not fitted
   var CURRENT_GAMMA = [0.49, 0.49, 0.447, 0.435, 0.538, 0.506, 0.46, 0.46, 0.46];
   var M = 1.0;                       // Lambertian order
   var FOV = Math.PI / 2;
@@ -32,19 +32,19 @@
   var ALPHA = [0, 2 * Math.PI / 3, -2 * Math.PI / 3]; // al; PD 0 = pin GP28
   // Gain of each photodiode relative to PD 0 (PD_GAIN) and a constant added
   // to every RSS value of a lit LED (RSS_OFFSET: reflections, demodulation
-  // noise floor), as in copy.ino. PD_GAIN = 1, 1, 1 and RSS_OFFSET = 0 give
+  // noise floor), as in robot.ino. PD_GAIN = 1, 1, 1 and RSS_OFFSET = 0 give
   // the model used before 2026-11-19 (task #2 z axis).
   var PD_GAIN = [1.0, 0.917, 0.906];
   var RSS_OFFSET = 0.0689;
   // z range the firmware keeps (Z_MIN / Z_MAX, m)
   var Z_MIN = 0.0, Z_MAX = 0.80;
-  // photodiode normals v (rows), as in copy.ino
+  // photodiode normals v (rows), as in robot.ino
   var V = ALPHA.map(function (a) {
     return [Math.cos(BETA) * Math.cos(a), -Math.cos(BETA) * Math.sin(a), Math.sin(BETA)];
   });
 
   // ---- Model ----------------------------------------------------------------
-  // Same as pathLossWithoutGamma(k, l, x0, y0, z0, t0) in copy.ino.
+  // Same as pathLossWithoutGamma(k, l, x0, y0, z0, t0) in robot.ino.
   // row = row of p (0..8), l = photodiode (0..2), x/y/z in m, theta in rad
   // (firmware convention: Omega0 = R(-theta)).
   function pathLoss(row, l, x, y, z, theta) {
@@ -59,7 +59,7 @@
     return (M + 1) * Math.pow(cosPhi, M) * cosPsi / (d * d);
   }
 
-  // RSS the firmware expects (zHn in copy.ino) from LED row / photodiode l.
+  // RSS the firmware expects (zHn in robot.ino) from LED row / photodiode l.
   // opts.gamma / pdGain / offset override PtxGamma / PD_GAIN / RSS_OFFSET.
   function predictRss(row, l, x, y, z, theta, opts) {
     opts = opts || {};
@@ -159,7 +159,7 @@
     return results;
   }
 
-  // The PtxGamma line to paste into copy.ino; unfitted LEDs keep their value.
+  // The PtxGamma line to paste into robot.ino; unfitted LEDs keep their value.
   function firmwareLine(results, current) {
     current = current || CURRENT_GAMMA;
     var vals = results.map(function (r, i) {
@@ -194,7 +194,7 @@
     return { leds: inner(q), pdGain: [1, q[0], q[1]], offset: q[2], fitted: fitted };
   }
 
-  // The lines to paste into copy.ino for a fitModel() result.
+  // The lines to paste into robot.ino for a fitModel() result.
   function firmwareLines(fit, current) {
     return [
       firmwareLine(fit.leds, current),
@@ -307,7 +307,7 @@
 
   // ---- Least squares helper ---------------------------------------------------
   // Levenberg-Marquardt on resid(q) -> array, numerical Jacobian (central
-  // differences, step h, as computeJacobian() in copy.ino). clamp(q) may
+  // differences, step h, as computeJacobian() in robot.ino). clamp(q) may
   // change q in place after each step. Returns { q, cost }.
   function solveLin(A, b) { // Gaussian elimination with partial pivoting
     var n = b.length, M2 = A.map(function (r, i) { return r.concat([b[i]]); }), r, k;

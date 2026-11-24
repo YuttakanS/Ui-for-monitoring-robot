@@ -1,18 +1,18 @@
-// Tests for the pure logic of the Position Monitor page (app.js).
+// Tests for the pure logic of the Position Monitor page (monitor.js).
 // Run: npm test
 'use strict';
 var test = require('node:test');
 var assert = require('node:assert/strict');
 var fs = require('node:fs');
 var path = require('node:path');
-var A = require('../app.js');
+var A = require('../web/js/monitor.js');
 
 var ROOT = path.join(__dirname, '..');
-// copy.ino without // comments (old commented-out values must not match)
-var INO = fs.readFileSync(path.join(ROOT, 'firmware', 'copy', 'copy.ino'), 'utf8').replace(/\/\/.*$/gm, '');
+// robot.ino without // comments (old commented-out values must not match)
+var INO = fs.readFileSync(path.join(ROOT, 'firmware', 'robot', 'robot.ino'), 'utf8').replace(/\/\/.*$/gm, '');
 function inoArray(decl) {
   var m = new RegExp(decl.replace(/[<>,\[\]]/g, '\\$&') + '\\s*(?:\\[[^\\]]*\\])*\\s*=\\s*\\{([^}]*)\\}').exec(INO);
-  assert.ok(m, decl + ' not found in copy.ino');
+  assert.ok(m, decl + ' not found in robot.ino');
   return m[1].split(',').map(function (s) { return s.trim(); });
 }
 
@@ -21,7 +21,7 @@ var HEADER = 'timestamp_iso,t_ms,quadrant,x,y,incidence_angle_deg,source,z';
 
 /* ---------- serial lines ---------- */
 
-test('parseLine: lines as copy.ino prints them (Serial.print of a float = 2 decimals)', function () {
+test('parseLine: lines as robot.ino prints them (Serial.print of a float = 2 decimals)', function () {
   assert.deepEqual(A.parseLine('Quadrant 3: -24.50, -1.47, -0.66, 0.00'),
     { quadrant: 3, x: -24.5, y: -1.47, angle: -0.66, z: 0, hasZ: true });
   assert.deepEqual(A.parseLine('Quadrant 1: 12.34, 5.00, 179.99, 3.21\r'),
@@ -57,9 +57,9 @@ test('parseLine: anything else is rejected (counted as a parse error, never a sa
 });
 
 test('isRssLine: the mode 1 / 3 RSS line is skipped, not a parse error', function () {
-  var C = require('../calibrate.js');
+  var C = require('../web/js/calib-model.js');
   var rss = []; for (var i = 0; i < 27; i++) rss.push(i % 4 ? 0.1234 * i : 0);
-  var line = C.formatRssLine(rss);                     // exactly as copy.ino prints it
+  var line = C.formatRssLine(rss);                     // exactly as robot.ino prints it
   assert.ok(A.isRssLine(line));
   assert.ok(A.isRssLine(line.trim().replace(/,$/, ''))); // without the trailing ", "
   assert.equal(A.parseLine(line), null);
@@ -72,7 +72,7 @@ test('parseLine keeps the quadrant the board sent', function () {
   assert.equal(A.parseLine('Quadrant 2: 10.00, 10.00, 0.00').quadrant, 2);
 });
 
-test('copy.ino prints the line parseLine reads: Quadrant <n>: x, y, heading, z', function () {
+test('robot.ino prints the line parseLine reads: Quadrant <n>: x, y, heading, z', function () {
   // (out = USB serial + WiFi since task #3)
   assert.match(INO, /out\.print\("Quadrant "\); out\.print\(q\); out\.print\(": "\);\s*out\.print\(xcm\); out\.print\(", "\);\s*out\.print\(ycm\); out\.print\(", "\);\s*out\.print\(deg\); out\.print\(", "\);\s*out\.println\(zcm\);/);
   // same quadrant numbering as quadrantOf()
@@ -85,7 +85,7 @@ test('parseLedAck: the board\'s reply to LED <n> <0|1>', function () {
   assert.deepEqual(A.parseLedAck('# led 7 1'), { led: 7, on: true });
   ['# TIMING 1', '# LED 4', '# LED 4 2', '# LED x 1', 'LED 4 1', '# LED 4 10', 'Quadrant 1: 1, 2, 3']
     .forEach(function (l) { assert.equal(A.parseLedAck(l), null, l); });
-  // copy.ino answers in that form
+  // robot.ino answers in that form
   assert.match(INO, /out\.print\("# LED "\); out\.print\(num\); out\.print\(" "\); out\.println\(LED_ON\[k\] \? 1 : 0\);/);
 });
 
@@ -149,7 +149,7 @@ test('toCsv: no unit conversion (cm in, cm out) and an empty log gives the heade
 });
 
 test('toCsv header matches the CSV files already recorded', function () {
-  var dir = path.join(ROOT, 'firmware', 'copy', 'calib', 'motion_20261119');
+  var dir = path.join(ROOT, 'data', '2026-11-19', 'motion');
   fs.readdirSync(dir).filter(function (f) { return /\.csv$/.test(f); }).forEach(function (f) {
     var first = fs.readFileSync(path.join(dir, f), 'utf8').split(/\r?\n/)[0];
     assert.equal(first, HEADER, f);
@@ -158,7 +158,7 @@ test('toCsv header matches the CSV files already recorded', function () {
 
 /* ---------- LEDs ---------- */
 
-test('LEDS (map and power-up on/off) match copy.ino p, LED_NUM and LED_ON', function () {
+test('LEDS (map and power-up on/off) match robot.ino p, LED_NUM and LED_ON', function () {
   var num = inoArray('const int LED_NUM[N_LED]').map(Number);
   var on = inoArray('bool LED_ON[N_LED]').map(function (s) { return s === 'true'; });
   var p = inoArray('BLA::Matrix<N_LED, 3> p').map(Number);
