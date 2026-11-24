@@ -35,20 +35,26 @@ z / vz use the same `P` and `Q` as x / y.
 |---|---|---|---|---|
 | 0 | LED 4 | (0, 0) | 2300 Hz | no |
 | 1 | LED 5 | (-50, 0) | 2900 Hz | no |
-| 2 | LED 7 | (0, 50) | 3700 Hz | yes |
-| 3 | LED 8 | (-50, 50) | 4100 Hz | yes |
-| 4 | LED 1 | (0, -50) | 1300 Hz | yes |
-| 5 | LED 2 | (-50, -50) | 1700 Hz | yes |
-| 6 | LED 0 | (50, -50) | 1100 Hz | no |
+| 2 | LED 7 | (0, 51.5) | 3700 Hz | yes |
+| 3 | LED 8 | (-50, 51.5) | 4100 Hz | yes |
+| 4 | LED 1 | (0, -51.5) | 1300 Hz | yes |
+| 5 | LED 2 | (-50, -51.5) | 1700 Hz | yes |
+| 6 | LED 0 | (50, -51.5) | 1100 Hz | no |
 | 7 | LED 3 | (50, 0) | 1900 Hz | no |
-| 8 | LED 6 | (50, 50) | 3100 Hz | no |
+| 8 | LED 6 | (50, 51.5) | 3100 Hz | no |
+
+The top and bottom rows are 51.5 cm from the middle row (measured on the
+frame, 2026-11-24; the code used 50 cm before). The LEDs are 92 cm above the
+floor and 89 cm above the 3 cm steel beams that run under the top and bottom
+rows, so the robot cannot stand on the floor right under LED 8, 7, 6 or
+2, 1, 0.
 
 Layout seen from above (+X right, +Y up), LED 4 at the origin:
 
 ```
-8--7--6    y = +50
+8--7--6    y = +51.5
 5--4--3    y =   0
-2--1--0    y = -50
+2--1--0    y = -51.5
 ```
 
 - `m = 1.0`. The LEDs are Cree XLamp CMA1306, viewing angle (FWHM)
@@ -204,6 +210,32 @@ gamma applied twice, gammas 0.51, 0.51, 0.44, 0.46): the user measured
 about ±10 cm on the board, against about 3 cm for this firmware. With
 the same RSS data, its model also gives about twice the error (16.5 cm
 against 8.3 cm mean, solving each pose without the EKF).
+
+### 2026-11-24: LED rows at y = ±51.5 cm (same calibration data)
+The frame drawing gives the top and bottom LED rows at y = ±0.515 m, and
+3 cm steel beams under them. The user remembers standing the robot on the
+beams for the y = ±50 poses, so these were refitted (`fitModel()` in `calib-model.js`, 8 poses of
+`data/2026-11-19/calib_130953.csv`, leave one pose out for x / y and z):
+
+| Model | Misfit (rms) | x / y error | z error (rms) |
+|---|---|---|---|
+| y = ±0.50, all poses on the floor (before) | 9.1 % | 3.57 cm | 1.0 cm |
+| y = ±0.50, y = ±50 poses 3 cm up (beam) | 9.2 % | 3.84 cm | 1.9 cm |
+| **y = ±0.515, all poses on the floor (now)** | **8.6 %** | **3.61 cm** | **1.1 cm** |
+| y = ±0.515, y = ±50 poses 3 cm up | 9.3 % | 3.77 cm | 2.3 cm |
+
+Letting the data choose the height of the y = ±50 poses, the misfit is lowest
+at 0 cm (39.8e-3 absolute) and grows to 42.3e-3 at 3 cm, so the data do not
+support the robot standing 3 cm higher there; it may have stood next to the
+beams. The evidence is weak, because the model misfit (about 9 %) is larger
+than what 3 cm of height changes (6–7 %). So y = ±0.515 is used with every
+pose on the floor. It makes the geometry match the frame; it is not expected
+to make x / y clearly better. Not measured on the board yet.
+
+New values: gamma LED 7, 8, 1, 2 = 0.443, 0.430, 0.534, 0.503, `PD_GAIN` =
+1, 0.915, 0.905, `RSS_OFFSET` = 0.0811 (was 0.447, 0.435, 0.538, 0.506,
+1, 0.917, 0.906, 0.0689). Next time, write down the height each pose stands at
+(on a beam or not), or avoid poses on the beams.
 
 ## On/off commands
 The web page (or the Serial Monitor) sends one line per command:

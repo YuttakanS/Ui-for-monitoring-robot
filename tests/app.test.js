@@ -166,8 +166,8 @@ test('LEDS (map and power-up on/off) match robot.ino p, LED_NUM and LED_ON', fun
   A.LEDS.forEach(function (L) {
     var row = num.indexOf(+L[2]);
     assert.ok(row >= 0, 'LED ' + L[2] + ' not in LED_NUM');
-    assert.equal(L[0], Math.round(p[row * 3] * 100), 'x of LED ' + L[2]);
-    assert.equal(L[1], Math.round(p[row * 3 + 1] * 100), 'y of LED ' + L[2]);
+    assert.ok(Math.abs(L[0] - p[row * 3] * 100) < 1e-6, 'x of LED ' + L[2]);
+    assert.ok(Math.abs(L[1] - p[row * 3 + 1] * 100) < 1e-6, 'y of LED ' + L[2]);
     assert.equal(L[3], on[row], 'LED ' + L[2] + ' on at power-up');
   });
 });

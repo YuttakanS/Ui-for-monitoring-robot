@@ -351,15 +351,17 @@
 
   // LEDs in firmware coordinates [x, y, label, on]: a 3x3 grid centred on
   // LED 4 at the origin, numbered 8 7 6 / 5 4 3 / 2 1 0 from the top left.
-  // Change LED_SPACING if the layout changes.
+  // Change LED_SPACING / LED_SPACING_Y if the layout changes.
   // on = false draws the LED as switched off; keep it in step with the
   // firmware's LED_ON (tests/app.test.js checks positions and on/off
   // against robot.ino).
-  var LED_SPACING = 50;    // cm between neighbouring LEDs
+  var LED_SPACING = 50;    // cm between neighbouring LEDs along x (also the map grid)
+  var LED_SPACING_Y = 51.5; // cm between the rows along y (measured 2026-11-24)
+  var SY = LED_SPACING_Y;
   var LEDS = [
-    [-LED_SPACING, LED_SPACING, '8', true], [0, LED_SPACING, '7', true], [LED_SPACING, LED_SPACING, '6', false],
+    [-LED_SPACING, SY, '8', true], [0, SY, '7', true], [LED_SPACING, SY, '6', false],
     [-LED_SPACING, 0, '5', false], [0, 0, '4', false], [LED_SPACING, 0, '3', false], // only LED 1, 2, 7, 8 on for now
-    [-LED_SPACING, -LED_SPACING, '2', true], [0, -LED_SPACING, '1', true], [LED_SPACING, -LED_SPACING, '0', false]
+    [-LED_SPACING, -SY, '2', true], [0, -SY, '1', true], [LED_SPACING, -SY, '0', false]
   ];
 
   function translate(lang, key, n) {
@@ -2093,9 +2095,9 @@
       G.add(fr);
     }
     pts = [];
-    for (v = -LED_SPACING; v <= LED_SPACING; v += LED_SPACING) {
-      pts.push(-LED_SPACING, v, LED_HEIGHT, LED_SPACING, v, LED_HEIGHT);
-      pts.push(v, -LED_SPACING, LED_HEIGHT, v, LED_SPACING, LED_HEIGHT);
+    for (v = -1; v <= 1; v++) {
+      pts.push(-LED_SPACING, v * LED_SPACING_Y, LED_HEIGHT, LED_SPACING, v * LED_SPACING_Y, LED_HEIGHT);
+      pts.push(v * LED_SPACING, -LED_SPACING_Y, LED_HEIGHT, v * LED_SPACING, LED_SPACING_Y, LED_HEIGHT);
     }
     if (!(P && P.frame)) G.add(lines3(pts, C.axis));
 

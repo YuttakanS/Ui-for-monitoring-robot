@@ -19,13 +19,14 @@
   // LED number for each row of p (LED_NUM), i.e. the order of the RSS values
   var ROW_LED = [4, 5, 7, 8, 1, 2, 0, 3, 6];
   var N_LED = ROW_LED.length;
-  // LED positions p (m): x, y, height above the photodiodes
+  // LED positions p (m): x, y, height above the photodiodes (top and bottom
+  // rows at y = +-0.515, measured 2026-11-24)
   var P = [
-    [0, 0, 0.92], [-0.5, 0, 0.92], [0, 0.5, 0.92], [-0.5, 0.5, 0.92], [0, -0.5, 0.92],
-    [-0.5, -0.5, 0.92], [0.5, -0.5, 0.92], [0.5, 0, 0.92], [0.5, 0.5, 0.92]
+    [0, 0, 0.92], [-0.5, 0, 0.92], [0, 0.515, 0.92], [-0.5, 0.515, 0.92], [0, -0.515, 0.92],
+    [-0.5, -0.515, 0.92], [0.5, -0.515, 0.92], [0.5, 0, 0.92], [0.5, 0.515, 0.92]
   ];
   // PtxGamma as in robot.ino now; kept for LEDs that are not fitted
-  var CURRENT_GAMMA = [0.49, 0.49, 0.447, 0.435, 0.538, 0.506, 0.46, 0.46, 0.46];
+  var CURRENT_GAMMA = [0.49, 0.49, 0.443, 0.430, 0.534, 0.503, 0.46, 0.46, 0.46];
   var M = 1.0;                       // Lambertian order
   var FOV = Math.PI / 2;
   var BETA = 55 * Math.PI / 180;     // photodiode normal elevation (be); pyramid face 35 deg
@@ -34,8 +35,8 @@
   // to every RSS value of a lit LED (RSS_OFFSET: reflections, demodulation
   // noise floor), as in robot.ino. PD_GAIN = 1, 1, 1 and RSS_OFFSET = 0 give
   // the model used before 2026-11-19 (task #2 z axis).
-  var PD_GAIN = [1.0, 0.917, 0.906];
-  var RSS_OFFSET = 0.0689;
+  var PD_GAIN = [1.0, 0.915, 0.905];
+  var RSS_OFFSET = 0.0811;
   // z range the firmware keeps (Z_MIN / Z_MAX, m)
   var Z_MIN = 0.0, Z_MAX = 0.80;
   // photodiode normals v (rows), as in robot.ino
@@ -215,7 +216,8 @@
     var xs = [], ys = [];
     (lit || DEFAULT_LIT).forEach(function (led) {
       var p = P[ROW_LED.indexOf(led)];
-      xs.push(Math.round(p[0] * 100)); ys.push(Math.round(p[1] * 100));
+      // on the 50 cm grid (the rows at y = +-51.5 cm give +-50)
+      xs.push(Math.round(p[0] * 2) * 50); ys.push(Math.round(p[1] * 2) * 50);
     });
     if (!xs.length) return [];
     var x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs);

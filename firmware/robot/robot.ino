@@ -81,23 +81,26 @@ const float be = 55.0f * M_PI / 180.0f;
 // the web page can change them at run time (see readCommands()).
 const int LED_NUM[N_LED] = {     4,     5,    7,    8,    1,    2,    0,    3,    6 };  // LED number per row of p
 bool LED_ON[N_LED]       = { false, false, true, true, true, true, false, false, false };  // only LED 7, 8, 1, 2 on at start (2026-11-19)
-// LED 7, 8, 1, 2: fitted 2026-11-19 together with PD_GAIN and RSS_OFFSET
-// below (calib-model.js fitModel(), data/2026-11-19/calib_130953.csv, 8 poses,
-// theta = 0, m = 1, be = 55 deg). LED 4, 5 (not lit) and LED 0, 3, 6 (off) are
-// not calibrated.
+// LED 7, 8, 1, 2: fitted together with PD_GAIN and RSS_OFFSET below
+// (calib-model.js fitModel(), data/2026-11-19/calib_130953.csv, 8 poses,
+// theta = 0, m = 1, be = 55 deg, all poses taken as z = 0). Refitted on
+// 2026-11-24 with the LED rows at y = +-0.515 m: model misfit 9.1 -> 8.6 %,
+// x / y on the PC (leave one pose out) 3.57 -> 3.61 cm. With y = +-0.5 they
+// were 0.447, 0.435, 0.538, 0.506, PD_GAIN 1, 0.917, 0.906, RSS_OFFSET 0.0689.
+// LED 4, 5 (not lit) and LED 0, 3, 6 (off) are not calibrated.
 // To go back to the model without PD_GAIN / RSS_OFFSET (x / y about 1-2 cm on
 // the board with ESTIMATE_Z = false), use PD_GAIN = 1, 1, 1, RSS_OFFSET = 0 and
 //   { 0.490f, 0.490f, 0.476f, 0.457f, 0.562f, 0.525f, 0.460f, 0.460f, 0.460f }
 // (with be = 60 deg the gammas were 0.453, 0.436, 0.536, 0.504).
-const float PtxGamma[N_LED] = { 0.490f, 0.490f, 0.447f, 0.435f, 0.538f, 0.506f, 0.460f, 0.460f, 0.460f };
+const float PtxGamma[N_LED] = { 0.490f, 0.490f, 0.443f, 0.430f, 0.534f, 0.503f, 0.460f, 0.460f, 0.460f };
 // Photodiode gain relative to PD 0 (pin GP28). The calibration data read PD 0
 // 12-21 % above the model for every LED; PD 1 and 2 are about 8-9 % lower.
-const float PD_GAIN[N_PD] = { 1.000f, 0.917f, 0.906f };
+const float PD_GAIN[N_PD] = { 1.000f, 0.915f, 0.905f };
 // Added to every RSS of a lit LED: reflections and the noise floor of the
 // demodulation. Far LEDs (> 1.25 m) read about 21 % above the model without it.
 // With these two, the model misfit fell from 12-18 % to 8-10 % and x / y on
 // the PC (leave one pose out) from 5.9 to 3.6 cm.
-const float RSS_OFFSET = 0.0689f;
+const float RSS_OFFSET = 0.0811f;
 const float eps = 0.01; //0.01;
 const float sigma2 = 0.01; //0.1, 0.4, 0.1, 0.005; 
 // const float q = 0.01;
@@ -106,15 +109,19 @@ int mode = 2; //1 is RSS only. 2 is the coordinate.
 // pages skip lines that start with #). Switched with the command "TIMING <0|1>".
 bool PRINT_TIMING = false;
 
+// LED positions (m): x, y, height above the photodiodes. The rows of LED 8 7 6
+// and 2 1 0 are 0.515 m from the middle row (measured on the frame,
+// 2026-11-24; was 0.5); x is 0.5 m. The LEDs are 0.92 m above the floor (0.89 m
+// above the 3 cm steel beams that run under the top and bottom rows).
 BLA::Matrix<N_LED, 3> p = { 0, 0, 0.920, //0.93 - 0.03 - 0.01   LED4
                             -0.5, 0, 0.920,                  // LED5
-                            0, 0.5, 0.920,                   // LED7
-                            -0.5, 0.5, 0.920,                // LED8
-                            0, -0.5, 0.920,                  // LED1
-                            -0.5, -0.5, 0.920,               // LED2
-                            0.5, -0.5, 0.920,                // LED0
+                            0, 0.515, 0.920,                 // LED7
+                            -0.5, 0.515, 0.920,              // LED8
+                            0, -0.515, 0.920,                // LED1
+                            -0.5, -0.515, 0.920,             // LED2
+                            0.5, -0.515, 0.920,              // LED0
                             0.5, 0, 0.920,                   // LED3
-                            0.5, 0.5, 0.920 };               // LED6
+                            0.5, 0.515, 0.920 };             // LED6
 
 BLA::Matrix<3, 1> uk = { 0.0, 0.0, -1.0 };
 BLA::Matrix<3, 3> v = { cos(be) * cos(al[0]), -cos(be) * sin(al[0]), sin(be),
