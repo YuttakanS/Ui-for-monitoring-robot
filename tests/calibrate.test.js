@@ -347,3 +347,53 @@ test('robot.ino leaves out a low photodiode with the same rule as lowPd()', func
   assert.ok(body.indexOf('lowPd()') < body.indexOf('ekfUpdateSequential();'), 'lowPd before the update');
   assert.match(body, /zHn\(i\) = zn\(i\);\s*for \(int j = 0; j < N_STATE; j\+\+\) Jn\(i, j\) = 0;/);
 });
+
+test('selectLeds: the k brightest lit LEDs, others set to 0', function () {
+  var rss = [];
+  for (var row = 0; row < C.N_LED; row++) for (var l = 0; l < C.N_PD; l++) rss.push(row === 5 ? 0 : (row + 1) * (l === 1 ? 2 : 1));
+  var out = C.selectLeds(rss, 3);
+  var used = C.ROW_LED.map(function (_, r) { return out[r * 3] + out[r * 3 + 1] + out[r * 3 + 2] !== 0; });
+  assert.deepEqual(used, [false, false, false, false, false, false, true, true, true]);
+  out.forEach(function (v, i) { if (v !== 0) assert.equal(v, rss[i]); });
+  // more than the lit LEDs: all lit ones (row 5 is off)
+  var all = C.selectLeds(rss, 9);
+  assert.deepEqual(all, rss);
+  assert.equal(C.selectLeds(rss).filter(function (v) { return v !== 0; }).length, C.LED_USE_K * 3);
+});
+
+test('robot.ino selects LEDs with the same rule and LED_USE_K as calib-model.js', function () {
+  var k = /int LED_USE_K = (\d+);/.exec(INO);
+  assert.ok(k, 'LED_USE_K not found');
+  assert.equal(+k[1], C.LED_USE_K);
+  assert.match(INO, /lvl\[f\] = fmaxf\(zn\(N_PD \* f\), fmaxf\(zn\(N_PD \* f \+ 1\), zn\(N_PD \* f \+ 2\)\)\);/);
+  assert.match(INO, /if \(LED_ON\[f\] && !LED_USED\[f\] && \(best < 0 \|\| lvl\[f\] > lvl\[best\]\)\) best = f;/);
+  // chosen before the Jacobian, and the EKF uses LED_USED (not LED_ON) from there on
+  var body = INO.slice(INO.indexOf('xHnnm1 = A * xHnm1nm1;'));
+  assert.ok(body.indexOf('selectLeds();') >= 0 && body.indexOf('selectLeds();') < body.indexOf('computeJacobian(xHnnm1);'));
+  assert.match(body, /zHn\(N_PD \* f \+ g\) = LED_USED\[f\] \?/);
+  ['computeJacobian', 'ekfUpdateSequential', 'lowPd'].forEach(function (fn) {
+    var src = INO.slice(INO.indexOf(fn + '('), INO.indexOf('\n}', INO.indexOf(fn + '(')));
+    assert.ok(src.indexOf('LED_USED[') >= 0 && src.indexOf('LED_ON[') < 0, fn + ' uses LED_USED');
+  });
+  assert.match(INO, /sscanf\(buf, "USE %d", &num\) == 1/);
+});
+
+test('LED_USE_K: leave one pose out on the 2026-11-25 data is no worse than all 9 LEDs', function () {
+  var file = path.join(__dirname, '..', 'data', '2026-11-25', 'calib_105643.csv');
+  var poses = C.csvToPoses(fs.readFileSync(file, 'utf8')).poses.filter(function (p) { return !(p.x === -25 && p.y === -25); });
+  function meanErr(k) {
+    var s = 0;
+    poses.forEach(function (p, i) {
+      var fit = C.fitModel(poses.filter(function (_, j) { return j !== i; }));
+      var o = { gamma: fit.leds.map(function (r, n) { return r.gamma !== null ? r.gamma : C.CURRENT_GAMMA[n]; }), pdGain: fit.pdGain, offset: fit.offset };
+      var rss = C.selectLeds(p.rss, k), pd = C.lowPd(rss, p, o);
+      if (pd >= 0) o.skipPd = pd;
+      var r = C.solvePose(rss, o);
+      s += Math.hypot(r.x - p.x, r.y - p.y);
+    });
+    return s / poses.length;
+  }
+  var all = meanErr(9), sel = meanErr(C.LED_USE_K);
+  assert.ok(Math.abs(all - 4.13) < 0.05, 'all 9 LEDs: ' + all.toFixed(2) + ' cm');
+  assert.ok(sel <= all, C.LED_USE_K + ' LEDs: ' + sel.toFixed(2) + ' cm, all 9: ' + all.toFixed(2) + ' cm');
+});

@@ -454,6 +454,31 @@
     };
   }
 
+  // ---- LEDs the EKF uses (as selectLeds() in robot.ino) ------------------------
+  // The k brightest lit LEDs (largest RSS of the three photodiodes; ties keep
+  // the lower row of p). Returns a copy of rss with the other LEDs set to 0, so
+  // solvePose() / lowPd() leave them out. LED_USE_K must match robot.ino.
+  var LED_USE_K = 6;
+  function selectLeds(rss, k) {
+    if (k === undefined) k = LED_USE_K;
+    var lvl = [], used = [], row, n;
+    for (row = 0; row < N_LED; row++) {
+      var a = rss[row * N_PD], b = rss[row * N_PD + 1], c = rss[row * N_PD + 2];
+      lvl.push(Math.max(a, b, c));
+      used.push(false);
+    }
+    for (n = 0; n < k; n++) {
+      var best = -1;
+      for (row = 0; row < N_LED; row++) {
+        var lit = rss[row * N_PD] + rss[row * N_PD + 1] + rss[row * N_PD + 2] !== 0;
+        if (lit && !used[row] && (best < 0 || lvl[row] > lvl[best])) best = row;
+      }
+      if (best < 0) break;
+      used[best] = true;
+    }
+    return rss.map(function (v, i) { return used[Math.floor(i / N_PD)] ? v : 0; });
+  }
+
   // An RSS line as the firmware prints it, for the page's demo mode and tests.
   function formatRssLine(rss) {
     return rss.map(function (v) { return v.toFixed(4); }).join(', ') + ', ';
@@ -466,7 +491,7 @@
     PD_GAIN: PD_GAIN, RSS_OFFSET: RSS_OFFSET, Z_MIN: Z_MIN, Z_MAX: Z_MAX, predictRss: predictRss,
     fitGamma: fitGamma, firmwareLine: firmwareLine, fitModel: fitModel, firmwareLines: firmwareLines,
     solvePose: solvePose, levMar: levMar, lowPd: lowPd, PD_LOW_RATIO: PD_LOW_RATIO, PD_LOW_MIN: PD_LOW_MIN,
-    averageRss: averageRss, checkPose: checkPose,
+    averageRss: averageRss, checkPose: checkPose, LED_USE_K: LED_USE_K, selectLeds: selectLeds,
     csvHeader: csvHeader, posesToCsv: posesToCsv, csvToPoses: csvToPoses, formatRssLine: formatRssLine
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

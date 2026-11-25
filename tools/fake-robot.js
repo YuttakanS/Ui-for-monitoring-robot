@@ -8,7 +8,7 @@
  * as the firmware in mode 3, at 20 Hz:
  *   GET /events   SSE: an RSS line (the model in calib-model.js) and a
  *                 Quadrant line per update; "# ..." replies to commands
- *   GET /cmd?c=   LED <n> <0|1>, TIMING <0|1>, WIFI
+ *   GET /cmd?c=   LED <n> <0|1>, USE <k>, TIMING <0|1>, WIFI
  *   GET /         "RA robot ok"
  *   GET /pose?x=&y=&theta=   (fake only) hold the robot still at a pose
  *                 (cm, deg); /pose with no values = move again
@@ -26,7 +26,7 @@ function createRobot(opts) {
   var periodMs = opts.periodMs || 50;
   // LED_ON at power-up, as in robot.ino (all 9 LEDs)
   var ledOn = {}; C.ROW_LED.forEach(function (led) { ledOn[led] = C.DEFAULT_LIT.indexOf(led) >= 0; });
-  var timing = false, hold = null, t0 = Date.now();
+  var timing = false, hold = null, t0 = Date.now(), useK = C.LED_USE_K;
   var clients = new Set();
 
   function emit(line) {
@@ -53,6 +53,9 @@ function createRobot(opts) {
     if ((m = /^LED (\d+) (\d+)$/.exec(line)) && ledOn[+m[1]] !== undefined) {
       ledOn[+m[1]] = m[2] !== '0';
       emit('# LED ' + m[1] + ' ' + (ledOn[+m[1]] ? 1 : 0));
+    } else if ((m = /^USE (\d+)$/.exec(line))) {
+      if (+m[1] >= 1 && +m[1] <= C.N_LED) useK = +m[1];  // the fake positions do not depend on it
+      emit('# USE ' + useK);
     } else if ((m = /^TIMING (\d+)$/.exec(line))) {
       timing = m[1] !== '0';
       emit('# TIMING ' + (timing ? 1 : 0));

@@ -81,6 +81,18 @@ const float be = 55.0f * M_PI / 180.0f;
 // the web page can change them at run time (see readCommands()).
 const int LED_NUM[N_LED] = {     4,     5,    7,    8,    1,    2,    0,    3,    6 };  // LED number per row of p
 bool LED_ON[N_LED]       = {  true,  true, true, true, true, true,  true,  true,  true };  // all 9 LEDs lit (2026-11-25; was 7, 8, 1, 2 only)
+// How many of the lit LEDs the EKF uses in each update (2026-11-25, from the
+// "nearest 4 LEDs" idea in the professor's firmware): every lit LED is still
+// demodulated, then only the LED_USE_K brightest (largest RSS over the three
+// photodiodes) go into the update. Far LEDs fit the model worst (reflections).
+// On the PC (calib-model.js, 2026-11-25 data, leave one pose out) x / y came to
+// 9 LEDs 4.13 cm, 8: 4.09, 7: 3.78, 6: 3.72, 5: 4.05, 4: 5.43, and the
+// professor's fixed 2 x 2 LED quadrants 6.32 cm (bad at the corners of the
+// frame). Only 12 poses, so 6 is not proven better than 9: compare on the board.
+// 9 (or more) = every lit LED, as before. The command "USE <k>" changes it at
+// run time. Must match LED_USE_K in calib-model.js (tests check it).
+int LED_USE_K = 6;
+bool LED_USED[N_LED];  // set in selectLeds() each loop: lit and among the brightest LED_USE_K
 // All 9 LEDs (2026-11-25): fitted together with PD_GAIN and RSS_OFFSET below
 // (calib-model.js fitModel(), data/2026-11-25/calib_105643.csv, 12 of its 13
 // poses: (-25, -25) left out because PD 2 read about 1/4 of the model there for
@@ -283,7 +295,7 @@ void computeJacobian(const BLA::Matrix<N_STATE, 1>& xHnnm1) {
     const float cosM = cosf(xm(ITH)), sinM = sinf(xm(ITH));
     for (int k = 0; k < N_LED; k++)
       for (int l = 0; l < N_PD; l++) {
-        if (!LED_ON[k]) { Jn(N_PD * k + l, j) = 0; continue; }  // LED off: no influence
+        if (!LED_USED[k]) { Jn(N_PD * k + l, j) = 0; continue; }  // LED off / not used: no influence
         // RSS_OFFSET is the same on both sides, so it drops out here
         tmp1 = PtxGamma[k] * PD_GAIN[l] * pathLossCS(k, l, xp(IX), xp(IY), xp(IZ), cosP, sinP);
         tmp2 = PtxGamma[k] * PD_GAIN[l] * pathLossCS(k, l, xm(IX), xm(IY), xm(IZ), cosM, sinM);
@@ -306,7 +318,7 @@ void ekfUpdateSequential() {
   xHnm1nm1 = xHnnm1;
   Pnm1nm1 = Pnnm1;
   for (int f = 0; f < N_LED; f++) {
-    if (!LED_ON[f]) continue;
+    if (!LED_USED[f]) continue;
     for (int g = 0; g < N_PD; g++) {
       const int i = N_PD * f + g;
       float S = sigma2;
@@ -362,7 +374,7 @@ int lowPd() {
   for (int g = 0; g < N_PD; g++) {
     float meas = 0, model = 0;
     for (int f = 0; f < N_LED; f++) {
-      if (!LED_ON[f]) continue;
+      if (!LED_USED[f]) continue;
       const int i = N_PD * f + g;
       meas += fmaxf(0.0f, zn(i) - RSS_OFFSET);
       model += zHn(i) - RSS_OFFSET;
@@ -376,6 +388,24 @@ int lowPd() {
   const float a = share[0], b = share[1], c = share[2];
   const float med = fmaxf(fminf(a, b), fminf(fmaxf(a, b), c));
   return share[lo] < PD_LOW_RATIO * med ? lo : -1;
+}
+
+// LED_USED = the lit LEDs with the LED_USE_K largest RSS (largest of the three
+// photodiodes), from the RSS just demodulated (zn). Ties keep the lower row of
+// p. Same rule as selectLeds() in calib-model.js.
+void selectLeds() {
+  float lvl[N_LED];
+  for (int f = 0; f < N_LED; f++) {
+    LED_USED[f] = false;
+    lvl[f] = fmaxf(zn(N_PD * f), fmaxf(zn(N_PD * f + 1), zn(N_PD * f + 2)));
+  }
+  for (int n = 0; n < LED_USE_K; n++) {
+    int best = -1;
+    for (int f = 0; f < N_LED; f++)
+      if (LED_ON[f] && !LED_USED[f] && (best < 0 || lvl[f] > lvl[best])) best = f;
+    if (best < 0) break;  // fewer than LED_USE_K LEDs lit: use them all
+    LED_USED[best] = true;
+  }
 }
 
 float boundAngle(float a) {
@@ -435,10 +465,11 @@ Out out;
 
 // Commands from the web page, one per line (USB serial or WiFi /cmd):
 //   LED <number> <0|1>     e.g. "LED 4 0" stops using LED 4, "LED 4 1" uses it again
+//   USE <k>                the EKF uses the k brightest lit LEDs (1..9, see LED_USE_K)
 //   TIMING <0|1>           print a "# T ..." line with the loop timing after each loop
 //   WIFI                   print the "# WIFI ..." line again
-// Each accepted command is answered with "# LED <number> <0|1>" or
-// "# TIMING <0|1>" (the web page ignores lines that start with #).
+// Each accepted command is answered with "# LED <number> <0|1>", "# USE <k>"
+// or "# TIMING <0|1>" (the web page ignores lines that start with #).
 void printWifiInfo();
 void handleCommand(const char* buf) {
   int num, on;
@@ -448,6 +479,9 @@ void handleCommand(const char* buf) {
       LED_ON[k] = (on != 0);
       out.print("# LED "); out.print(num); out.print(" "); out.println(LED_ON[k] ? 1 : 0);
     }
+  } else if (sscanf(buf, "USE %d", &num) == 1) {
+    if (num >= 1 && num <= N_LED) LED_USE_K = num;
+    out.print("# USE "); out.println(LED_USE_K);
   } else if (sscanf(buf, "TIMING %d", &on) == 1) {
     PRINT_TIMING = (on != 0);
     out.print("# TIMING "); out.println(PRINT_TIMING ? 1 : 0);
@@ -702,12 +736,13 @@ void loop() {
   Pnnm1 = A * Pnm1nm1 * ~A + Q;
 
   //Correction step
+  selectLeds();  // LED_USED: the LED_USE_K brightest lit LEDs
   computeJacobian(xHnnm1);
   const float cosTh = cosf(xHnnm1(ITH)), sinTh = sinf(xHnnm1(ITH));
   for (int f = 0; f < N_LED; f++)
     for (int g = 0; g < N_PD; g++)
-      // LED off: predicted = measured, so its innovation is 0
-      zHn(N_PD * f + g) = LED_ON[f] ? PtxGamma[f] * PD_GAIN[g] * pathLossCS(f, g, xHnnm1(IX), xHnnm1(IY), xHnnm1(IZ), cosTh, sinTh) + RSS_OFFSET
+      // LED off / not used: predicted = measured, so its innovation is 0
+      zHn(N_PD * f + g) = LED_USED[f] ? PtxGamma[f] * PD_GAIN[g] * pathLossCS(f, g, xHnnm1(IX), xHnnm1(IY), xHnnm1(IZ), cosTh, sinTh) + RSS_OFFSET
                                     : zn(N_PD * f + g);
   // leave out a photodiode that reads far too low (see lowPd()): its values
   // then match the prediction and its Jacobian rows are 0, so it adds nothing

@@ -239,6 +239,52 @@ New values: gamma LED 7, 8, 1, 2 = 0.443, 0.430, 0.534, 0.503, `PD_GAIN` =
 page has a "z ฐานหุ่น (cm)" field for this (3 on a beam); it is saved as the
 last CSV column `z_cm` and used by the fit. Older files read as z = 0.
 
+### 2026-11-25: LEDs used per update (`LED_USE_K`)
+Idea from the professor's firmware (`reading_rss_PD_pyramid_vOK_LEDcenter_P_Q_ch_big_size_m2v3.ino`):
+use only the LEDs near the robot, since far LEDs fit the model worst. That
+firmware picks the 2 × 2 LED quadrant with the most light and runs the EKF on
+its 4 LEDs. (As sent it also has bugs: quadrant 3 takes the RSS of LED 6 for
+LED 5, `PtxGamma[k]` is indexed by the position within the quadrant instead
+of the LED, and gamma is applied twice.)
+
+Leave one pose out on the PC with `data/2026-11-25/calib_105643.csv` (12 poses,
+same model as `robot.ino`, quadrant bugs fixed), mean / max x-y error in cm:
+
+| LEDs in the update | mean | max |
+|---|---|---|
+| all 9 | 4.13 | 11.5 |
+| quadrant, 4 (professor) | 6.32 | 20.4 |
+| brightest 4 | 5.43 | 20.4 |
+| brightest 5 | 4.05 | 10.4 |
+| **brightest 6** | **3.72** | 10.5 |
+| brightest 7 | 3.78 | 10.6 |
+| brightest 8 | 4.09 | 11.8 |
+
+Four LEDs fail at the edges and corners of the frame (all 4 on one side of
+the robot: 12–20 cm at (0, 50) and (50, 50)); inside a cell they are a little
+better. `robot.ino` now uses the brightest 6 (`LED_USE_K`, command `USE <k>`).
+The gain over 9 is small for 12 poses: **compare `USE 6` with `USE 9` on the
+board** before relying on it. Not tested: jumps when the chosen set changes
+while the robot moves.
+
+`sigma2` (the professor's firmware has 0.1, `robot.ino` 0.01), EKF replica on
+the PC at 20 Hz: robot still 20 s, then 50 cm in 2 s across x = 0, then still;
+RSS noise 0.02 (consecutive windows 50 % shared), fixed 10 % model error,
+5 seeds. Brightest 6 LEDs:
+
+| `sigma2` | jitter still | lag while moving | overshoot | within 2 cm after |
+|---|---|---|---|---|
+| 0.001 | 0.55 cm | 2.9 cm | 2.0 cm | 0.7 s |
+| 0.003 | 0.46 | 3.1 | 3.0 | 1.1 |
+| **0.01 (kept)** | **0.39** | **4.0** | **4.7** | **2.0** |
+| 0.03 | 0.33 | 6.0 | 6.4 | 3.1 |
+| 0.1 | 0.28 | 9.1 | 8.1 | 4.4 |
+
+0.1 only trims jitter that is already small next to the ~3 cm model bias, and
+doubles the lag and overshoot, so `sigma2` stays 0.01. All 9 LEDs gave
+slightly less jitter (0.35 cm) and lag (3.7 cm) in this replica, whose model
+error is random rather than larger for far LEDs.
+
 ## On/off commands
 The web page (or the Serial Monitor) sends one line per command:
 
@@ -248,6 +294,16 @@ LED <number> <0|1>     e.g.  LED 4 1
 
 The board answers `# LED <number> <0|1>`. An LED that is off is not demodulated
 and adds nothing to the EKF update. This does not power the LED itself off.
+
+```
+USE <k>                e.g.  USE 9      (1..9)
+```
+
+The board answers `# USE <k>`. The EKF uses only the `k` brightest lit LEDs
+in each update (`LED_USE_K`, 6 at power-up; 9 = every lit LED, as before
+2026-11-25). Every lit LED is still demodulated and printed in mode 1 / 3.
+Over WiFi it can be sent from a browser:
+`http://192.168.42.1/cmd?c=USE%209`. See "LEDs used per update" below.
 
 ```
 TIMING <0|1>           e.g.  TIMING 1
