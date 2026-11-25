@@ -8,7 +8,7 @@
  * as the firmware in mode 3, at 20 Hz:
  *   GET /events   SSE: an RSS line (the model in calib-model.js) and a
  *                 Quadrant line per update; "# ..." replies to commands
- *   GET /cmd?c=   LED <n> <0|1>, USE <k>, TIMING <0|1>, WIFI
+ *   GET /cmd?c=   LED <n> <0|1>, USE <k>, MODE <1|2|3>, TIMING <0|1>, WIFI
  *   GET /         "RA robot ok"
  *   GET /pose?x=&y=&theta=   (fake only) hold the robot still at a pose
  *                 (cm, deg); /pose with no values = move again
@@ -26,7 +26,7 @@ function createRobot(opts) {
   var periodMs = opts.periodMs || 50;
   // LED_ON at power-up, as in robot.ino (all 9 LEDs)
   var ledOn = {}; C.ROW_LED.forEach(function (led) { ledOn[led] = C.DEFAULT_LIT.indexOf(led) >= 0; });
-  var timing = false, hold = null, t0 = Date.now(), useK = C.LED_USE_K;
+  var timing = false, hold = null, t0 = Date.now(), useK = C.LED_USE_K, mode = 2;  // mode at power-up, as in robot.ino
   var clients = new Set();
 
   function emit(line) {
@@ -43,9 +43,9 @@ function createRobot(opts) {
     for (var row = 0; row < C.N_LED; row++)
       for (var l = 0; l < C.N_PD; l++)
         rss.push(ledOn[C.ROW_LED[row]] ? C.predictRss(row, l, p.x / 100, p.y / 100, (p.z || 0) / 100, th) * (1 + 0.01 * (Math.random() - 0.5)) : 0);
-    emit(C.formatRssLine(rss));
+    if (mode !== 2) emit(C.formatRssLine(rss));
     var q = p.x >= 0 ? (p.y >= 0 ? 1 : 4) : (p.y >= 0 ? 2 : 3);
-    emit('Quadrant ' + q + ': ' + [p.x, p.y, p.theta, p.z || 0].map(function (v) { return v.toFixed(2); }).join(', '));
+    if (mode !== 1) emit('Quadrant ' + q + ': ' + [p.x, p.y, p.theta, p.z || 0].map(function (v) { return v.toFixed(2); }).join(', '));
     if (timing) emit('# T wait=20.0 demod=19.0 ekf=10.0 total=50.0');
   }
   function command(line) {
@@ -53,6 +53,9 @@ function createRobot(opts) {
     if ((m = /^LED (\d+) (\d+)$/.exec(line)) && ledOn[+m[1]] !== undefined) {
       ledOn[+m[1]] = m[2] !== '0';
       emit('# LED ' + m[1] + ' ' + (ledOn[+m[1]] ? 1 : 0));
+    } else if ((m = /^MODE ([123])$/.exec(line))) {
+      mode = +m[1];
+      emit('# MODE ' + mode);
     } else if ((m = /^USE (\d+)$/.exec(line))) {
       if (+m[1] >= 1 && +m[1] <= C.N_LED) useK = +m[1];  // the fake positions do not depend on it
       emit('# USE ' + useK);

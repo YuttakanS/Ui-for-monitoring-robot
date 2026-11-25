@@ -306,6 +306,14 @@ Over WiFi it can be sent from a browser:
 `http://192.168.42.1/cmd?c=USE%209`. See "LEDs used per update" below.
 
 ```
+MODE <1|2|3>           e.g.  MODE 3
+```
+
+The board answers `# MODE <n>`: 1 = RSS lines, 2 = position lines (power-up),
+3 = both. The calibrate page sends `MODE 3` when it connects, so calibrating
+no longer needs an upload with `mode = 1` or `3`.
+
+```
 TIMING <0|1>           e.g.  TIMING 1
 ```
 

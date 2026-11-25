@@ -125,7 +125,10 @@ const float RSS_OFFSET = 0.0461f;
 const float eps = 0.01; //0.01;
 const float sigma2 = 0.01; //0.1, 0.4, 0.1, 0.005; 
 // const float q = 0.01;
-int mode = 2; //1 is RSS only. 2 is the coordinate.
+// 1 = RSS lines only, 2 = position lines only (power-up), 3 = both. The
+// calibrate page sends "MODE 3" when it connects (2026-11-25), so the firmware
+// no longer has to be uploaded again with mode = 1 to calibrate.
+int mode = 2;
 // true = print how long each part of a loop took, as a "# T ..." line (the web
 // pages skip lines that start with #). Switched with the command "TIMING <0|1>".
 bool PRINT_TIMING = false;
@@ -466,14 +469,18 @@ Out out;
 // Commands from the web page, one per line (USB serial or WiFi /cmd):
 //   LED <number> <0|1>     e.g. "LED 4 0" stops using LED 4, "LED 4 1" uses it again
 //   USE <k>                the EKF uses the k brightest lit LEDs (1..9, see LED_USE_K)
+//   MODE <1|2|3>           1 = RSS lines, 2 = position lines, 3 = both (see mode)
 //   TIMING <0|1>           print a "# T ..." line with the loop timing after each loop
 //   WIFI                   print the "# WIFI ..." line again
-// Each accepted command is answered with "# LED <number> <0|1>", "# USE <k>"
-// or "# TIMING <0|1>" (the web page ignores lines that start with #).
+// Each accepted command is answered with "# LED <number> <0|1>", "# USE <k>",
+// "# MODE <n>" or "# TIMING <0|1>" (the web page ignores lines that start with #).
 void printWifiInfo();
 void handleCommand(const char* buf) {
   int num, on;
-  if (sscanf(buf, "LED %d %d", &num, &on) == 2) {
+  if (sscanf(buf, "MODE %d", &num) == 1) {
+    if (num >= 1 && num <= 3) mode = num;
+    out.print("# MODE "); out.println(mode);
+  } else if (sscanf(buf, "LED %d %d", &num, &on) == 2) {
     for (int k = 0; k < N_LED; k++) {
       if (LED_NUM[k] != num) continue;
       LED_ON[k] = (on != 0);
@@ -662,20 +669,34 @@ void loop() {
   // (and, at power-up, until the ring holds a whole window). If the previous
   // loop took longer than that, this returns at once: the rate drops instead
   // of the windows falling behind the newest samples.
+  // sampleCount wraps after 2^32 samples (47.7 h at 25 kHz), so only the
+  // difference end - lastEnd is compared, which stays right across the wrap.
+  // (It was `end < lastEnd + UPDATE_EVERY`, which hung for good after the
+  // wrap, and the window start came from end % RING_N, which jumps there
+  // because 2^32 is not a multiple of RING_N.) The window start now comes
+  // from ringWrite, read together with sampleCount.
   static uint32_t lastEnd = 0;
+  static bool firstWindow = true;
   uint32_t end;
+  int w;
+  bool ready;
 #if USE_WIFI
   wifiPoll();   // at least once per loop, even when there is no time to wait
 #endif
   do {
-    end = sampleCount;  // one 32-bit read: atomic on the Cortex-M0+
+    noInterrupts();  // the timer updates both; read them as one pair
+    end = sampleCount;
+    w = ringWrite;
+    interrupts();
+    ready = firstWindow ? end >= (uint32_t)N : (uint32_t)(end - lastEnd) >= (uint32_t)UPDATE_EVERY;
 #if USE_WIFI
-    if (end < N || end < lastEnd + (uint32_t)UPDATE_EVERY) wifiPoll();  // serve WiFi while idle
+    if (!ready) wifiPoll();  // serve WiFi while idle
 #endif
-  } while (end < N || end < lastEnd + (uint32_t)UPDATE_EVERY);
+  } while (!ready);
+  firstWindow = false;
   lastEnd = end;
-  // the window is the N samples before slot `end`
-  const int winStart = (int)((end - (uint32_t)N) % (uint32_t)RING_N);
+  // the window is the N samples before slot w (the next one the timer writes)
+  const int winStart = (w >= N) ? w - N : w - N + RING_N;
   unsigned long tSampled = micros();
 
   // Correlate each photodiode with sin and cos at each lit LED's frequency.

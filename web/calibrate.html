@@ -59,12 +59,12 @@
     <section class="card">
       <div class="card-head"><h2>1. เตรียม</h2></div>
       <ol class="steps">
-        <li>ใน <code>firmware/robot/robot.ino</code> ตั้ง <code>mode = 3</code> และ <code>ESTIMATE_Z = false</code> แล้ว upload</li>
+        <li>ใน <code>firmware/robot/robot.ino</code> ตั้ง <code>ESTIMATE_Z = false</code> แล้ว upload (หน้านี้ส่งคำสั่ง <code>MODE 3</code> ให้บอร์ดส่งบรรทัด RSS เองตอนเชื่อมต่อ ไม่ต้องแก้ <code>mode</code>)</li>
         <li>เลือก LED ที่ติดอยู่จริงด้านล่าง แล้วปิดหน้า Position Monitor ก่อน (เปิดพอร์ตพร้อมกันไม่ได้) กด <b>เชื่อมต่อ Serial</b> หน้านี้จะเปิด/ปิด LED ในบอร์ดตามที่เลือกให้เอง
           หรือต่อคอมเข้า WiFi ของหุ่นแล้วกด <b>เชื่อมต่อ WiFi</b> (ไม่ต้องปิดหน้า Position Monitor)</li>
         <li>วางหุ่นบนพื้น หันมุม <b>θ = 0°</b>: photodiode ที่ต่อขา <b>GP28</b> หันไปทาง <b>+X</b> (ทางขวาของแผนที่)</li>
         <li>ปิดไฟห้องหรือคุมแสงให้เหมือนกันทุกจุด อย่าแตะหุ่นตอนเก็บค่า</li>
-        <li>เก็บครบทุกจุดที่แนะนำ แล้ว copy บรรทัด <code>PtxGamma</code> ในข้อ 4 ไปใส่ <code>robot.ino</code> เปลี่ยนกลับเป็น <code>mode = 2</code></li>
+        <li>เก็บครบทุกจุดที่แนะนำ แล้ว copy บรรทัด <code>PtxGamma</code> ในข้อ 4 ไปใส่ <code>robot.ino</code></li>
       </ol>
       <div class="lit-pick">
         <span class="field">LED ที่ใช้ (มองจากด้านบน, +X ขวา)</span>

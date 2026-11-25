@@ -122,9 +122,16 @@ async function readEvents(base, want, ms) {
 test('fake robot: SSE lines parse like serial; CORS for a page opened from file://', async function () {
   var robot = await startRobot();
   try {
-    var r = await readEvents(robot.base, function (ls) {
-      return ls.some(A.parseLine) && ls.some(function (l) { return C.parseRssLine(l); });
+    // mode 2 at power-up, as robot.ino: positions only
+    var first = await readEvents(robot.base, function (ls) { return ls.filter(A.parseLine).length >= 3; });
+    assert.ok(!first.lines.some(function (l) { return C.parseRssLine(l); }), 'no RSS line in mode 2');
+    // the calibrate page sends MODE 3 when it connects
+    var pending = readEvents(robot.base, function (ls) {
+      return ls.indexOf('# MODE 3') >= 0 && ls.some(A.parseLine) && ls.some(function (l) { return C.parseRssLine(l); });
     });
+    await new Promise(function (res) { setTimeout(res, 100); });
+    await fetch(robot.base + '/cmd?c=MODE%203');
+    var r = await pending;
     assert.equal(r.res.status, 200);
     assert.equal(r.res.headers.get('content-type'), 'text/event-stream');
     assert.equal(r.res.headers.get('access-control-allow-origin'), '*');
@@ -175,7 +182,7 @@ test('robot.ino WiFi: same endpoints, framing, address and CORS as the page and 
   assert.deepEqual(code.match(/Serial\.print/g), null);
   assert.match(code, /void handleCommand\(const char\* buf\)/);
   // WiFi is served while loop() waits for the next window (core 0 only)
-  assert.match(code, /if \(end < N \|\| end < lastEnd \+ \(uint32_t\)UPDATE_EVERY\) wifiPoll\(\);/);
+  assert.match(code, /if \(!ready\) wifiPoll\(\);/);
   assert.doesNotMatch(code, /void (setup1|loop1)\(/);
 });
 

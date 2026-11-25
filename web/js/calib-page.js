@@ -86,7 +86,7 @@
     // a board in mode 2 sends only Quadrant lines
     if (live && up && !state.rssLines && now - state.connectedAt > 3000) {
       showNotice(state.quadLines
-        ? 'บอร์ดส่งแต่บรรทัดพิกัด ไม่มีบรรทัด RSS: ตั้ง mode = 3 (หรือ 1) ใน robot.ino แล้ว upload ใหม่'
+        ? 'บอร์ดส่งแต่บรรทัดพิกัด ไม่มีบรรทัด RSS: firmware นี้ไม่รับคำสั่ง MODE 3 ให้ตั้ง mode = 3 ใน robot.ino แล้ว upload ใหม่'
         : 'ยังไม่มีข้อมูลจากบอร์ด: ตรวจว่า upload firmware แล้ว และไม่มีโปรแกรมอื่นเปิดพอร์ตอยู่');
     }
   }
@@ -374,6 +374,7 @@
     showNotice('');
     setSource('serial');
     readLoop();
+    send('MODE 3\n');  // RSS lines for this page, position lines for the monitor
     sendLit();
   }
 
@@ -419,7 +420,8 @@
         if (wifi !== link) return;
         state.wifiUp = true; state.connectedAt = performance.now();
         showNotice('');
-        sendLit();   // the robot may have restarted
+        send('MODE 3\n');  // RSS and position lines (the robot may have restarted)
+        sendLit();
         updateStatus();
       },
       onError: function (kind) {
