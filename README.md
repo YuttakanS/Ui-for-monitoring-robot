@@ -29,7 +29,7 @@ docs/
   firmware-explained.md how the firmware works and how it changed (Thai)
 tools/
   fake-robot.js         a stand-in for the robot's WiFi server, to try the pages
-  models-src/           Maya script and scene that make web/models
+  models-src/           build_models.js (npm run models) makes web/models
 tests/                  npm test (Node, no dependencies)
 ```
 
