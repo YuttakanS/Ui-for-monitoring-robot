@@ -196,3 +196,34 @@ test('robot.ino keeps the model of calib-model.js in the faster EKF code', funct
   assert.match(INO, /const bool EKF_SEQUENTIAL = (true|false);/);
   assert.match(INO, /Q\(i, i\) = Q0\[i\] \* T \/ T_REF;/);
 });
+
+// The wait for the next window, written as in loop(): sampleCount (uint32)
+// and ringWrite advance together in the timer; the loop waits for
+// UPDATE_EVERY new samples and takes the N samples before ringWrite.
+test('window wait and start stay right when sampleCount wraps at 2^32 (after 47.7 h)', function () {
+  assert.match(INO, /ready = firstWindow \? end >= \(uint32_t\)N : \(uint32_t\)\(end - lastEnd\) >= \(uint32_t\)UPDATE_EVERY;/);
+  assert.match(INO, /noInterrupts\(\);\s*end = sampleCount;\s*w = ringWrite;\s*interrupts\(\);/);
+  assert.match(INO, /const int winStart = \(w >= N\) \? w - N : w - N \+ RING_N;/);
+  var RING_N = 2 * N, UPDATE_EVERY = inoInt('UPDATE_EVERY');
+  // start 3 windows before the wrap; ringWrite is the slot count mod RING_N
+  // since power-up, which is not sampleCount % RING_N once sampleCount wraps
+  var slots = 4294967296 - 3 * UPDATE_EVERY - 7;           // samples since power-up
+  var count = slots >>> 0, ringW = slots % RING_N, lastEnd = count, windows = 0;
+  for (var step = 0; step < 10 * UPDATE_EVERY; step++) {
+    count = (count + 1) >>> 0; ringW = (ringW + 1) % RING_N;  // one timer tick
+    var ready = ((count - lastEnd) >>> 0) >= UPDATE_EVERY;
+    if (!ready) continue;
+    windows++;
+    lastEnd = count;
+    var winStart = ringW >= N ? ringW - N : ringW - N + RING_N;
+    assert.equal(winStart, ((slots + step + 1 - N) % RING_N + RING_N) % RING_N, 'window start after ' + windows + ' windows');
+  }
+  assert.equal(windows, 10, 'one window every UPDATE_EVERY samples, also across the wrap');
+});
+
+test('robot.ino: MODE <1|2|3> switches the output and is answered with "# MODE <n>"', function () {
+  assert.match(INO, /if \(sscanf\(buf, "MODE %d", &num\) == 1\) \{\s*if \(num >= 1 && num <= 3\) mode = num;\s*out\.print\("# MODE "\); out\.println\(mode\);/);
+  assert.match(INO, /int mode = 2;/);
+  var page = fs.readFileSync(path.join(__dirname, '..', 'web', 'js', 'calib-page.js'), 'utf8');
+  assert.equal(page.split("send('MODE 3\\n');").length - 1, 2, 'calibrate page sends MODE 3 on serial and WiFi connect');
+});

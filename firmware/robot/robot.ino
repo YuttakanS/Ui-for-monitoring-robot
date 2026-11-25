@@ -80,41 +80,72 @@ const float be = 55.0f * M_PI / 180.0f;
 // demodulated and adds nothing to the update. These are the values at power-up;
 // the web page can change them at run time (see readCommands()).
 const int LED_NUM[N_LED] = {     4,     5,    7,    8,    1,    2,    0,    3,    6 };  // LED number per row of p
-bool LED_ON[N_LED]       = { false, false, true, true, true, true, false, false, false };  // only LED 7, 8, 1, 2 on at start (2026-11-19)
-// LED 7, 8, 1, 2: fitted 2026-11-19 together with PD_GAIN and RSS_OFFSET
-// below (calib-model.js fitModel(), data/2026-11-19/calib_130953.csv, 8 poses,
-// theta = 0, m = 1, be = 55 deg). LED 4, 5 (not lit) and LED 0, 3, 6 (off) are
-// not calibrated.
+bool LED_ON[N_LED]       = {  true,  true, true, true, true, true,  true,  true,  true };  // all 9 LEDs lit (2026-11-25; was 7, 8, 1, 2 only)
+// How many of the lit LEDs the EKF uses in each update (2026-11-25, from the
+// "nearest 4 LEDs" idea in the professor's firmware): every lit LED is still
+// demodulated, then only the LED_USE_K brightest (largest RSS over the three
+// photodiodes) go into the update. Far LEDs fit the model worst (reflections).
+// On the PC (calib-model.js, 2026-11-25 data, leave one pose out) x / y came to
+// 9 LEDs 4.13 cm, 8: 4.09, 7: 3.78, 6: 3.72, 5: 4.05, 4: 5.43, and the
+// professor's fixed 2 x 2 LED quadrants 6.32 cm (bad at the corners of the
+// frame). Only 12 poses, so 6 is not proven better than 9: compare on the board.
+// 9 (or more) = every lit LED, as before. The command "USE <k>" changes it at
+// run time. Must match LED_USE_K in calib-model.js (tests check it).
+int LED_USE_K = 6;
+bool LED_USED[N_LED];  // set in selectLeds() each loop: lit and among the brightest LED_USE_K
+// All 9 LEDs (2026-11-25): fitted together with PD_GAIN and RSS_OFFSET below
+// (calib-model.js fitModel(), data/2026-11-25/calib_105643.csv, 12 of its 13
+// poses: (-25, -25) left out because PD 2 read about 1/4 of the model there for
+// every LED, also on 2026-11-19; theta = 0, y = +-50 poses on the 3 cm beams,
+// z = 3). Model misfit 15-24 % per LED, x / y on the PC (leave one pose out)
+// 4.1 cm mean, 3.8 cm median. Not measured on the board yet.
+// Before (4 LEDs: 7, 8, 1, 2 only, LED_ON the others false):
+//   PtxGamma { 0.490f, 0.490f, 0.443f, 0.430f, 0.534f, 0.503f, 0.460f, 0.460f, 0.460f },
+//   PD_GAIN 1, 0.915, 0.905, RSS_OFFSET 0.0811, fitted as follows.
+// LED 7, 8, 1, 2: fitted together with PD_GAIN and RSS_OFFSET below
+// (calib-model.js fitModel(), data/2026-11-19/calib_130953.csv, 8 poses,
+// theta = 0, m = 1, be = 55 deg, all poses taken as z = 0). Refitted on
+// 2026-11-24 with the LED rows at y = +-0.515 m: model misfit 9.1 -> 8.6 %,
+// x / y on the PC (leave one pose out) 3.57 -> 3.61 cm. With y = +-0.5 they
+// were 0.447, 0.435, 0.538, 0.506, PD_GAIN 1, 0.917, 0.906, RSS_OFFSET 0.0689.
+// LED 4, 5 (not lit) and LED 0, 3, 6 (off) are not calibrated.
 // To go back to the model without PD_GAIN / RSS_OFFSET (x / y about 1-2 cm on
 // the board with ESTIMATE_Z = false), use PD_GAIN = 1, 1, 1, RSS_OFFSET = 0 and
 //   { 0.490f, 0.490f, 0.476f, 0.457f, 0.562f, 0.525f, 0.460f, 0.460f, 0.460f }
 // (with be = 60 deg the gammas were 0.453, 0.436, 0.536, 0.504).
-const float PtxGamma[N_LED] = { 0.490f, 0.490f, 0.447f, 0.435f, 0.538f, 0.506f, 0.460f, 0.460f, 0.460f };
+const float PtxGamma[N_LED] = { 0.597f, 0.567f, 0.502f, 0.475f, 0.641f, 0.590f, 0.608f, 0.529f, 0.542f };
 // Photodiode gain relative to PD 0 (pin GP28). The calibration data read PD 0
 // 12-21 % above the model for every LED; PD 1 and 2 are about 8-9 % lower.
-const float PD_GAIN[N_PD] = { 1.000f, 0.917f, 0.906f };
+const float PD_GAIN[N_PD] = { 1.000f, 0.759f, 0.926f };
 // Added to every RSS of a lit LED: reflections and the noise floor of the
 // demodulation. Far LEDs (> 1.25 m) read about 21 % above the model without it.
 // With these two, the model misfit fell from 12-18 % to 8-10 % and x / y on
 // the PC (leave one pose out) from 5.9 to 3.6 cm.
-const float RSS_OFFSET = 0.0689f;
+const float RSS_OFFSET = 0.0461f;
 const float eps = 0.01; //0.01;
 const float sigma2 = 0.01; //0.1, 0.4, 0.1, 0.005; 
 // const float q = 0.01;
-int mode = 2; //1 is RSS only. 2 is the coordinate.
+// 1 = RSS lines only, 2 = position lines only (power-up), 3 = both. The
+// calibrate page sends "MODE 3" when it connects (2026-11-25), so the firmware
+// no longer has to be uploaded again with mode = 1 to calibrate.
+int mode = 2;
 // true = print how long each part of a loop took, as a "# T ..." line (the web
 // pages skip lines that start with #). Switched with the command "TIMING <0|1>".
 bool PRINT_TIMING = false;
 
+// LED positions (m): x, y, height above the photodiodes. The rows of LED 8 7 6
+// and 2 1 0 are 0.515 m from the middle row (measured on the frame,
+// 2026-11-24; was 0.5); x is 0.5 m. The LEDs are 0.92 m above the floor (0.89 m
+// above the 3 cm steel beams that run under the top and bottom rows).
 BLA::Matrix<N_LED, 3> p = { 0, 0, 0.920, //0.93 - 0.03 - 0.01   LED4
                             -0.5, 0, 0.920,                  // LED5
-                            0, 0.5, 0.920,                   // LED7
-                            -0.5, 0.5, 0.920,                // LED8
-                            0, -0.5, 0.920,                  // LED1
-                            -0.5, -0.5, 0.920,               // LED2
-                            0.5, -0.5, 0.920,                // LED0
+                            0, 0.515, 0.920,                 // LED7
+                            -0.5, 0.515, 0.920,              // LED8
+                            0, -0.515, 0.920,                // LED1
+                            -0.5, -0.515, 0.920,             // LED2
+                            0.5, -0.515, 0.920,              // LED0
                             0.5, 0, 0.920,                   // LED3
-                            0.5, 0.5, 0.920 };               // LED6
+                            0.5, 0.515, 0.920 };             // LED6
 
 BLA::Matrix<3, 1> uk = { 0.0, 0.0, -1.0 };
 BLA::Matrix<3, 3> v = { cos(be) * cos(al[0]), -cos(be) * sin(al[0]), sin(be),
@@ -267,7 +298,7 @@ void computeJacobian(const BLA::Matrix<N_STATE, 1>& xHnnm1) {
     const float cosM = cosf(xm(ITH)), sinM = sinf(xm(ITH));
     for (int k = 0; k < N_LED; k++)
       for (int l = 0; l < N_PD; l++) {
-        if (!LED_ON[k]) { Jn(N_PD * k + l, j) = 0; continue; }  // LED off: no influence
+        if (!LED_USED[k]) { Jn(N_PD * k + l, j) = 0; continue; }  // LED off / not used: no influence
         // RSS_OFFSET is the same on both sides, so it drops out here
         tmp1 = PtxGamma[k] * PD_GAIN[l] * pathLossCS(k, l, xp(IX), xp(IY), xp(IZ), cosP, sinP);
         tmp2 = PtxGamma[k] * PD_GAIN[l] * pathLossCS(k, l, xm(IX), xm(IY), xm(IZ), cosM, sinM);
@@ -290,7 +321,7 @@ void ekfUpdateSequential() {
   xHnm1nm1 = xHnnm1;
   Pnm1nm1 = Pnnm1;
   for (int f = 0; f < N_LED; f++) {
-    if (!LED_ON[f]) continue;
+    if (!LED_USED[f]) continue;
     for (int g = 0; g < N_PD; g++) {
       const int i = N_PD * f + g;
       float S = sigma2;
@@ -325,6 +356,65 @@ void ekfUpdateSequential() {
       for (int a = 0; a < N_STATE; a++)
         for (int b = 0; b < N_STATE; b++) Pnm1nm1(a, b) = M[a][b] - Mh[a] * K[b] + sigma2 * K[a] * K[b];
     }
+  }
+}
+
+// Photodiode that reads far too low for every LED at once (2026-11-25: PD 2 at
+// (-25, -25) read about 1/4 of the model for all 9 LEDs, which pulled the
+// position 50 cm away; a loose wire or connector, not a shadow, which would hit
+// some LEDs only). For each photodiode: light read over the lit LEDs against the
+// model at the prediction (both without RSS_OFFSET). One whose share is below
+// PD_LOW_RATIO times the median of the three is left out of this update.
+// Same rule as lowPd() in calib-model.js (tests/calibrate.test.js checks it on
+// the 2026-11-25 calibration data). SKIP_LOW_PD = false turns it off.
+// Judged on every lit LED (LED_ON), not only the LED_USE_K used: on
+// 2026-11-25 13:41 PD 2 read about 1/3 at (0, 0); over all 9 LEDs its share
+// was 0.33 of the median, over the 6 used 0.35, which passed the old 0.35 limit
+// and put the position 13 cm off on the board (18 cm on the PC).
+const bool SKIP_LOW_PD = true;
+// Good poses gave 0.427 or more (prior up to 20 cm / 30 deg off), a low PD 2
+// 0.374 or less (0.19-0.26 at (-25, -25), 0.29-0.37 at (0, 0) at 13:41):
+// 0.40 sits between the two (was 0.35).
+const float PD_LOW_RATIO = 0.40f;
+const float PD_LOW_MIN = 0.1f;     // predicted light a photodiode needs before it is judged
+int skippedPd = -1;                // photodiode left out now, -1 = none
+
+int lowPd() {
+  float share[N_PD];
+  for (int g = 0; g < N_PD; g++) {
+    float meas = 0, model = 0;
+    for (int f = 0; f < N_LED; f++) {
+      if (!LED_ON[f]) continue;  // every lit LED (more evidence than LED_USED)
+      const int i = N_PD * f + g;
+      meas += fmaxf(0.0f, zn(i) - RSS_OFFSET);
+      model += zHn(i) - RSS_OFFSET;
+    }
+    if (model < PD_LOW_MIN) return -1;
+    share[g] = meas / model;
+  }
+  int lo = 0;
+  for (int g = 1; g < N_PD; g++) if (share[g] < share[lo]) lo = g;
+  // median of three = the one that is neither the smallest nor the largest
+  const float a = share[0], b = share[1], c = share[2];
+  const float med = fmaxf(fminf(a, b), fminf(fmaxf(a, b), c));
+  return share[lo] < PD_LOW_RATIO * med ? lo : -1;
+}
+
+// LED_USED = the lit LEDs with the LED_USE_K largest RSS (largest of the three
+// photodiodes), from the RSS just demodulated (zn). Ties keep the lower row of
+// p. Same rule as selectLeds() in calib-model.js.
+void selectLeds() {
+  float lvl[N_LED];
+  for (int f = 0; f < N_LED; f++) {
+    LED_USED[f] = false;
+    lvl[f] = fmaxf(zn(N_PD * f), fmaxf(zn(N_PD * f + 1), zn(N_PD * f + 2)));
+  }
+  for (int n = 0; n < LED_USE_K; n++) {
+    int best = -1;
+    for (int f = 0; f < N_LED; f++)
+      if (LED_ON[f] && !LED_USED[f] && (best < 0 || lvl[f] > lvl[best])) best = f;
+    if (best < 0) break;  // fewer than LED_USE_K LEDs lit: use them all
+    LED_USED[best] = true;
   }
 }
 
@@ -385,19 +475,27 @@ Out out;
 
 // Commands from the web page, one per line (USB serial or WiFi /cmd):
 //   LED <number> <0|1>     e.g. "LED 4 0" stops using LED 4, "LED 4 1" uses it again
+//   USE <k>                the EKF uses the k brightest lit LEDs (1..9, see LED_USE_K)
+//   MODE <1|2|3>           1 = RSS lines, 2 = position lines, 3 = both (see mode)
 //   TIMING <0|1>           print a "# T ..." line with the loop timing after each loop
 //   WIFI                   print the "# WIFI ..." line again
-// Each accepted command is answered with "# LED <number> <0|1>" or
-// "# TIMING <0|1>" (the web page ignores lines that start with #).
+// Each accepted command is answered with "# LED <number> <0|1>", "# USE <k>",
+// "# MODE <n>" or "# TIMING <0|1>" (the web page ignores lines that start with #).
 void printWifiInfo();
 void handleCommand(const char* buf) {
   int num, on;
-  if (sscanf(buf, "LED %d %d", &num, &on) == 2) {
+  if (sscanf(buf, "MODE %d", &num) == 1) {
+    if (num >= 1 && num <= 3) mode = num;
+    out.print("# MODE "); out.println(mode);
+  } else if (sscanf(buf, "LED %d %d", &num, &on) == 2) {
     for (int k = 0; k < N_LED; k++) {
       if (LED_NUM[k] != num) continue;
       LED_ON[k] = (on != 0);
       out.print("# LED "); out.print(num); out.print(" "); out.println(LED_ON[k] ? 1 : 0);
     }
+  } else if (sscanf(buf, "USE %d", &num) == 1) {
+    if (num >= 1 && num <= N_LED) LED_USE_K = num;
+    out.print("# USE "); out.println(LED_USE_K);
   } else if (sscanf(buf, "TIMING %d", &on) == 1) {
     PRINT_TIMING = (on != 0);
     out.print("# TIMING "); out.println(PRINT_TIMING ? 1 : 0);
@@ -578,20 +676,34 @@ void loop() {
   // (and, at power-up, until the ring holds a whole window). If the previous
   // loop took longer than that, this returns at once: the rate drops instead
   // of the windows falling behind the newest samples.
+  // sampleCount wraps after 2^32 samples (47.7 h at 25 kHz), so only the
+  // difference end - lastEnd is compared, which stays right across the wrap.
+  // (It was `end < lastEnd + UPDATE_EVERY`, which hung for good after the
+  // wrap, and the window start came from end % RING_N, which jumps there
+  // because 2^32 is not a multiple of RING_N.) The window start now comes
+  // from ringWrite, read together with sampleCount.
   static uint32_t lastEnd = 0;
+  static bool firstWindow = true;
   uint32_t end;
+  int w;
+  bool ready;
 #if USE_WIFI
   wifiPoll();   // at least once per loop, even when there is no time to wait
 #endif
   do {
-    end = sampleCount;  // one 32-bit read: atomic on the Cortex-M0+
+    noInterrupts();  // the timer updates both; read them as one pair
+    end = sampleCount;
+    w = ringWrite;
+    interrupts();
+    ready = firstWindow ? end >= (uint32_t)N : (uint32_t)(end - lastEnd) >= (uint32_t)UPDATE_EVERY;
 #if USE_WIFI
-    if (end < N || end < lastEnd + (uint32_t)UPDATE_EVERY) wifiPoll();  // serve WiFi while idle
+    if (!ready) wifiPoll();  // serve WiFi while idle
 #endif
-  } while (end < N || end < lastEnd + (uint32_t)UPDATE_EVERY);
+  } while (!ready);
+  firstWindow = false;
   lastEnd = end;
-  // the window is the N samples before slot `end`
-  const int winStart = (int)((end - (uint32_t)N) % (uint32_t)RING_N);
+  // the window is the N samples before slot w (the next one the timer writes)
+  const int winStart = (w >= N) ? w - N : w - N + RING_N;
   unsigned long tSampled = micros();
 
   // Correlate each photodiode with sin and cos at each lit LED's frequency.
@@ -652,13 +764,33 @@ void loop() {
   Pnnm1 = A * Pnm1nm1 * ~A + Q;
 
   //Correction step
+  selectLeds();  // LED_USED: the LED_USE_K brightest lit LEDs
   computeJacobian(xHnnm1);
   const float cosTh = cosf(xHnnm1(ITH)), sinTh = sinf(xHnnm1(ITH));
   for (int f = 0; f < N_LED; f++)
     for (int g = 0; g < N_PD; g++)
-      // LED off: predicted = measured, so its innovation is 0
+      // LED off / not used: predicted = measured, so its innovation is 0
+      // (predicted for every lit LED first: lowPd() judges on all of them)
       zHn(N_PD * f + g) = LED_ON[f] ? PtxGamma[f] * PD_GAIN[g] * pathLossCS(f, g, xHnnm1(IX), xHnnm1(IY), xHnnm1(IZ), cosTh, sinTh) + RSS_OFFSET
-                                    : zn(N_PD * f + g);
+                                  : zn(N_PD * f + g);
+  // leave out a photodiode that reads far too low (see lowPd()): its values
+  // then match the prediction and its Jacobian rows are 0, so it adds nothing
+  const int lowNow = SKIP_LOW_PD ? lowPd() : -1;
+  // lit LEDs that are not among the LED_USE_K used: no innovation either
+  for (int f = 0; f < N_LED; f++)
+    if (!LED_USED[f])
+      for (int g = 0; g < N_PD; g++) zHn(N_PD * f + g) = zn(N_PD * f + g);
+  if (lowNow != skippedPd) {
+    if (skippedPd >= 0) { out.print("# PD "); out.print(skippedPd); out.println(" ok"); }
+    if (lowNow >= 0) { out.print("# PD "); out.print(lowNow); out.println(" low, skipped"); }
+    skippedPd = lowNow;
+  }
+  if (skippedPd >= 0)
+    for (int f = 0; f < N_LED; f++) {
+      const int i = N_PD * f + skippedPd;
+      zHn(i) = zn(i);
+      for (int j = 0; j < N_STATE; j++) Jn(i, j) = 0;
+    }
   if (EKF_SEQUENTIAL) {
     ekfUpdateSequential();
   } else {

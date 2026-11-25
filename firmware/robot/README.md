@@ -35,20 +35,26 @@ z / vz use the same `P` and `Q` as x / y.
 |---|---|---|---|---|
 | 0 | LED 4 | (0, 0) | 2300 Hz | no |
 | 1 | LED 5 | (-50, 0) | 2900 Hz | no |
-| 2 | LED 7 | (0, 50) | 3700 Hz | yes |
-| 3 | LED 8 | (-50, 50) | 4100 Hz | yes |
-| 4 | LED 1 | (0, -50) | 1300 Hz | yes |
-| 5 | LED 2 | (-50, -50) | 1700 Hz | yes |
-| 6 | LED 0 | (50, -50) | 1100 Hz | no |
+| 2 | LED 7 | (0, 51.5) | 3700 Hz | yes |
+| 3 | LED 8 | (-50, 51.5) | 4100 Hz | yes |
+| 4 | LED 1 | (0, -51.5) | 1300 Hz | yes |
+| 5 | LED 2 | (-50, -51.5) | 1700 Hz | yes |
+| 6 | LED 0 | (50, -51.5) | 1100 Hz | no |
 | 7 | LED 3 | (50, 0) | 1900 Hz | no |
-| 8 | LED 6 | (50, 50) | 3100 Hz | no |
+| 8 | LED 6 | (50, 51.5) | 3100 Hz | no |
+
+The top and bottom rows are 51.5 cm from the middle row (measured on the
+frame, 2026-11-24; the code used 50 cm before). The LEDs are 92 cm above the
+floor and 89 cm above the 3 cm steel beams that run under the top and bottom
+rows, so the robot cannot stand on the floor right under LED 8, 7, 6 or
+2, 1, 0.
 
 Layout seen from above (+X right, +Y up), LED 4 at the origin:
 
 ```
-8--7--6    y = +50
+8--7--6    y = +51.5
 5--4--3    y =   0
-2--1--0    y = -50
+2--1--0    y = -51.5
 ```
 
 - `m = 1.0`. The LEDs are Cree XLamp CMA1306, viewing angle (FWHM)
@@ -205,6 +211,90 @@ about ±10 cm on the board, against about 3 cm for this firmware. With
 the same RSS data, its model also gives about twice the error (16.5 cm
 against 8.3 cm mean, solving each pose without the EKF).
 
+### 2026-11-24: LED rows at y = ±51.5 cm (same calibration data)
+The frame drawing gives the top and bottom LED rows at y = ±0.515 m, and
+3 cm steel beams under them. The user remembers standing the robot on the
+beams for the y = ±50 poses, so these were refitted (`fitModel()` in `calib-model.js`, 8 poses of
+`data/2026-11-19/calib_130953.csv`, leave one pose out for x / y and z):
+
+| Model | Misfit (rms) | x / y error | z error (rms) |
+|---|---|---|---|
+| y = ±0.50, all poses on the floor (before) | 9.1 % | 3.57 cm | 1.0 cm |
+| y = ±0.50, y = ±50 poses 3 cm up (beam) | 9.2 % | 3.84 cm | 1.9 cm |
+| **y = ±0.515, all poses on the floor (now)** | **8.6 %** | **3.61 cm** | **1.1 cm** |
+| y = ±0.515, y = ±50 poses 3 cm up | 9.3 % | 3.77 cm | 2.3 cm |
+
+Letting the data choose the height of the y = ±50 poses, the misfit is lowest
+at 0 cm (39.8e-3 absolute) and grows to 42.3e-3 at 3 cm, so the data do not
+support the robot standing 3 cm higher there; it may have stood next to the
+beams. The evidence is weak, because the model misfit (about 9 %) is larger
+than what 3 cm of height changes (6–7 %). So y = ±0.515 is used with every
+pose on the floor. It makes the geometry match the frame; it is not expected
+to make x / y clearly better. Not measured on the board yet.
+
+New values: gamma LED 7, 8, 1, 2 = 0.443, 0.430, 0.534, 0.503, `PD_GAIN` =
+1, 0.915, 0.905, `RSS_OFFSET` = 0.0811 (was 0.447, 0.435, 0.538, 0.506,
+1, 0.917, 0.906, 0.0689). Next time, write down the height each pose stands at
+(on a beam or not), or avoid poses on the beams. Since 2026-11-25 the calibrate
+page has a "z ฐานหุ่น (cm)" field for this (3 on a beam); it is saved as the
+last CSV column `z_cm` and used by the fit. Older files read as z = 0.
+
+### 2026-11-25: LEDs used per update (`LED_USE_K`)
+Idea from the professor's firmware (`reading_rss_PD_pyramid_vOK_LEDcenter_P_Q_ch_big_size_m2v3.ino`):
+use only the LEDs near the robot, since far LEDs fit the model worst. That
+firmware picks the 2 × 2 LED quadrant with the most light and runs the EKF on
+its 4 LEDs. (As sent it also has bugs: quadrant 3 takes the RSS of LED 6 for
+LED 5, `PtxGamma[k]` is indexed by the position within the quadrant instead
+of the LED, and gamma is applied twice.)
+
+Leave one pose out on the PC with `data/2026-11-25/calib_105643.csv` (12 poses,
+same model as `robot.ino`, quadrant bugs fixed), mean / max x-y error in cm:
+
+| LEDs in the update | mean | max |
+|---|---|---|
+| all 9 | 4.13 | 11.5 |
+| quadrant, 4 (professor) | 6.32 | 20.4 |
+| brightest 4 | 5.43 | 20.4 |
+| brightest 5 | 4.05 | 10.4 |
+| **brightest 6** | **3.72** | 10.5 |
+| brightest 7 | 3.78 | 10.6 |
+| brightest 8 | 4.09 | 11.8 |
+
+Four LEDs fail at the edges and corners of the frame (all 4 on one side of
+the robot: 12–20 cm at (0, 50) and (50, 50)); inside a cell they are a little
+better. `robot.ino` now uses the brightest 6 (`LED_USE_K`, command `USE <k>`).
+The gain over 9 is small for 12 poses: **compare `USE 6` with `USE 9` on the
+board** before relying on it. Not tested: jumps when the chosen set changes
+while the robot moves.
+
+First board check (2026-11-25 13:02, `USE 6`, robot at (0, 0), θ = 0): the
+position read (−3.3, 12.9), 13 cm off, with z stuck at 0. The RSS at the same
+pose (`data/2026-11-25/pd2_low_134138.csv`, `_134223.csv`) showed PD 2 (GP26)
+at about 1/3 of the morning's value for every LED (the loose wire again) and
+PD 0 / PD 1 about 10 % lower for every LED. Over the 6 LEDs used, `lowPd()`
+gave PD 2 a share of 0.35 of the median, just passing the limit of 0.35, so
+PD 2 stayed in. Now `lowPd()` judges on every lit LED (0.33 here) and
+`PD_LOW_RATIO` is 0.40 (good poses 0.427 or more, a low PD 2 0.374 or less);
+on the PC the same RSS then gives (−0.5, 2.1). Not run on the board yet.
+
+`sigma2` (the professor's firmware has 0.1, `robot.ino` 0.01), EKF replica on
+the PC at 20 Hz: robot still 20 s, then 50 cm in 2 s across x = 0, then still;
+RSS noise 0.02 (consecutive windows 50 % shared), fixed 10 % model error,
+5 seeds. Brightest 6 LEDs:
+
+| `sigma2` | jitter still | lag while moving | overshoot | within 2 cm after |
+|---|---|---|---|---|
+| 0.001 | 0.55 cm | 2.9 cm | 2.0 cm | 0.7 s |
+| 0.003 | 0.46 | 3.1 | 3.0 | 1.1 |
+| **0.01 (kept)** | **0.39** | **4.0** | **4.7** | **2.0** |
+| 0.03 | 0.33 | 6.0 | 6.4 | 3.1 |
+| 0.1 | 0.28 | 9.1 | 8.1 | 4.4 |
+
+0.1 only trims jitter that is already small next to the ~3 cm model bias, and
+doubles the lag and overshoot, so `sigma2` stays 0.01. All 9 LEDs gave
+slightly less jitter (0.35 cm) and lag (3.7 cm) in this replica, whose model
+error is random rather than larger for far LEDs.
+
 ## On/off commands
 The web page (or the Serial Monitor) sends one line per command:
 
@@ -214,6 +304,24 @@ LED <number> <0|1>     e.g.  LED 4 1
 
 The board answers `# LED <number> <0|1>`. An LED that is off is not demodulated
 and adds nothing to the EKF update. This does not power the LED itself off.
+
+```
+USE <k>                e.g.  USE 9      (1..9)
+```
+
+The board answers `# USE <k>`. The EKF uses only the `k` brightest lit LEDs
+in each update (`LED_USE_K`, 6 at power-up; 9 = every lit LED, as before
+2026-11-25). Every lit LED is still demodulated and printed in mode 1 / 3.
+Over WiFi it can be sent from a browser:
+`http://192.168.42.1/cmd?c=USE%209`. See "LEDs used per update" below.
+
+```
+MODE <1|2|3>           e.g.  MODE 3
+```
+
+The board answers `# MODE <n>`: 1 = RSS lines, 2 = position lines (power-up),
+3 = both. The calibrate page sends `MODE 3` when it connects, so calibrating
+no longer needs an upload with `mode = 1` or `3`.
 
 ```
 TIMING <0|1>           e.g.  TIMING 1
@@ -281,7 +389,8 @@ To check on the board (not done yet):
   over WiFi (`Serial` drops output at once when no computer has it open).
 
 Without the board, `node tools/fake-robot.js 8080` serves the same endpoints
-with simulated lines (mode 3); connect the pages to `127.0.0.1:8080`.
+with simulated lines (mode 2 at start, like the board; it takes `MODE`,
+`LED`, `USE` and `TIMING`); connect the pages to `127.0.0.1:8080`.
 
 ## Update rate (2026-11-19, branch `feature/task-2-realtime`)
 One update took about 0.33 s (3.0 Hz) with LED 1, 2, 7, 8: 0.1 s to collect

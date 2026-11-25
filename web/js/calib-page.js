@@ -12,14 +12,14 @@
   var el = {
     connect: $('btnConnect'), wifiBtn: $('btnWifi'), wifiHost: $('wifiHost'), demo: $('btnDemo'), dot: $('statusDot'), status: $('statusText'), rate: $('rate'),
     notice: $('notice'), noticeText: $('noticeText'),
-    form: $('poseForm'), x: $('inX'), y: $('inY'), th: $('inTh'), n: $('inN'), record: $('btnRecord'),
+    form: $('poseForm'), x: $('inX'), y: $('inY'), th: $('inTh'), z: $('inZ'), n: $('inN'), record: $('btnRecord'),
     bar: $('progressBar'), recText: $('recText'), presets: $('presets'),
     live: $('liveTable').tBodies[0], lastRaw: $('lastRaw'),
     poses: $('poseTable').tBodies[0], poseCount: $('poseCount'), poseEmpty: $('poseEmpty'),
     exp: $('btnExport'), imp: $('fileImport'), clear: $('btnClear'),
     fit: $('fitTable').tBodies[0], fwLine: $('fwLine'), copy: $('btnCopy'), litGrid: $('litGrid')
   };
-  var LIT_STORE = 'ra.calib.lit';
+  var LIT_STORE = 'ra.calib.lit.v2'; // new key with all 9 LEDs (2026-11-25): old 4-LED choices are ignored
 
   // theme chosen on the main page
   try {
@@ -51,7 +51,11 @@
   function showNotice(text) { el.noticeText.textContent = text || ''; el.notice.hidden = !text; }
   function td(text, cls) { var c = document.createElement('td'); c.textContent = text; if (cls) c.className = cls; return c; }
   function pct(v, signed) { return v === null || v === undefined ? '—' : (signed && v > 0 ? '+' : '') + (v * 100).toFixed(1) + '%'; }
-  function samePose(a, b) { return a.x === b.x && a.y === b.y && (a.theta || 0) === (b.theta || 0); }
+  // z = height of the robot base above the floor (cm), 0 when not given
+  function samePose(a, b) {
+    return a.x === b.x && a.y === b.y && (a.theta || 0) === (b.theta || 0) && (a.z || 0) === (b.z || 0);
+  }
+  function poseLabel(p) { return '(' + p.x + ', ' + p.y + (p.z ? ', z = ' + p.z : '') + ')'; }
 
   /* ---------- status ---------- */
   function setSource(src) {
@@ -82,7 +86,7 @@
     // a board in mode 2 sends only Quadrant lines
     if (live && up && !state.rssLines && now - state.connectedAt > 3000) {
       showNotice(state.quadLines
-        ? 'บอร์ดส่งแต่บรรทัดพิกัด ไม่มีบรรทัด RSS: ตั้ง mode = 3 (หรือ 1) ใน robot.ino แล้ว upload ใหม่'
+        ? 'บอร์ดส่งแต่บรรทัดพิกัด ไม่มีบรรทัด RSS: firmware นี้ไม่รับคำสั่ง MODE 3 ให้ตั้ง mode = 3 ใน robot.ino แล้ว upload ใหม่'
         : 'ยังไม่มีข้อมูลจากบอร์ด: ตรวจว่า upload firmware แล้ว และไม่มีโปรแกรมอื่นเปิดพอร์ตอยู่');
     }
   }
@@ -107,7 +111,7 @@
     if (!r) return;
     r.lines.push(rss);
     el.bar.style.width = (100 * r.lines.length / r.need) + '%';
-    el.recText.textContent = 'กำลังเก็บ (' + r.pose.x + ', ' + r.pose.y + ') ' + r.lines.length + ' / ' + r.need + ' บรรทัด';
+    el.recText.textContent = 'กำลังเก็บ ' + poseLabel(r.pose) + ' ' + r.lines.length + ' / ' + r.need + ' บรรทัด';
     if (r.lines.length >= r.need) finishRec();
   }
 
@@ -125,9 +129,10 @@
 
   /* ---------- recording ---------- */
   function readPose() {
-    var p = { x: parseFloat(el.x.value), y: parseFloat(el.y.value), theta: parseFloat(el.th.value) };
+    var p = { x: parseFloat(el.x.value), y: parseFloat(el.y.value), theta: parseFloat(el.th.value), z: parseFloat(el.z.value) };
     var n = parseInt(el.n.value, 10);
-    if (isNaN(p.x) || isNaN(p.y) || isNaN(p.theta)) return { error: 'กรอก x, y และ θ เป็นตัวเลข' };
+    if (isNaN(p.x) || isNaN(p.y) || isNaN(p.theta) || isNaN(p.z)) return { error: 'กรอก x, y, θ และ z เป็นตัวเลข' };
+    if (p.z < 0) return { error: 'z ฐานหุ่นต้องไม่ติดลบ (0 = วางบนพื้น)' };
     if (!(n >= 5 && n <= 200)) return { error: 'จำนวนบรรทัดต้องอยู่ระหว่าง 5 ถึง 200' };
     return { pose: p, n: n };
   }
@@ -139,7 +144,7 @@
     el.record.textContent = 'ยกเลิก';
     el.record.classList.remove('primary');
     el.bar.style.width = '0';
-    el.recText.textContent = 'กำลังเก็บ (' + r.pose.x + ', ' + r.pose.y + ') รอบรรทัดแรก…';
+    el.recText.textContent = 'กำลังเก็บ ' + poseLabel(r.pose) + ' รอบรรทัดแรก…';
   }
 
   function cancelRec(msg) {
@@ -154,12 +159,12 @@
   function finishRec() {
     var r = state.rec;
     var avg = C.averageRss(r.lines);
-    var pose = { x: r.pose.x, y: r.pose.y, theta: r.pose.theta, n: avg.n, spread: avg.spread, rss: avg.rss };
+    var pose = { x: r.pose.x, y: r.pose.y, theta: r.pose.theta, z: r.pose.z, n: avg.n, spread: avg.spread, rss: avg.rss };
     var i = state.poses.findIndex(function (p) { return samePose(p, pose); });
     if (i >= 0) state.poses[i] = pose; else state.poses.push(pose);
     savePoses();
     var warn = C.checkPose(pose.rss, state.lit);
-    cancelRec('เก็บ (' + pose.x + ', ' + pose.y + ') แล้ว' + (i >= 0 ? ' (แทนค่าเก่า)' : '') +
+    cancelRec('เก็บ ' + poseLabel(pose) + ' แล้ว' + (i >= 0 ? ' (แทนค่าเก่า)' : '') +
       (avg.spread > SPREAD_MAX ? ' · ค่าแกว่ง ' + pct(avg.spread) + ' หุ่นขยับหรือเปล่า? เก็บซ้ำได้' : '') +
       (warn.length ? ' · มีคำเตือน ดูในตาราง' : ''));
     renderAll();
@@ -206,7 +211,8 @@
       b.type = 'button';
       b.className = 'btn small';
       b.textContent = '(' + p.x + ', ' + p.y + ')';
-      b.classList.toggle('done', state.poses.some(function (q) { return samePose(q, { x: p.x, y: p.y, theta: 0 }); }));
+      // done at any z (the robot may stand on a beam there)
+      b.classList.toggle('done', state.poses.some(function (q) { return samePose(q, { x: p.x, y: p.y, theta: 0, z: q.z }); }));
       b.addEventListener('click', function () { el.x.value = p.x; el.y.value = p.y; el.th.value = 0; });
       return b;
     });
@@ -227,6 +233,7 @@
       tr.appendChild(td(String(p.x)));
       tr.appendChild(td(String(p.y)));
       tr.appendChild(td(String(p.theta || 0)));
+      tr.appendChild(td(String(p.z || 0)));
       tr.appendChild(td(p.n ? String(p.n) : '—'));
       tr.appendChild(td(p.spread !== undefined ? pct(p.spread) : '—', p.spread > SPREAD_MAX ? 'bad' : ''));
       var w = warnText(p);
@@ -367,6 +374,7 @@
     showNotice('');
     setSource('serial');
     readLoop();
+    send('MODE 3\n');  // RSS lines for this page, position lines for the monitor
     sendLit();
   }
 
@@ -412,7 +420,8 @@
         if (wifi !== link) return;
         state.wifiUp = true; state.connectedAt = performance.now();
         showNotice('');
-        sendLit();   // the robot may have restarted
+        send('MODE 3\n');  // RSS and position lines (the robot may have restarted)
+        sendLit();
         updateStatus();
       },
       onError: function (kind) {
@@ -455,7 +464,8 @@
     renderFit();
     demoTimer = setInterval(function () {
       var x = parseFloat(el.x.value) || 0, y = parseFloat(el.y.value) || 0, t = parseFloat(el.th.value) || 0;
-      var h = C.modelRow({ x: x, y: y, theta: t });
+      var z = parseFloat(el.z.value) || 0;
+      var h = C.modelRow({ x: x, y: y, theta: t, z: z });
       var rss = h.map(function (hv, i) {
         var row = Math.floor(i / C.N_PD), g = state.demoTruth[row];
         return isLit(C.ROW_LED[row]) ? g * hv * (1 + 0.02 * (Math.random() - 0.5)) : 0;

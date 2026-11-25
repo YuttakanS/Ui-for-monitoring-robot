@@ -19,13 +19,14 @@
   // LED number for each row of p (LED_NUM), i.e. the order of the RSS values
   var ROW_LED = [4, 5, 7, 8, 1, 2, 0, 3, 6];
   var N_LED = ROW_LED.length;
-  // LED positions p (m): x, y, height above the photodiodes
+  // LED positions p (m): x, y, height above the photodiodes (top and bottom
+  // rows at y = +-0.515, measured 2026-11-24)
   var P = [
-    [0, 0, 0.92], [-0.5, 0, 0.92], [0, 0.5, 0.92], [-0.5, 0.5, 0.92], [0, -0.5, 0.92],
-    [-0.5, -0.5, 0.92], [0.5, -0.5, 0.92], [0.5, 0, 0.92], [0.5, 0.5, 0.92]
+    [0, 0, 0.92], [-0.5, 0, 0.92], [0, 0.515, 0.92], [-0.5, 0.515, 0.92], [0, -0.515, 0.92],
+    [-0.5, -0.515, 0.92], [0.5, -0.515, 0.92], [0.5, 0, 0.92], [0.5, 0.515, 0.92]
   ];
   // PtxGamma as in robot.ino now; kept for LEDs that are not fitted
-  var CURRENT_GAMMA = [0.49, 0.49, 0.447, 0.435, 0.538, 0.506, 0.46, 0.46, 0.46];
+  var CURRENT_GAMMA = [0.597, 0.567, 0.502, 0.475, 0.641, 0.590, 0.608, 0.529, 0.542];
   var M = 1.0;                       // Lambertian order
   var FOV = Math.PI / 2;
   var BETA = 55 * Math.PI / 180;     // photodiode normal elevation (be); pyramid face 35 deg
@@ -34,8 +35,8 @@
   // to every RSS value of a lit LED (RSS_OFFSET: reflections, demodulation
   // noise floor), as in robot.ino. PD_GAIN = 1, 1, 1 and RSS_OFFSET = 0 give
   // the model used before 2026-11-19 (task #2 z axis).
-  var PD_GAIN = [1.0, 0.917, 0.906];
-  var RSS_OFFSET = 0.0689;
+  var PD_GAIN = [1.0, 0.759, 0.926];
+  var RSS_OFFSET = 0.0461;
   // z range the firmware keeps (Z_MIN / Z_MAX, m)
   var Z_MIN = 0.0, Z_MAX = 0.80;
   // photodiode normals v (rows), as in robot.ino
@@ -204,9 +205,9 @@
   }
 
   // ---- Recording one pose -----------------------------------------------------
-  // LEDs used for calibration unless the page chooses others (2026-11-19:
-  // only LED 1, 2, 7 and 8 are on).
-  var DEFAULT_LIT = [1, 2, 7, 8];
+  // LEDs used for calibration unless the page chooses others; the same as
+  // LED_ON at power-up in robot.ino (all 9 since 2026-11-25, 1, 2, 7, 8 before).
+  var DEFAULT_LIT = [0, 1, 2, 3, 4, 5, 6, 7, 8];
 
   // Suggested poses (cm, theta = 0) for a set of lit LEDs: every 50 cm grid
   // point inside the box around them, plus the centre of each 50 x 50 cell.
@@ -215,7 +216,8 @@
     var xs = [], ys = [];
     (lit || DEFAULT_LIT).forEach(function (led) {
       var p = P[ROW_LED.indexOf(led)];
-      xs.push(Math.round(p[0] * 100)); ys.push(Math.round(p[1] * 100));
+      // on the 50 cm grid (the rows at y = +-51.5 cm give +-50)
+      xs.push(Math.round(p[0] * 2) * 50); ys.push(Math.round(p[1] * 2) * 50);
     });
     if (!xs.length) return [];
     var x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs);
@@ -264,18 +266,22 @@
   }
 
   // ---- CSV of recorded poses ------------------------------------------------------
+  // z_cm (added 2026-11-25) is the last column: the height of the robot base
+  // above the floor (3 on the steel beams under LED rows 8 7 6 and 2 1 0).
+  // Files without it read as z = 0.
   // x_cm, y_cm, theta_deg, n_lines, spread, then the 27 averaged RSS values in
   // firmware order, named led<k>_pd<l> (pd0 = pin GP28).
   function csvHeader() {
     var h = ['x_cm', 'y_cm', 'theta_deg', 'n_lines', 'spread'];
     ROW_LED.forEach(function (led) { for (var l = 0; l < N_PD; l++) h.push('led' + led + '_pd' + l); });
+    h.push('z_cm');
     return h;
   }
   function posesToCsv(poses) {
     var out = [csvHeader().join(',')];
     poses.forEach(function (p) {
       out.push([p.x, p.y, p.theta || 0, p.n || '', p.spread !== undefined ? +p.spread.toFixed(4) : '']
-        .concat(p.rss.map(function (v) { return +v.toFixed(4); })).join(','));
+        .concat(p.rss.map(function (v) { return +v.toFixed(4); }), [p.z || 0]).join(','));
     });
     return out.join('\r\n') + '\r\n';
   }
@@ -287,16 +293,17 @@
     var idx = {};
     head.forEach(function (name, i) { idx[name] = i; });
     var need = csvHeader(), missing = need.filter(function (c) {
-      return idx[c] === undefined && c !== 'n_lines' && c !== 'spread' && c !== 'theta_deg';
+      return idx[c] === undefined && c !== 'n_lines' && c !== 'spread' && c !== 'theta_deg' && c !== 'z_cm';
     });
     if (missing.length) return { poses: [], errors: ['missing columns: ' + missing.join(' ')] };
     var poses = [], errors = [];
     for (var i = 1; i < lines.length; i++) {
       var c = lines[i].split(',');
       var num = function (name) { return idx[name] === undefined ? NaN : parseFloat(c[idx[name]]); };
-      var p = { x: num('x_cm'), y: num('y_cm'), theta: num('theta_deg'), n: num('n_lines'), spread: num('spread'), rss: [] };
+      var p = { x: num('x_cm'), y: num('y_cm'), theta: num('theta_deg'), z: num('z_cm'), n: num('n_lines'), spread: num('spread'), rss: [] };
       if (isNaN(p.theta)) p.theta = 0;
-      need.slice(5).forEach(function (name) { p.rss.push(num(name)); });
+      if (isNaN(p.z)) p.z = 0;
+      need.slice(5, 5 + N_LED * N_PD).forEach(function (name) { p.rss.push(num(name)); });
       if (isNaN(p.x) || isNaN(p.y) || p.rss.some(isNaN)) { errors.push('line ' + (i + 1)); continue; }
       if (isNaN(p.n)) delete p.n;
       if (isNaN(p.spread)) delete p.spread;
@@ -374,6 +381,38 @@
     return { q: q, cost: c0 };
   }
 
+  // ---- Photodiode that reads far too low (as lowPd() in robot.ino) --------------
+  // For each photodiode, the light it reads over all lit LEDs against what the
+  // model predicts at the pose `prior` (both without RSS_OFFSET). A photodiode
+  // whose share is below PD_LOW_RATIO times the median of the three reads low
+  // for every LED at once: a loose wire, not a shadow, which would hit some
+  // LEDs only. Returns its index, or -1. Needs PD_LOW_MIN of predicted light.
+  // On 2026-11-25 PD 2 at (-25, -25) gave 0.19-0.26 and at (0, 0) at 13:41
+  // 0.29-0.37; good poses 0.427 or more, with the prior up to 20 cm / 30 deg
+  // off. Pass the RSS of every lit LED, before selectLeds(): the firmware
+  // judges on all of them (over 6 LEDs PD 2 at 13:41 gave 0.35).
+  var PD_LOW_RATIO = 0.40, PD_LOW_MIN = 0.1;
+  function lowPd(rss, prior, opts) {
+    opts = opts || {};
+    var gamma = opts.gamma || CURRENT_GAMMA, pdGain = opts.pdGain || PD_GAIN;
+    var off = opts.offset !== undefined ? opts.offset : RSS_OFFSET;
+    var x = prior.x / 100, y = prior.y / 100, z = (prior.z || 0) / 100, th = (prior.theta || 0) * Math.PI / 180;
+    var share = [];
+    for (var l = 0; l < N_PD; l++) {
+      var meas = 0, model = 0;
+      for (var row = 0; row < N_LED; row++) {
+        if (rss[row * N_PD] + rss[row * N_PD + 1] + rss[row * N_PD + 2] === 0) continue; // LED off
+        meas += Math.max(0, rss[row * N_PD + l] - off);
+        model += gamma[row] * pdGain[l] * pathLoss(row, l, x, y, z, th);
+      }
+      if (model < PD_LOW_MIN) return -1;
+      share.push(meas / model);
+    }
+    var sorted = share.slice().sort(function (a, b) { return a - b; });
+    var lo = share.indexOf(sorted[0]);
+    return sorted[0] < PD_LOW_RATIO * sorted[1] ? lo : -1;
+  }
+
   // ---- Pose from one averaged RSS line ---------------------------------------
   // Least squares of (rss - predicted) over the LEDs that read anything, the
   // same residual the EKF uses (equal weight, absolute RSS; predicted as in
@@ -381,10 +420,10 @@
   // robot that stands still.
   // opts.z: false = keep z at 0 (ESTIMATE_Z = false); opts.gamma / pdGain /
   // offset override the firmware constants. Returns { x, y, z, theta, rms }
-  // in cm / deg.
+  // in cm / deg. opts.skipPd: photodiode index left out (see lowPd()).
   function solvePose(rss, opts) {
     opts = opts || {};
-    var useZ = opts.z !== false, rows = [];
+    var useZ = opts.z !== false, rows = [], skip = opts.skipPd === undefined ? -1 : opts.skipPd;
     for (var row = 0; row < N_LED; row++) {
       var sum = 0;
       for (var l = 0; l < N_PD; l++) sum += rss[row * N_PD + l];
@@ -394,7 +433,9 @@
     function resid(q) {
       var out = [], z = useZ ? q[3] : 0;
       rows.forEach(function (r) {
-        for (var l = 0; l < N_PD; l++) out.push(rss[r * N_PD + l] - predictRss(r, l, q[0], q[1], z, q[2], opts));
+        for (var l = 0; l < N_PD; l++) {
+          if (l !== skip) out.push(rss[r * N_PD + l] - predictRss(r, l, q[0], q[1], z, q[2], opts));
+        }
       });
       return out;
     }
@@ -415,6 +456,31 @@
     };
   }
 
+  // ---- LEDs the EKF uses (as selectLeds() in robot.ino) ------------------------
+  // The k brightest lit LEDs (largest RSS of the three photodiodes; ties keep
+  // the lower row of p). Returns a copy of rss with the other LEDs set to 0, so
+  // solvePose() / lowPd() leave them out. LED_USE_K must match robot.ino.
+  var LED_USE_K = 6;
+  function selectLeds(rss, k) {
+    if (k === undefined) k = LED_USE_K;
+    var lvl = [], used = [], row, n;
+    for (row = 0; row < N_LED; row++) {
+      var a = rss[row * N_PD], b = rss[row * N_PD + 1], c = rss[row * N_PD + 2];
+      lvl.push(Math.max(a, b, c));
+      used.push(false);
+    }
+    for (n = 0; n < k; n++) {
+      var best = -1;
+      for (row = 0; row < N_LED; row++) {
+        var lit = rss[row * N_PD] + rss[row * N_PD + 1] + rss[row * N_PD + 2] !== 0;
+        if (lit && !used[row] && (best < 0 || lvl[row] > lvl[best])) best = row;
+      }
+      if (best < 0) break;
+      used[best] = true;
+    }
+    return rss.map(function (v, i) { return used[Math.floor(i / N_PD)] ? v : 0; });
+  }
+
   // An RSS line as the firmware prints it, for the page's demo mode and tests.
   function formatRssLine(rss) {
     return rss.map(function (v) { return v.toFixed(4); }).join(', ') + ', ';
@@ -426,8 +492,8 @@
     pathLoss: pathLoss, modelRow: modelRow, parseRssLine: parseRssLine,
     PD_GAIN: PD_GAIN, RSS_OFFSET: RSS_OFFSET, Z_MIN: Z_MIN, Z_MAX: Z_MAX, predictRss: predictRss,
     fitGamma: fitGamma, firmwareLine: firmwareLine, fitModel: fitModel, firmwareLines: firmwareLines,
-    solvePose: solvePose, levMar: levMar,
-    averageRss: averageRss, checkPose: checkPose,
+    solvePose: solvePose, levMar: levMar, lowPd: lowPd, PD_LOW_RATIO: PD_LOW_RATIO, PD_LOW_MIN: PD_LOW_MIN,
+    averageRss: averageRss, checkPose: checkPose, LED_USE_K: LED_USE_K, selectLeds: selectLeds,
     csvHeader: csvHeader, posesToCsv: posesToCsv, csvToPoses: csvToPoses, formatRssLine: formatRssLine
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
