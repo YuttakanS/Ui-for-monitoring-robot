@@ -165,6 +165,8 @@
           <div>
             <div class="tile-value" id="valH">—</div>
             <div class="tile-sub" id="headingNote" data-i18n="headingCW">0° = หันไป +X · ค่าบวก = หมุนตามเข็มนาฬิกา</div>
+            <div class="tile-sub tilt-values" id="valTilt" aria-live="off"></div>
+            <div class="tile-sub" data-i18n="tiltNote">Pitch + = ด้านหน้ายกขึ้น · Roll + = ด้านขวาต่ำลง</div>
             <div class="vec-parts" id="hComp" aria-live="off"></div>
           </div>
           <svg class="compass" viewBox="0 0 140 140" role="img" data-i18n-aria="compassAria" aria-label="เข็มทิศแสดงทิศที่หุ่นหัน">
@@ -251,7 +253,7 @@
         <div class="table-scroll">
           <table>
             <thead>
-              <tr><th data-i18n="thTime">เวลา</th><th>Quadrant</th><th>X <span class="unit" data-unit></span></th><th>Y <span class="unit" data-unit></span></th><th>Z <span class="unit" data-unit></span></th></tr>
+              <tr><th data-i18n="thTime">เวลา</th><th>Quadrant</th><th>X <span class="unit" data-unit></span></th><th>Y <span class="unit" data-unit></span></th><th>Z <span class="unit" data-unit></span></th><th>Pitch (°)</th><th>Roll (°)</th></tr>
             </thead>
             <tbody id="tableBody"></tbody>
           </table>
