@@ -355,13 +355,16 @@
   // on = false draws the LED as switched off; keep it in step with the
   // firmware's LED_ON (tests/app.test.js checks positions and on/off
   // against robot.ino).
+  // switches chosen on the page; the key changed when all 9 LEDs came on
+  // (2026-11-25) so choices saved for the 4-LED setup are not sent to the board
+  var LED_STORE = 'ra.leds.v2';
   var LED_SPACING = 50;    // cm between neighbouring LEDs along x (also the map grid)
   var LED_SPACING_Y = 51.5; // cm between the rows along y (measured 2026-11-24)
   var SY = LED_SPACING_Y;
   var LEDS = [
-    [-LED_SPACING, SY, '8', true], [0, SY, '7', true], [LED_SPACING, SY, '6', false],
-    [-LED_SPACING, 0, '5', false], [0, 0, '4', false], [LED_SPACING, 0, '3', false], // only LED 1, 2, 7, 8 on for now
-    [-LED_SPACING, -SY, '2', true], [0, -SY, '1', true], [LED_SPACING, -SY, '0', false]
+    [-LED_SPACING, SY, '8', true], [0, SY, '7', true], [LED_SPACING, SY, '6', true],
+    [-LED_SPACING, 0, '5', true], [0, 0, '4', true], [LED_SPACING, 0, '3', true], // all 9 on since 2026-11-25
+    [-LED_SPACING, -SY, '2', true], [0, -SY, '1', true], [LED_SPACING, -SY, '0', true]
   ];
 
   function translate(lang, key, n) {
@@ -638,7 +641,7 @@
 
   function toggleLed(label) {
     ledOn[label] = !ledOn[label];
-    try { localStorage.setItem('ra.leds', JSON.stringify(ledOn)); } catch (e) { /* storage unavailable */ }
+    try { localStorage.setItem(LED_STORE, JSON.stringify(ledOn)); } catch (e) { /* storage unavailable */ }
     sendLed(label);
     updateLedUI();
     state.dirty = true;
@@ -802,7 +805,7 @@
     var t0 = performance.now();
     demoTimer = setInterval(function () {
       var t = (performance.now() - t0) / 1000 + 4.2;
-      // firmware frame: the LED area is x and y in [-50, 50]
+      // firmware frame: the LED area is x in [-50, 50], y in [-51.5, 51.5]
       var x = 40 * Math.cos(t * 0.35) + (Math.random() - 0.5) * 1.2;
       var y = 40 * Math.sin(t * 0.55) + (Math.random() - 0.5) * 1.2;
       var z = 15 - 15 * Math.cos(t * 0.4) + Math.random() * 0.4; // 0..30 cm, up and down
@@ -1709,7 +1712,7 @@
 
   // Heights from the floor (z = 0), in cm. Photodiodes are 1 cm above the floor
   // and the LEDs 92 cm above the photodiodes (firmware p(k, 2) = 0.920 m).
-  // The models come from Maya (tools/models-src/build_models.py -> models/models.js).
+  // The models come from tools/models-src/build_models.js (npm run models -> models/models.js).
   var MODELS = window.RA_MODELS || null;
   var PD_HEIGHT = MODELS ? MODELS.meta.pdHeight : 1;
   var LED_HEIGHT = MODELS ? MODELS.meta.ledZ : PD_HEIGHT + 92;
@@ -1864,7 +1867,7 @@
     return Math.abs(dyaw) > 0.002 || Math.abs(s.x - f.x) + Math.abs(s.y - f.y) + Math.abs(s.z - f.z) > 0.05;
   }
 
-  // Parse the Maya models (OBJ text). Their geometry is shared by every copy,
+  // Parse the models (OBJ text). Their geometry is shared by every copy,
   // so it is marked to survive dispose3(). Returns null if unavailable.
   function loadModels3d() {
     if (!MODELS || !THREE.OBJLoader) return null;
@@ -1880,7 +1883,7 @@
     }
   }
 
-  // Give every mesh under obj a Lambert material coloured by the Maya
+  // Give every mesh under obj a Lambert material coloured by the OBJ
   // material name (cols: name -> CSS colour); unknown names use `fallback`.
   function paint3(obj, cols, fallback, opts) {
     obj.traverse(function (o) {
@@ -2065,17 +2068,19 @@
       G.add(sp);
     });
 
-    // ticks in the display unit: +-50 on the floor axes, every 25 cm up Z
+    // ticks in the display unit: the LED columns / rows on the floor axes
+    // (x = +-LED_SPACING, y = +-LED_SPACING_Y), every 25 cm up Z
     pts = [];
     function tick(text, x, y, z, css) {
       var sp = label3(text, css || C.muted, 11, '500');
       sp.position.set(x, y, z);
       G.add(sp);
     }
-    [-50, 50].forEach(function (d) {
-      pts.push(d, -2, 0, d, 2, 0, -2, d, 0, 2, d, 0);
-      tick(fmtTick(d * f, 25 * f), d, -6, 0);
-      tick(fmtTick(d * f, 25 * f), -7, d, 0);
+    [-1, 1].forEach(function (s) {
+      var dx = s * LED_SPACING, dy = s * LED_SPACING_Y;
+      pts.push(dx, -2, 0, dx, 2, 0, -2, dy, 0, 2, dy, 0);
+      tick(fmtTick(dx * f, 25 * f), dx, -6, 0);
+      tick(fmtTick(dy * f, 0.5 * f), -7, dy, 0); // 0.5 cm step: 51.5 cm / 515 mm / 0.515 m
     });
     for (v = 25; v < LED_HEIGHT; v += 25) {
       pts.push(-2, 0, v, 2, 0, v);
@@ -2085,7 +2090,7 @@
     tick(fmtTick(LED_HEIGHT * f, f), -7, 0, LED_HEIGHT, C.led); // LED height above the floor
     G.add(lines3(pts, C.muted));
 
-    // the frame that holds the LEDs (Maya model); without it, thin lines
+    // the frame that holds the LEDs (OBJ model); without it, thin lines
     // join the LEDs at z = LED_HEIGHT (8--7--6 / 5--4--3 / 2--1--0)
     var P = v3.parts;
     if (P && P.frame) {
@@ -2101,13 +2106,13 @@
     }
     if (!(P && P.frame)) G.add(lines3(pts, C.axis));
 
-    // LEDs (Maya model: housing + lens; lens lit when on, grey when off), or a
+    // LEDs (OBJ model: housing + lens; lens lit when on, grey when off), or a
     // sphere / grey wireframe without the model; dashed drop line to the floor
     var drop = [];
     LEDS.forEach(function (L) {
       var on = ledOn[L[2]];
       // the bulb (lit sphere / grey wireframe) shows on/off from any angle;
-      // the Maya housing sits on top of it
+      // the model housing sits on top of it
       var m = new T.Mesh(new T.SphereGeometry(on ? 2.8 : 2.4, 20, 14),
         new T.MeshBasicMaterial(on ? { color: color3(C.led) } : { color: color3(C.muted), wireframe: true }));
       m.position.set(L[0], L[1], LED_HEIGHT);
@@ -2354,7 +2359,7 @@
   try { savedTheme = localStorage.getItem('ra.theme'); } catch (e) { /* storage unavailable */ }
   setTheme(savedTheme, false);
   try {
-    var savedLeds = JSON.parse(localStorage.getItem('ra.leds') || 'null');
+    var savedLeds = JSON.parse(localStorage.getItem(LED_STORE) || 'null');
     if (savedLeds) LEDS.forEach(function (L) { if (typeof savedLeds[L[2]] === 'boolean') ledOn[L[2]] = savedLeds[L[2]]; });
   } catch (e) { /* storage unavailable or bad JSON */ }
   buildLedButtons();

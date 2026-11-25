@@ -24,7 +24,7 @@ var CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Private-N
 function createRobot(opts) {
   opts = opts || {};
   var periodMs = opts.periodMs || 50;
-  // LED_ON at power-up, as in robot.ino (LED 1, 2, 7, 8)
+  // LED_ON at power-up, as in robot.ino (all 9 LEDs)
   var ledOn = {}; C.ROW_LED.forEach(function (led) { ledOn[led] = C.DEFAULT_LIT.indexOf(led) >= 0; });
   var timing = false, hold = null, t0 = Date.now();
   var clients = new Set();

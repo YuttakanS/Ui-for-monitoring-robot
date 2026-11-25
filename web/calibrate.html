@@ -79,13 +79,14 @@
         <label class="field">x (cm) <input id="inX" type="number" step="any" value="0" required></label>
         <label class="field">y (cm) <input id="inY" type="number" step="any" value="0" required></label>
         <label class="field">θ (°) <input id="inTh" type="number" step="any" value="0" required></label>
+        <label class="field" title="ความสูงของฐานหุ่นจากพื้น: 0 = วางบนพื้น, 3 = วางบนคานเหล็กใต้แถว LED 8 7 6 / 2 1 0">z ฐานหุ่น (cm) <input id="inZ" type="number" step="any" min="0" value="0" required></label>
         <label class="field">จำนวนบรรทัด <input id="inN" type="number" min="5" max="200" step="1" value="30" required></label>
         <button id="btnRecord" class="btn primary" type="submit" disabled>เก็บจุดนี้</button>
       </form>
       <div class="progress" aria-hidden="true"><div id="progressBar"></div></div>
       <p id="recText" class="note">เชื่อมต่อบอร์ดหรือกด Demo ก่อน</p>
       <div class="presets" id="presets" aria-label="จุดที่แนะนำ"></div>
-      <p class="note">จุดที่แนะนำ (θ = 0) ตาม LED ที่เลือก: จุดใต้ LED ในกรอบของ LED ที่ใช้ และกึ่งกลางแต่ละช่อง กดเพื่อกรอก x, y ให้ เก็บจุดเดิมซ้ำจะแทนที่ค่าเก่า</p>
+      <p class="note">จุดที่แนะนำ (θ = 0) ตาม LED ที่เลือก: จุดใต้ LED ในกรอบของ LED ที่ใช้ และกึ่งกลางแต่ละช่อง กดเพื่อกรอก x, y ให้ เก็บจุดเดิมซ้ำจะแทนที่ค่าเก่า · <strong>z ฐานหุ่น</strong> คือความสูงของฐานหุ่นจากพื้น ถ้าวางหุ่นบนคานเหล็ก (หนา 3 cm ใต้แถว LED 8 7 6 และ 2 1 0) ให้ใส่ 3 ปุ่มจุดแนะนำไม่เปลี่ยนค่า z</p>
     </section>
 
     <section class="card">
@@ -111,7 +112,7 @@
       </div>
       <div class="table-scroll">
         <table id="poseTable">
-          <thead><tr><th>#</th><th>x</th><th>y</th><th>θ</th><th>บรรทัด</th><th>แกว่ง</th><th>คำเตือน</th><th></th></tr></thead>
+          <thead><tr><th>#</th><th>x</th><th>y</th><th>θ</th><th>z</th><th>บรรทัด</th><th>แกว่ง</th><th>คำเตือน</th><th></th></tr></thead>
           <tbody></tbody>
         </table>
       </div>

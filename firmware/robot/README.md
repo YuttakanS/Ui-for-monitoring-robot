@@ -235,7 +235,9 @@ to make x / y clearly better. Not measured on the board yet.
 New values: gamma LED 7, 8, 1, 2 = 0.443, 0.430, 0.534, 0.503, `PD_GAIN` =
 1, 0.915, 0.905, `RSS_OFFSET` = 0.0811 (was 0.447, 0.435, 0.538, 0.506,
 1, 0.917, 0.906, 0.0689). Next time, write down the height each pose stands at
-(on a beam or not), or avoid poses on the beams.
+(on a beam or not), or avoid poses on the beams. Since 2026-11-25 the calibrate
+page has a "z ฐานหุ่น (cm)" field for this (3 on a beam); it is saved as the
+last CSV column `z_cm` and used by the fit. Older files read as z = 0.
 
 ## On/off commands
 The web page (or the Serial Monitor) sends one line per command:

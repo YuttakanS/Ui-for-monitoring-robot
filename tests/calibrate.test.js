@@ -134,7 +134,9 @@ test('fitGamma recovers known gammas within 2 % (LED 4, 5 off)', function () {
     }
   });
   var line = C.firmwareLine(res);
-  assert.match(line, /^const float PtxGamma\[N_LED\] = \{ 0\.490f, 0\.490f, 0\.5\d\df, /);
+  // LED 4 and 5 (not fitted) keep the gamma in use now
+  var kept = C.CURRENT_GAMMA.slice(0, 2).map(function (g) { return g.toFixed(3).replace('.', '\\.') + 'f'; }).join(', ');
+  assert.match(line, new RegExp('^const float PtxGamma\\[N_LED\\] = \\{ ' + kept + ', 0\\.5\\d\\df, '));
 });
 
 test('fitGamma shows a photodiode that reads 10 % high', function () {
@@ -174,10 +176,10 @@ test('checkPose: lit LED reading 0, dark LED reading something', function () {
   rss[row0 * 3] = rss[row0 * 3 + 1] = rss[row0 * 3 + 2] = 0; // LED 0 out
   rss[row4 * 3] = 0.5;                                        // LED 4 left on in firmware
   assert.deepEqual(C.checkPose(rss, seven), [{ led: 4, kind: 'unexpected' }, { led: 0, kind: 'zero' }]);
-  // default set is LED 1, 2, 7, 8: LED 3 and 6 still on in the firmware
-  assert.deepEqual(C.DEFAULT_LIT, [1, 2, 7, 8]);
-  assert.deepEqual(C.checkPose(rss).map(function (w) { return w.led + w.kind; }),
-    ['4unexpected', '3unexpected', '6unexpected']);
+  // default set is all 9 LEDs (2026-11-25): LED 5 and 0 read nothing
+  assert.deepEqual(C.DEFAULT_LIT, [0, 1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.deepEqual(C.checkPose(rss).map(function (w) { return w.led + w.kind; }), ['5zero', '0zero']);
+  assert.equal(C.presetPoses().length, 13);
 });
 
 test('presetPoses: grid inside the lit LEDs plus cell centres', function () {
@@ -236,6 +238,56 @@ test('CSV round trip and RSS line round trip', function () {
   C.parseRssLine(line).forEach(function (v, j) { close(v, poses[1].rss[j], 5e-5); });
 });
 
+test('CSV: z_cm (robot base height) is the last column and round-trips', function () {
+  var poses = simulate(C.CURRENT_GAMMA, [4, 5], 0.02, 11).slice(0, 2);
+  poses[0].z = 3; // standing on a steel beam
+  var csv = C.posesToCsv(poses);
+  var head = csv.split('\r\n')[0].split(',');
+  assert.equal(head[head.length - 1], 'z_cm');
+  var back = C.csvToPoses(csv);
+  assert.deepEqual(back.errors, []);
+  assert.equal(back.poses[0].z, 3);
+  assert.equal(back.poses[1].z, 0);
+  assert.equal(back.poses[0].rss.length, C.N_LED * C.N_PD);
+});
+
+test('CSV: files recorded before z_cm read as z = 0', function () {
+  var file = path.join(__dirname, '..', 'data', '2026-11-19', 'calib_130953.csv');
+  var text = fs.readFileSync(file, 'utf8');
+  assert.ok(text.split(/\r?\n/)[0].indexOf('z_cm') < 0, 'old file has no z_cm');
+  var r = C.csvToPoses(text);
+  assert.deepEqual(r.errors, []);
+  assert.ok(r.poses.length >= 8);
+  r.poses.forEach(function (p) {
+    assert.equal(p.z, 0);
+    assert.equal(p.rss.length, C.N_LED * C.N_PD);
+    assert.ok(p.rss.every(function (v) { return !isNaN(v); }));
+  });
+});
+
+test('fitModel uses the pose height: z = 3 poses fit when the data are 3 cm up', function () {
+  var lit = [1, 2, 7, 8], truth = { gamma: C.CURRENT_GAMMA, pdGain: C.PD_GAIN, offset: C.RSS_OFFSET };
+  var samples = C.presetPoses(lit).map(function (p) {
+    var z = Math.abs(p.y) === 50 ? 3 : 0, rss = [];
+    for (var row = 0; row < 9; row++) for (var l = 0; l < 3; l++) {
+      rss.push(lit.indexOf(C.ROW_LED[row]) >= 0 ? C.predictRss(row, l, p.x / 100, p.y / 100, z / 100, 0, truth) : 0);
+    }
+    return { x: p.x, y: p.y, z: z, rss: rss };
+  });
+  var withZ = C.fitModel(samples, { leds: lit });
+  var noZ = C.fitModel(samples.map(function (s) { return { x: s.x, y: s.y, rss: s.rss }; }), { leds: lit });
+  lit.forEach(function (led) {
+    var row = C.ROW_LED.indexOf(led);
+    close(withZ.leds[row].gamma, C.CURRENT_GAMMA[row], 1e-3, 'LED ' + led);
+  });
+  function misfit(fit) {
+    var all = [];
+    fit.leds.forEach(function (r) { if (r.resid) all = all.concat(r.resid); });
+    return Math.sqrt(all.reduce(function (s, v) { return s + v * v; }, 0) / all.length);
+  }
+  assert.ok(misfit(withZ) < misfit(noZ) / 10, 'misfit with z ' + misfit(withZ) + ' vs without ' + misfit(noZ));
+});
+
 test('fitGamma: an LED seen at too few points is not fitted', function () {
   var samples = simulate(C.CURRENT_GAMMA, [4, 5], 0, 5).slice(0, 1);
   var res = C.fitGamma(samples, { minPoints: 5 });
@@ -259,4 +311,39 @@ test('solvePose finds a known pose, with and without z', function () {
   var flat = C.solvePose(rssAt({ x: -25, y: -25, theta: 0 }), { z: false });
   assert.equal(flat.z, 0);
   close(flat.x, -25, 0.5, 'x'); close(flat.y, -25, 0.5, 'y');
+});
+
+test('lowPd: PD 2 at (-25, -25) is left out, no photodiode at the good poses (2026-11-25 data)', function () {
+  var file = path.join(__dirname, '..', 'data', '2026-11-25', 'calib_105643.csv');
+  var poses = C.csvToPoses(fs.readFileSync(file, 'utf8')).poses;
+  // the EKF judges at its prediction, so try priors up to 20 cm / 30 deg off
+  var offs = [[0, 0, 0], [20, 0, 0], [-20, 0, 0], [0, 20, 0], [0, -20, 0], [14, 14, 0], [-14, -14, 0], [0, 0, 30], [0, 0, -30]];
+  poses.forEach(function (p) {
+    var bad = p.x === -25 && p.y === -25;
+    offs.forEach(function (o) {
+      var k = C.lowPd(p.rss, { x: p.x + o[0], y: p.y + o[1], z: p.z, theta: o[2] });
+      assert.equal(k, bad ? 2 : -1, '(' + p.x + ', ' + p.y + ') prior off by ' + o);
+    });
+  });
+  var p = poses.filter(function (q) { return q.x === -25 && q.y === -25; })[0];
+  var all = C.solvePose(p.rss), skip = C.solvePose(p.rss, { skipPd: 2 });
+  assert.ok(Math.hypot(all.x + 25, all.y + 25) > 30, 'with PD 2 the pose is far off');
+  assert.ok(Math.hypot(skip.x + 25, skip.y + 25) < 6, 'without PD 2: ' + skip.x + ', ' + skip.y);
+});
+
+test('robot.ino leaves out a low photodiode with the same rule as lowPd()', function () {
+  var ratio = /const float PD_LOW_RATIO = ([\d.]+)f;/.exec(INO), min = /const float PD_LOW_MIN = ([\d.]+)f;/.exec(INO);
+  assert.ok(ratio && min, 'PD_LOW_RATIO / PD_LOW_MIN not found');
+  assert.equal(parseFloat(ratio[1]), C.PD_LOW_RATIO);
+  assert.equal(parseFloat(min[1]), C.PD_LOW_MIN);
+  assert.match(INO, /const bool SKIP_LOW_PD = true;/);
+  assert.match(INO, /meas \+= fmaxf\(0\.0f, zn\(i\) - RSS_OFFSET\);/);
+  assert.match(INO, /model \+= zHn\(i\) - RSS_OFFSET;/);
+  assert.match(INO, /return share\[lo\] < PD_LOW_RATIO \* med \? lo : -1;/);
+  // judged after zHn is set and before the update, and the skipped values carry no information
+  var body = INO.slice(INO.indexOf('computeJacobian(xHnnm1);')); // INO has its comments removed
+  assert.ok(body.length < INO.length, 'correction step not found');
+  assert.ok(body.indexOf('lowPd()') > body.indexOf('zHn(N_PD * f + g) ='), 'lowPd after zHn');
+  assert.ok(body.indexOf('lowPd()') < body.indexOf('ekfUpdateSequential();'), 'lowPd before the update');
+  assert.match(body, /zHn\(i\) = zn\(i\);\s*for \(int j = 0; j < N_STATE; j\+\+\) Jn\(i, j\) = 0;/);
 });

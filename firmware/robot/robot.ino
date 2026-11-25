@@ -80,7 +80,16 @@ const float be = 55.0f * M_PI / 180.0f;
 // demodulated and adds nothing to the update. These are the values at power-up;
 // the web page can change them at run time (see readCommands()).
 const int LED_NUM[N_LED] = {     4,     5,    7,    8,    1,    2,    0,    3,    6 };  // LED number per row of p
-bool LED_ON[N_LED]       = { false, false, true, true, true, true, false, false, false };  // only LED 7, 8, 1, 2 on at start (2026-11-19)
+bool LED_ON[N_LED]       = {  true,  true, true, true, true, true,  true,  true,  true };  // all 9 LEDs lit (2026-11-25; was 7, 8, 1, 2 only)
+// All 9 LEDs (2026-11-25): fitted together with PD_GAIN and RSS_OFFSET below
+// (calib-model.js fitModel(), data/2026-11-25/calib_105643.csv, 12 of its 13
+// poses: (-25, -25) left out because PD 2 read about 1/4 of the model there for
+// every LED, also on 2026-11-19; theta = 0, y = +-50 poses on the 3 cm beams,
+// z = 3). Model misfit 15-24 % per LED, x / y on the PC (leave one pose out)
+// 4.1 cm mean, 3.8 cm median. Not measured on the board yet.
+// Before (4 LEDs: 7, 8, 1, 2 only, LED_ON the others false):
+//   PtxGamma { 0.490f, 0.490f, 0.443f, 0.430f, 0.534f, 0.503f, 0.460f, 0.460f, 0.460f },
+//   PD_GAIN 1, 0.915, 0.905, RSS_OFFSET 0.0811, fitted as follows.
 // LED 7, 8, 1, 2: fitted together with PD_GAIN and RSS_OFFSET below
 // (calib-model.js fitModel(), data/2026-11-19/calib_130953.csv, 8 poses,
 // theta = 0, m = 1, be = 55 deg, all poses taken as z = 0). Refitted on
@@ -92,15 +101,15 @@ bool LED_ON[N_LED]       = { false, false, true, true, true, true, false, false,
 // the board with ESTIMATE_Z = false), use PD_GAIN = 1, 1, 1, RSS_OFFSET = 0 and
 //   { 0.490f, 0.490f, 0.476f, 0.457f, 0.562f, 0.525f, 0.460f, 0.460f, 0.460f }
 // (with be = 60 deg the gammas were 0.453, 0.436, 0.536, 0.504).
-const float PtxGamma[N_LED] = { 0.490f, 0.490f, 0.443f, 0.430f, 0.534f, 0.503f, 0.460f, 0.460f, 0.460f };
+const float PtxGamma[N_LED] = { 0.597f, 0.567f, 0.502f, 0.475f, 0.641f, 0.590f, 0.608f, 0.529f, 0.542f };
 // Photodiode gain relative to PD 0 (pin GP28). The calibration data read PD 0
 // 12-21 % above the model for every LED; PD 1 and 2 are about 8-9 % lower.
-const float PD_GAIN[N_PD] = { 1.000f, 0.915f, 0.905f };
+const float PD_GAIN[N_PD] = { 1.000f, 0.759f, 0.926f };
 // Added to every RSS of a lit LED: reflections and the noise floor of the
 // demodulation. Far LEDs (> 1.25 m) read about 21 % above the model without it.
 // With these two, the model misfit fell from 12-18 % to 8-10 % and x / y on
 // the PC (leave one pose out) from 5.9 to 3.6 cm.
-const float RSS_OFFSET = 0.0811f;
+const float RSS_OFFSET = 0.0461f;
 const float eps = 0.01; //0.01;
 const float sigma2 = 0.01; //0.1, 0.4, 0.1, 0.005; 
 // const float q = 0.01;
@@ -333,6 +342,40 @@ void ekfUpdateSequential() {
         for (int b = 0; b < N_STATE; b++) Pnm1nm1(a, b) = M[a][b] - Mh[a] * K[b] + sigma2 * K[a] * K[b];
     }
   }
+}
+
+// Photodiode that reads far too low for every LED at once (2026-11-25: PD 2 at
+// (-25, -25) read about 1/4 of the model for all 9 LEDs, which pulled the
+// position 50 cm away; a loose wire or connector, not a shadow, which would hit
+// some LEDs only). For each photodiode: light read over the lit LEDs against the
+// model at the prediction (both without RSS_OFFSET). One whose share is below
+// PD_LOW_RATIO times the median of the three is left out of this update.
+// Same rule as lowPd() in calib-model.js (tests/calibrate.test.js checks it on
+// the 2026-11-25 calibration data). SKIP_LOW_PD = false turns it off.
+const bool SKIP_LOW_PD = true;
+const float PD_LOW_RATIO = 0.35f;  // good poses gave 0.43 or more, PD 2 at (-25, -25) 0.19-0.26
+const float PD_LOW_MIN = 0.1f;     // predicted light a photodiode needs before it is judged
+int skippedPd = -1;                // photodiode left out now, -1 = none
+
+int lowPd() {
+  float share[N_PD];
+  for (int g = 0; g < N_PD; g++) {
+    float meas = 0, model = 0;
+    for (int f = 0; f < N_LED; f++) {
+      if (!LED_ON[f]) continue;
+      const int i = N_PD * f + g;
+      meas += fmaxf(0.0f, zn(i) - RSS_OFFSET);
+      model += zHn(i) - RSS_OFFSET;
+    }
+    if (model < PD_LOW_MIN) return -1;
+    share[g] = meas / model;
+  }
+  int lo = 0;
+  for (int g = 1; g < N_PD; g++) if (share[g] < share[lo]) lo = g;
+  // median of three = the one that is neither the smallest nor the largest
+  const float a = share[0], b = share[1], c = share[2];
+  const float med = fmaxf(fminf(a, b), fminf(fmaxf(a, b), c));
+  return share[lo] < PD_LOW_RATIO * med ? lo : -1;
 }
 
 float boundAngle(float a) {
@@ -666,6 +709,20 @@ void loop() {
       // LED off: predicted = measured, so its innovation is 0
       zHn(N_PD * f + g) = LED_ON[f] ? PtxGamma[f] * PD_GAIN[g] * pathLossCS(f, g, xHnnm1(IX), xHnnm1(IY), xHnnm1(IZ), cosTh, sinTh) + RSS_OFFSET
                                     : zn(N_PD * f + g);
+  // leave out a photodiode that reads far too low (see lowPd()): its values
+  // then match the prediction and its Jacobian rows are 0, so it adds nothing
+  const int lowNow = SKIP_LOW_PD ? lowPd() : -1;
+  if (lowNow != skippedPd) {
+    if (skippedPd >= 0) { out.print("# PD "); out.print(skippedPd); out.println(" ok"); }
+    if (lowNow >= 0) { out.print("# PD "); out.print(lowNow); out.println(" low, skipped"); }
+    skippedPd = lowNow;
+  }
+  if (skippedPd >= 0)
+    for (int f = 0; f < N_LED; f++) {
+      const int i = N_PD * f + skippedPd;
+      zHn(i) = zn(i);
+      for (int j = 0; j < N_STATE; j++) Jn(i, j) = 0;
+    }
   if (EKF_SEQUENTIAL) {
     ekfUpdateSequential();
   } else {
