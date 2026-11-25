@@ -387,9 +387,11 @@
   // whose share is below PD_LOW_RATIO times the median of the three reads low
   // for every LED at once: a loose wire, not a shadow, which would hit some
   // LEDs only. Returns its index, or -1. Needs PD_LOW_MIN of predicted light.
-  // On 2026-11-25 PD 2 at (-25, -25) gave 0.19-0.26; good poses 0.43 or more,
-  // with the prior up to 20 cm / 30 deg off.
-  var PD_LOW_RATIO = 0.35, PD_LOW_MIN = 0.1;
+  // On 2026-11-25 PD 2 at (-25, -25) gave 0.19-0.26 and at (0, 0) at 13:41
+  // 0.29-0.37; good poses 0.427 or more, with the prior up to 20 cm / 30 deg
+  // off. Pass the RSS of every lit LED, before selectLeds(): the firmware
+  // judges on all of them (over 6 LEDs PD 2 at 13:41 gave 0.35).
+  var PD_LOW_RATIO = 0.40, PD_LOW_MIN = 0.1;
   function lowPd(rss, prior, opts) {
     opts = opts || {};
     var gamma = opts.gamma || CURRENT_GAMMA, pdGain = opts.pdGain || PD_GAIN;

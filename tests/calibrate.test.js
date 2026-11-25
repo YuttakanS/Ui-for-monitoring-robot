@@ -367,13 +367,18 @@ test('robot.ino selects LEDs with the same rule and LED_USE_K as calib-model.js'
   assert.equal(+k[1], C.LED_USE_K);
   assert.match(INO, /lvl\[f\] = fmaxf\(zn\(N_PD \* f\), fmaxf\(zn\(N_PD \* f \+ 1\), zn\(N_PD \* f \+ 2\)\)\);/);
   assert.match(INO, /if \(LED_ON\[f\] && !LED_USED\[f\] && \(best < 0 \|\| lvl\[f\] > lvl\[best\]\)\) best = f;/);
-  // chosen before the Jacobian, and the EKF uses LED_USED (not LED_ON) from there on
+  // chosen before the Jacobian; the update uses LED_USED, while lowPd() judges
+  // on every lit LED (LED_ON), so zHn is predicted for all of them first and
+  // set to zn for the unused ones only after lowPd()
   var body = INO.slice(INO.indexOf('xHnnm1 = A * xHnm1nm1;'));
   assert.ok(body.indexOf('selectLeds();') >= 0 && body.indexOf('selectLeds();') < body.indexOf('computeJacobian(xHnnm1);'));
-  assert.match(body, /zHn\(N_PD \* f \+ g\) = LED_USED\[f\] \?/);
-  ['computeJacobian', 'ekfUpdateSequential', 'lowPd'].forEach(function (fn) {
-    var src = INO.slice(INO.indexOf(fn + '('), INO.indexOf('\n}', INO.indexOf(fn + '(')));
-    assert.ok(src.indexOf('LED_USED[') >= 0 && src.indexOf('LED_ON[') < 0, fn + ' uses LED_USED');
+  assert.match(body, /zHn\(N_PD \* f \+ g\) = LED_ON\[f\] \?/);
+  var unused = body.search(/if \(!LED_USED\[f\]\)\s*for \(int g = 0; g < N_PD; g\+\+\) zHn\(N_PD \* f \+ g\) = zn\(N_PD \* f \+ g\);/);
+  assert.ok(unused > body.indexOf('lowPd()') && unused < body.indexOf('ekfUpdateSequential();'), 'unused LEDs set to zn after lowPd, before the update');
+  [['computeJacobian', 'LED_USED['], ['ekfUpdateSequential', 'LED_USED['], ['lowPd', 'LED_ON[']].forEach(function (c) {
+    var src = INO.slice(INO.indexOf(c[0] + '('), INO.indexOf('\n}', INO.indexOf(c[0] + '(')));
+    var other = c[1] === 'LED_ON[' ? 'LED_USED[' : 'LED_ON[';
+    assert.ok(src.indexOf(c[1]) >= 0 && src.indexOf(other) < 0, c[0] + ' uses ' + c[1]);
   });
   assert.match(INO, /sscanf\(buf, "USE %d", &num\) == 1/);
 });
@@ -386,7 +391,7 @@ test('LED_USE_K: leave one pose out on the 2026-11-25 data is no worse than all 
     poses.forEach(function (p, i) {
       var fit = C.fitModel(poses.filter(function (_, j) { return j !== i; }));
       var o = { gamma: fit.leds.map(function (r, n) { return r.gamma !== null ? r.gamma : C.CURRENT_GAMMA[n]; }), pdGain: fit.pdGain, offset: fit.offset };
-      var rss = C.selectLeds(p.rss, k), pd = C.lowPd(rss, p, o);
+      var pd = C.lowPd(p.rss, p, o), rss = C.selectLeds(p.rss, k);  // judged on all lit LEDs, as robot.ino
       if (pd >= 0) o.skipPd = pd;
       var r = C.solvePose(rss, o);
       s += Math.hypot(r.x - p.x, r.y - p.y);
@@ -396,4 +401,20 @@ test('LED_USE_K: leave one pose out on the 2026-11-25 data is no worse than all 
   var all = meanErr(9), sel = meanErr(C.LED_USE_K);
   assert.ok(Math.abs(all - 4.13) < 0.05, 'all 9 LEDs: ' + all.toFixed(2) + ' cm');
   assert.ok(sel <= all, C.LED_USE_K + ' LEDs: ' + sel.toFixed(2) + ' cm, all 9: ' + all.toFixed(2) + ' cm');
+});
+
+test('PD 2 low at (0, 0) on 2026-11-25 13:41: found over all lit LEDs, position within 3 cm with 6 LEDs', function () {
+  ['pd2_low_134138.csv', 'pd2_low_134223.csv'].forEach(function (name) {
+    var p = C.csvToPoses(fs.readFileSync(path.join(__dirname, '..', 'data', '2026-11-25', name), 'utf8')).poses[0];
+    assert.equal(p.x, 0); assert.equal(p.y, 0);
+    var offs = [[0, 0, 0], [20, 0, 0], [-20, 0, 0], [0, 20, 0], [0, -20, 0], [14, 14, 0], [-14, -14, 0], [0, 0, 30], [0, 0, -30]];
+    offs.forEach(function (o) {
+      assert.equal(C.lowPd(p.rss, { x: o[0], y: o[1], theta: o[2] }), 2, name + ' prior off by ' + o);
+    });
+    // with PD 2 used, 6 LEDs put the robot about 18 cm off (13 cm on the board)
+    var bad = C.solvePose(C.selectLeds(p.rss, C.LED_USE_K));
+    assert.ok(Math.hypot(bad.x, bad.y) > 10, name + ': with PD 2 ' + bad.x.toFixed(1) + ', ' + bad.y.toFixed(1));
+    var good = C.solvePose(C.selectLeds(p.rss, C.LED_USE_K), { skipPd: C.lowPd(p.rss, { x: 0, y: 0 }) });
+    assert.ok(Math.hypot(good.x, good.y) < 3, name + ': without PD 2 ' + good.x.toFixed(1) + ', ' + good.y.toFixed(1));
+  });
 });

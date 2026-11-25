@@ -267,6 +267,16 @@ The gain over 9 is small for 12 poses: **compare `USE 6` with `USE 9` on the
 board** before relying on it. Not tested: jumps when the chosen set changes
 while the robot moves.
 
+First board check (2026-11-25 13:02, `USE 6`, robot at (0, 0), θ = 0): the
+position read (−3.3, 12.9), 13 cm off, with z stuck at 0. The RSS at the same
+pose (`data/2026-11-25/pd2_low_134138.csv`, `_134223.csv`) showed PD 2 (GP26)
+at about 1/3 of the morning's value for every LED (the loose wire again) and
+PD 0 / PD 1 about 10 % lower for every LED. Over the 6 LEDs used, `lowPd()`
+gave PD 2 a share of 0.35 of the median, just passing the limit of 0.35, so
+PD 2 stayed in. Now `lowPd()` judges on every lit LED (0.33 here) and
+`PD_LOW_RATIO` is 0.40 (good poses 0.427 or more, a low PD 2 0.374 or less);
+on the PC the same RSS then gives (−0.5, 2.1). Not run on the board yet.
+
 `sigma2` (the professor's firmware has 0.1, `robot.ino` 0.01), EKF replica on
 the PC at 20 Hz: robot still 20 s, then 50 cm in 2 s across x = 0, then still;
 RSS noise 0.02 (consecutive windows 50 % shared), fixed 10 % model error,
@@ -379,7 +389,8 @@ To check on the board (not done yet):
   over WiFi (`Serial` drops output at once when no computer has it open).
 
 Without the board, `node tools/fake-robot.js 8080` serves the same endpoints
-with simulated lines (mode 3); connect the pages to `127.0.0.1:8080`.
+with simulated lines (mode 2 at start, like the board; it takes `MODE`,
+`LED`, `USE` and `TIMING`); connect the pages to `127.0.0.1:8080`.
 
 ## Update rate (2026-11-19, branch `feature/task-2-realtime`)
 One update took about 0.33 s (3.0 Hz) with LED 1, 2, 7, 8: 0.1 s to collect

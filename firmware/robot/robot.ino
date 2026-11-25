@@ -367,8 +367,15 @@ void ekfUpdateSequential() {
 // PD_LOW_RATIO times the median of the three is left out of this update.
 // Same rule as lowPd() in calib-model.js (tests/calibrate.test.js checks it on
 // the 2026-11-25 calibration data). SKIP_LOW_PD = false turns it off.
+// Judged on every lit LED (LED_ON), not only the LED_USE_K used: on
+// 2026-11-25 13:41 PD 2 read about 1/3 at (0, 0); over all 9 LEDs its share
+// was 0.33 of the median, over the 6 used 0.35, which passed the old 0.35 limit
+// and put the position 13 cm off on the board (18 cm on the PC).
 const bool SKIP_LOW_PD = true;
-const float PD_LOW_RATIO = 0.35f;  // good poses gave 0.43 or more, PD 2 at (-25, -25) 0.19-0.26
+// Good poses gave 0.427 or more (prior up to 20 cm / 30 deg off), a low PD 2
+// 0.374 or less (0.19-0.26 at (-25, -25), 0.29-0.37 at (0, 0) at 13:41):
+// 0.40 sits between the two (was 0.35).
+const float PD_LOW_RATIO = 0.40f;
 const float PD_LOW_MIN = 0.1f;     // predicted light a photodiode needs before it is judged
 int skippedPd = -1;                // photodiode left out now, -1 = none
 
@@ -377,7 +384,7 @@ int lowPd() {
   for (int g = 0; g < N_PD; g++) {
     float meas = 0, model = 0;
     for (int f = 0; f < N_LED; f++) {
-      if (!LED_USED[f]) continue;
+      if (!LED_ON[f]) continue;  // every lit LED (more evidence than LED_USED)
       const int i = N_PD * f + g;
       meas += fmaxf(0.0f, zn(i) - RSS_OFFSET);
       model += zHn(i) - RSS_OFFSET;
@@ -763,11 +770,16 @@ void loop() {
   for (int f = 0; f < N_LED; f++)
     for (int g = 0; g < N_PD; g++)
       // LED off / not used: predicted = measured, so its innovation is 0
-      zHn(N_PD * f + g) = LED_USED[f] ? PtxGamma[f] * PD_GAIN[g] * pathLossCS(f, g, xHnnm1(IX), xHnnm1(IY), xHnnm1(IZ), cosTh, sinTh) + RSS_OFFSET
-                                    : zn(N_PD * f + g);
+      // (predicted for every lit LED first: lowPd() judges on all of them)
+      zHn(N_PD * f + g) = LED_ON[f] ? PtxGamma[f] * PD_GAIN[g] * pathLossCS(f, g, xHnnm1(IX), xHnnm1(IY), xHnnm1(IZ), cosTh, sinTh) + RSS_OFFSET
+                                  : zn(N_PD * f + g);
   // leave out a photodiode that reads far too low (see lowPd()): its values
   // then match the prediction and its Jacobian rows are 0, so it adds nothing
   const int lowNow = SKIP_LOW_PD ? lowPd() : -1;
+  // lit LEDs that are not among the LED_USE_K used: no innovation either
+  for (int f = 0; f < N_LED; f++)
+    if (!LED_USED[f])
+      for (int g = 0; g < N_PD; g++) zHn(N_PD * f + g) = zn(N_PD * f + g);
   if (lowNow != skippedPd) {
     if (skippedPd >= 0) { out.print("# PD "); out.print(skippedPd); out.println(" ok"); }
     if (lowNow >= 0) { out.print("# PD "); out.print(lowNow); out.println(" low, skipped"); }
