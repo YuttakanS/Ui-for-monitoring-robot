@@ -39,6 +39,8 @@
   var RSS_OFFSET = 0.0461;
   // z range the firmware keeps (Z_MIN / Z_MAX, m)
   var Z_MIN = 0.0, Z_MAX = 0.80;
+  // pitch / roll range when tilt is solved (rad); TILT_MAX in feature/task-3-tilt
+  var TILT_MAX = 25 * Math.PI / 180;
   // photodiode normals v (rows), as in robot.ino
   var V = ALPHA.map(function (a) {
     return [Math.cos(BETA) * Math.cos(a), -Math.cos(BETA) * Math.sin(a), Math.sin(BETA)];
@@ -49,24 +51,42 @@
   // row = row of p (0..8), l = photodiode (0..2), x/y/z in m, theta in rad
   // (firmware convention: Omega0 = R(-theta)).
   function pathLoss(row, l, x, y, z, theta) {
-    var pk = P[row], v = V[l];
+    return pathLossTilt(row, l, x, y, z, theta, 0, 0);
+  }
+
+  // Normal of photodiode l for a robot turned by theta (firmware sign) and
+  // tilted by pitch (> 0: the front, photodiode GP28, up) and roll (> 0: the
+  // right side down), rad: roll about forward, then pitch about left, then the
+  // heading (Omega0). With pitch = roll = 0 this is Omega0 * v, as in
+  // robot.ino. (From feature/task-3-tilt, 2026-11-20; robot.ino itself keeps
+  // the robot level: this is for trying tilt on the PC first.)
+  function pdNormal(l, theta, pitch, roll) {
+    var v = V[l], cp = Math.cos(pitch), sp = Math.sin(pitch), cr = Math.cos(roll), sr = Math.sin(roll);
+    var r1 = cr * v[1] - sr * v[2], r2 = sr * v[1] + cr * v[2];
+    var n0 = cp * v[0] - sp * r2, n2 = sp * v[0] + cp * r2;
+    var c = Math.cos(theta), s = Math.sin(theta);
+    return [c * n0 + s * r1, -s * n0 + c * r1, n2];   // Omega0 * n
+  }
+
+  // pathLoss() for a tilted robot.
+  function pathLossTilt(row, l, x, y, z, theta, pitch, roll) {
+    var pk = P[row], w = pdNormal(l, theta, pitch || 0, roll || 0);
     var dx = x - pk[0], dy = y - pk[1], dz = z - pk[2];
     var d = Math.sqrt(dx * dx + dy * dy + dz * dz);
     var cosPhi = -dz / d;                       // (p0 - pk) . uk / d, uk = (0, 0, -1)
-    var c = Math.cos(theta), s = Math.sin(theta);
-    var w0 = c * v[0] + s * v[1], w1 = -s * v[0] + c * v[1], w2 = v[2]; // Omega0 * v
-    var cosPsi = (-dx * w0 - dy * w1 - dz * w2) / d; // (pk - p0) . w / d
+    var cosPsi = (-dx * w[0] - dy * w[1] - dz * w[2]) / d; // (pk - p0) . w / d
     if (!(cosPsi > Math.cos(FOV))) return 0;
     return (M + 1) * Math.pow(cosPhi, M) * cosPsi / (d * d);
   }
 
   // RSS the firmware expects (zHn in robot.ino) from LED row / photodiode l.
-  // opts.gamma / pdGain / offset override PtxGamma / PD_GAIN / RSS_OFFSET.
+  // opts.gamma / pdGain / offset override PtxGamma / PD_GAIN / RSS_OFFSET;
+  // opts.pitch / opts.roll (rad) tilt the robot.
   function predictRss(row, l, x, y, z, theta, opts) {
     opts = opts || {};
     var g = (opts.gamma || CURRENT_GAMMA)[row] * (opts.pdGain || PD_GAIN)[l];
     var off = opts.offset !== undefined ? opts.offset : RSS_OFFSET;
-    return g * pathLoss(row, l, x, y, z, theta) + off;
+    return g * pathLossTilt(row, l, x, y, z, theta, opts.pitch, opts.roll) + off;
   }
 
   // h for every RSS value of one pose, in firmware order (row * 3 + l).
@@ -305,6 +325,10 @@
       if (isNaN(p.z)) p.z = 0;
       need.slice(5, 5 + N_LED * N_PD).forEach(function (name) { p.rss.push(num(name)); });
       if (isNaN(p.x) || isNaN(p.y) || p.rss.some(isNaN)) { errors.push('line ' + (i + 1)); continue; }
+      // reference tilt of the robot, written by the tilt test page only
+      var pit = num('pitch_deg'), rol = num('roll_deg');
+      if (!isNaN(pit)) p.pitch = pit;
+      if (!isNaN(rol)) p.roll = rol;
       if (isNaN(p.n)) delete p.n;
       if (isNaN(p.spread)) delete p.spread;
       poses.push(p);
@@ -421,9 +445,13 @@
   // opts.z: false = keep z at 0 (ESTIMATE_Z = false); opts.gamma / pdGain /
   // offset override the firmware constants. Returns { x, y, z, theta, rms }
   // in cm / deg. opts.skipPd: photodiode index left out (see lowPd()).
+  // opts.tilt: true = also solve pitch and roll (kept within +-TILT_MAX);
+  // the result then has pitch and roll in deg (0 otherwise).
   function solvePose(rss, opts) {
     opts = opts || {};
     var useZ = opts.z !== false, rows = [], skip = opts.skipPd === undefined ? -1 : opts.skipPd;
+    var useTilt = !!opts.tilt, iT = useZ ? 4 : 3;   // index of pitch in q; roll follows
+    var o = {}; for (var key in opts) o[key] = opts[key];
     for (var row = 0; row < N_LED; row++) {
       var sum = 0;
       for (var l = 0; l < N_PD; l++) sum += rss[row * N_PD + l];
@@ -432,27 +460,36 @@
     if (!rows.length) return null;
     function resid(q) {
       var out = [], z = useZ ? q[3] : 0;
+      if (useTilt) { o.pitch = q[iT]; o.roll = q[iT + 1]; }
       rows.forEach(function (r) {
         for (var l = 0; l < N_PD; l++) {
-          if (l !== skip) out.push(rss[r * N_PD + l] - predictRss(r, l, q[0], q[1], z, q[2], opts));
+          if (l !== skip) out.push(rss[r * N_PD + l] - predictRss(r, l, q[0], q[1], z, q[2], o));
         }
       });
       return out;
     }
-    function clamp(q) { if (useZ) q[3] = Math.max(Z_MIN, Math.min(Z_MAX, q[3])); }
+    function clamp(q) {
+      if (useZ) q[3] = Math.max(Z_MIN, Math.min(Z_MAX, q[3]));
+      if (useTilt) for (var i = iT; i < iT + 2; i++) q[i] = Math.max(-TILT_MAX, Math.min(TILT_MAX, q[i]));
+    }
     var cx = 0, cy = 0;
     rows.forEach(function (r) { cx += P[r][0] / rows.length; cy += P[r][1] / rows.length; });
     var best = null;
     [0, Math.PI / 2, Math.PI, -Math.PI / 2].forEach(function (th) {
       (useZ ? [0, 0.3] : [0]).forEach(function (z0) {
-        var r = levMar(resid, useZ ? [cx, cy, th, z0] : [cx, cy, th], { clamp: clamp });
+        var q0 = useZ ? [cx, cy, th, z0] : [cx, cy, th];
+        if (useTilt) q0.push(0, 0);   // start level
+        var r = levMar(resid, q0, { clamp: clamp });
         if (!best || r.cost < best.cost) best = r;
       });
     });
     var th = Math.atan2(Math.sin(best.q[2]), Math.cos(best.q[2]));
+    var deg = 180 / Math.PI, nVal = rows.length * (skip >= 0 ? N_PD - 1 : N_PD);
     return {
       x: best.q[0] * 100, y: best.q[1] * 100, z: useZ ? best.q[3] * 100 : 0,
-      theta: th * 180 / Math.PI, rms: Math.sqrt(best.cost / (rows.length * N_PD))
+      theta: th * deg, rms: Math.sqrt(best.cost / (rows.length * N_PD)),
+      pitch: useTilt ? best.q[iT] * deg : 0, roll: useTilt ? best.q[iT + 1] * deg : 0,
+      nValues: nVal, nUnknowns: best.q.length
     };
   }
 
@@ -489,7 +526,7 @@
   var api = {
     N_PD: N_PD, N_LED: N_LED, ROW_LED: ROW_LED, P: P, CURRENT_GAMMA: CURRENT_GAMMA,
     M: M, FOV: FOV, BETA: BETA, ALPHA: ALPHA, DEFAULT_LIT: DEFAULT_LIT, presetPoses: presetPoses,
-    pathLoss: pathLoss, modelRow: modelRow, parseRssLine: parseRssLine,
+    pathLoss: pathLoss, pathLossTilt: pathLossTilt, pdNormal: pdNormal, TILT_MAX: TILT_MAX, modelRow: modelRow, parseRssLine: parseRssLine,
     PD_GAIN: PD_GAIN, RSS_OFFSET: RSS_OFFSET, Z_MIN: Z_MIN, Z_MAX: Z_MAX, predictRss: predictRss,
     fitGamma: fitGamma, firmwareLine: firmwareLine, fitModel: fitModel, firmwareLines: firmwareLines,
     solvePose: solvePose, levMar: levMar, lowPd: lowPd, PD_LOW_RATIO: PD_LOW_RATIO, PD_LOW_MIN: PD_LOW_MIN,
