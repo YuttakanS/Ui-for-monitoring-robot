@@ -133,33 +133,3 @@ test('tilt-test.html loads its scripts in order and has every element tilt-page.
   assert.ok(ids.length > 30);
   ids.forEach(function (id) { assert.ok(html.indexOf('id="' + id + '"') >= 0, 'missing #' + id); });
 });
-
-test('evaluate: direction to each LED per point and median / P95 in the summary', function () {
-  var r = T.evaluate([point({ x: 10, y: 10 }), point({ x: -20, y: 0, theta: 50 })], { k: 9 });
-  r.rows.forEach(function (row) {
-    assert.equal(row.dir.length, C.N_LED);
-    row.dir.forEach(function (d) { close(d, 0, 1e-3); });
-  });
-  var s = r.summary;
-  assert.equal(s.nDir, 2 * C.N_LED);
-  ['dirP50', 'dirP95', 'yawP50', 'yawP95', 'xyFlatP50', 'xyFlatP95', 'xyTiltP50', 'xyTiltP95', 'falseTiltP95'].forEach(function (k) {
-    close(s[k], 0, 0.1, k);
-  });
-  assert.equal(T.pct([5, 1, 3, 2, 4], 0.5), 3);
-  assert.equal(T.pct([5, 1, 3, 2, 4], 0.95), 5);
-  assert.ok(isNaN(T.pct([], 0.5)));
-});
-
-test('real data 2026-11-25: directions to the LEDs are about 10 times off what tilt needs; the floor poses alone do far better', function () {
-  var pts = calibPoints();
-  var all = T.evaluate(pts, { k: 9, loo: true }).summary;
-  assert.ok(all.dirP50 > 10 && all.dirP50 < 16, 'direction median ' + all.dirP50);
-  assert.ok(all.dirP50 > 5 * T.DIR_NEED);
-  // the 6 poses on the floor (the others stand on the steel beams, z = 3)
-  var floor = pts.filter(function (p) { return !(p.z > 0); });
-  assert.equal(floor.length, 6);
-  var f = T.evaluate(floor, { k: 9, loo: true }).summary;
-  assert.ok(f.dirP50 < 0.6 * all.dirP50, 'floor direction median ' + f.dirP50);
-  close(f.falseTiltRms, 3.4, 0.3, 'false tilt on the floor');
-  assert.ok(f.falseTiltRms < all.falseTiltRms / 3);
-});

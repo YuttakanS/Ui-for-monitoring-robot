@@ -15,7 +15,7 @@
   var el = {
     connect: $('btnConnect'), wifiBtn: $('btnWifi'), wifiHost: $('wifiHost'), demo: $('btnDemo'), dot: $('statusDot'), status: $('statusText'), rate: $('rate'),
     notice: $('notice'), noticeText: $('noticeText'),
-    optK: $('optK'), optModel: $('optModel'), optFloor: $('optFloor'),
+    optK: $('optK'), optModel: $('optModel'),
     liveYaw: $('liveYaw'), livePitch: $('livePitch'), liveRoll: $('liveRoll'), livePitchRel: $('livePitchRel'), liveRollRel: $('liveRollRel'),
     liveX: $('liveX'), liveY: $('liveY'), liveZ: $('liveZ'), liveNote: $('liveNote'), liveN: $('liveN'),
     zero: $('btnZero'), zeroReset: $('btnZeroReset'),
@@ -25,7 +25,7 @@
     imp: $('fileImport'), expResult: $('btnExportResult'), expPoints: $('btnExportPoints'), clear: $('btnClear'),
     verdict: $('verdict'), sumGrid: $('sumGrid'),
     sumFalse: $('sumFalse'), sumFalseSub: $('sumFalseSub'), sumYaw: $('sumYaw'), sumYawSub: $('sumYawSub'),
-    sumXy: $('sumXy'), sumXySub: $('sumXySub'), sumTilt: $('sumTilt'), sumTiltSub: $('sumTiltSub'), sumDir: $('sumDir'), sumDirSub: $('sumDirSub'),
+    sumXy: $('sumXy'), sumXySub: $('sumXySub'), sumTilt: $('sumTilt'), sumTiltSub: $('sumTiltSub'),
     chart: $('errChart'), legend: $('chartLegend')
   };
   el.liveN.textContent = LIVE_N;
@@ -52,7 +52,6 @@
     var o = JSON.parse(localStorage.getItem(OPT_STORE) || 'null');
     if (o && (o.k === '6' || o.k === '9')) el.optK.value = o.k;
     if (o && (o.model === 'loo' || o.model === 'fw')) el.optModel.value = o.model;
-    if (o && o.floor) el.optFloor.checked = true;
   } catch (e) { /* storage unavailable or bad JSON */ }
   function savePoints() {
     // simulated points are not kept
@@ -229,16 +228,12 @@
   function angleCell(v) { return td(signed(v), Math.abs(v) > ANGLE_BAD ? 'bad' : ''); }
 
   function renderResult() {
-    // "floor only" leaves the points on the steel beams (z > 0) out of the fit and the table
-    var idx = [];
-    state.points.forEach(function (p, i) { if (!el.optFloor.checked || !(p.z > 0)) idx.push(i); });
-    var pts = idx.map(function (i) { return state.points[i]; }), has = pts.length > 0, hidden = state.points.length - pts.length;
+    var pts = state.points, has = pts.length > 0;
     state.result = has ? T.evaluate(pts, { k: kUsed(), loo: el.optModel.value === 'loo' }) : null;
     var res = state.result;
-    el.pointCount.textContent = (has ? '(' + pts.length + ' จุด' : '(0 จุด') + (hidden ? ' · ซ่อน ' + hidden + ' จุดบนคาน)' : ')');
-    if (!state.points.length) el.pointCount.textContent = '';
-    el.pointEmpty.hidden = state.points.length > 0;
-    el.clear.disabled = !state.points.length;
+    el.pointEmpty.hidden = has;
+    el.pointCount.textContent = has ? '(' + pts.length + ' จุด)' : '';
+    el.clear.disabled = !has;
     // nothing simulated leaves the page as a result
     var real = has && !pts.some(function (p) { return p.demo; });
     el.expResult.disabled = el.expPoints.disabled = !real;
@@ -251,7 +246,7 @@
       tr.appendChild(td(String(i + 1)));
       [p.x, p.y, p.z || 0, p.theta || 0, p.pitch || 0, p.roll || 0].forEach(function (v) { tr.appendChild(td(String(v))); });
       if (!e) {
-        for (var n = 0; n < 11; n++) tr.appendChild(td('—'));
+        for (var n = 0; n < 10; n++) tr.appendChild(td('—'));
         tr.appendChild(td('ไม่มี LED ไหนอ่านค่าได้', 'bad'));
       } else {
         tr.appendChild(td(f(t.theta))); tr.appendChild(td(f(t.pitch))); tr.appendChild(td(f(t.roll)));
@@ -259,7 +254,6 @@
         if (r.change) { tr.appendChild(angleCell(r.change.pitch)); tr.appendChild(angleCell(r.change.roll)); }
         else { tr.appendChild(td('—')); tr.appendChild(td('—')); }
         tr.appendChild(td(f(e.xyFlat))); tr.appendChild(td(f(e.xyTilt)));
-        tr.appendChild(td(r.dir.length ? f(T.pct(r.dir, 0.5)) : '—'));
         var notes = [];
         if (p.demo) notes.push('จำลอง');
         if (r.skipPd >= 0) notes.push('ข้าม PD ' + r.skipPd);
@@ -269,7 +263,7 @@
       }
       var c = document.createElement('td'), b = document.createElement('button');
       b.type = 'button'; b.className = 'btn small'; b.textContent = 'ลบ';
-      b.addEventListener('click', function () { state.points.splice(idx[i], 1); savePoints(); renderResult(); });
+      b.addEventListener('click', function () { state.points.splice(i, 1); savePoints(); renderResult(); });
       c.appendChild(b); tr.appendChild(c);
       return tr;
     });
@@ -280,14 +274,11 @@
 
   function renderSummary(s, simulated) {
     el.sumFalse.textContent = s.nLevel ? f(s.falseTiltRms) + '°' : '—';
-    el.sumFalseSub.textContent = s.nLevel ? 'P95 ' + f(s.falseTiltP95) + '° · สูงสุด ' + f(s.falseTiltMax) + '° · ' + s.nLevel + ' จุดระดับ · เกณฑ์ ≤ ' + T.TILT_RMS_MAX + '°' : 'ยังไม่มีจุดที่วางระดับ';
+    el.sumFalseSub.textContent = s.nLevel ? 'สูงสุด ' + f(s.falseTiltMax) + '° · ' + s.nLevel + ' จุดระดับ · เกณฑ์ ≤ ' + T.TILT_RMS_MAX + '°' : 'ยังไม่มีจุดที่วางระดับ';
     el.sumYaw.textContent = f(s.yawRms) + '°';
-    el.sumYawSub.textContent = 'median ' + f(s.yawP50) + '° · P95 ' + f(s.yawP95) + '° · สูงสุด ' + f(s.yawMax) + '°';
+    el.sumYawSub.textContent = 'สูงสุด ' + f(s.yawMax) + '°';
     el.sumXy.textContent = f(s.xyFlat, 2) + ' → ' + f(s.xyTilt, 2) + ' cm';
-    el.sumXySub.textContent = 'แบบระดับ → แบบมีเอียง · median ' + f(s.xyFlatP50) + ' → ' + f(s.xyTiltP50) + ' · P95 ' + f(s.xyFlatP95) + ' → ' + f(s.xyTiltP95) +
-      ' · เกณฑ์: แย่ลงไม่เกิน ' + T.XY_WORSE_MAX + ' cm';
-    el.sumDir.textContent = s.nDir ? f(s.dirP50) + '°' : '—';
-    el.sumDirSub.textContent = s.nDir ? 'P95 ' + f(s.dirP95) + '° · ' + s.nDir + ' ค่า · ต้องการราว 1–' + T.DIR_NEED + '°' : '';
+    el.sumXySub.textContent = 'แบบระดับ → แบบมีเอียง · เกณฑ์: แย่ลงไม่เกิน ' + T.XY_WORSE_MAX + ' cm';
     el.sumTilt.textContent = s.nTilted ? f(s.tiltErrRms) + '°' : '—';
     el.sumTiltSub.textContent = !s.nTilted ? 'ยังไม่มีจุดที่เอียงจริง'
       : 'สูงสุด ' + f(s.tiltErrMax) + '° · มุมที่เปลี่ยน: ' + (s.nChange ? f(s.changeRms) + '° (สูงสุด ' + f(s.changeMax) + '°)' : 'ไม่มีจุดระดับคู่กัน');
@@ -297,8 +288,7 @@
       el.verdict.className = 'verdict';
     } else {
       el.verdict.textContent = head + (s.pass ? 'ผ่านเกณฑ์' : 'ไม่ผ่านเกณฑ์') + ': ค่าเอียงหลอก rms ' + f(s.falseTiltRms) + '° (เกณฑ์ ≤ ' + T.TILT_RMS_MAX +
-        '°) · ใช้ LED ' + kUsed() + ' ดวง · ' + (el.optModel.value === 'loo' ? 'leave-one-out' : 'ค่าคงที่ใน firmware') +
-        (el.optFloor.checked ? ' · เฉพาะจุดบนพื้น' : '');
+        '°) · ใช้ LED ' + kUsed() + ' ดวง · ' + (el.optModel.value === 'loo' ? 'leave-one-out' : 'ค่าคงที่ใน firmware');
       el.verdict.className = 'verdict ' + (s.pass ? 'good' : 'bad');
     }
   }
@@ -348,13 +338,12 @@
 
   /* ---------- options ---------- */
   function onOption() {
-    try { localStorage.setItem(OPT_STORE, JSON.stringify({ k: el.optK.value, model: el.optModel.value, floor: el.optFloor.checked })); } catch (e) { /* storage unavailable */ }
+    try { localStorage.setItem(OPT_STORE, JSON.stringify({ k: el.optK.value, model: el.optModel.value })); } catch (e) { /* storage unavailable */ }
     state.fresh = state.recent.length > 0;   // solve the live value again
     renderResult();
   }
   el.optK.addEventListener('change', onOption);
   el.optModel.addEventListener('change', onOption);
-  el.optFloor.addEventListener('change', onOption);
 
   /* ---------- CSV ---------- */
   function stamp(d) {

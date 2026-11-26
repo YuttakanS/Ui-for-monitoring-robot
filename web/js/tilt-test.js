@@ -22,20 +22,10 @@
   var TILT_RMS_MAX = 3;      // deg
   var XY_WORSE_MAX = 0.5;    // cm
   var LOO_MIN_POINTS = 5;    // level points needed to fit a model without one of them
-  // Rough need of the direction to each LED for +-3 deg of attitude (deg), from
-  // docs/research-6dof-photodiode.md: a figure from an ideal simulation, a
-  // yardstick and not a specification.
-  var DIR_NEED = 1.5;
 
   function mean(a) { var s = 0; for (var i = 0; i < a.length; i++) s += a[i]; return a.length ? s / a.length : NaN; }
   function rms(a) { return Math.sqrt(mean(a.map(function (v) { return v * v; }))); }
   function maxAbs(a) { return a.length ? Math.max.apply(null, a.map(Math.abs)) : NaN; }
-  // value below which the share p of a list lies (nearest rank); NaN for an empty list
-  function pct(a, p) {
-    if (!a.length) return NaN;
-    var s = a.slice().sort(function (x, y) { return x - y; });
-    return s[Math.max(0, Math.ceil(p * s.length) - 1)];
-  }
   // difference of two angles in deg, within +-180
   function angDiff(a, b) {
     var d = (a - b) % 360;
@@ -97,17 +87,13 @@
   //   judged by constants it helped to fit; false = the firmware constants.
   // Returns { rows, summary }. Each row: { point, flat, tilt, skipPd, model:
   //   'loo' | 'firmware', err: { yaw, pitch, roll, z, xyFlat, xyTilt },
-  //   change: { pitch, roll } | null, dir: [deg per LED] }.
-  // dir = angle between the direction to each LED read from its three
-  //   photodiode values (ledDirections() of calib-model.js: no PtxGamma, no m,
-  //   the photodiode side alone) and the true direction at the reference pose.
+  //   change: { pitch, roll } | null }.
   function evaluate(points, opts) {
     opts = opts || {};
     var rows = points.map(function (p, i) {
       var model = opts.loo ? fitWithout(points, i) : null;
       var a = analyse(p.rss, { k: opts.k, model: model || firmwareModel(), prior: p });
-      if (!a) return { point: p, flat: null, tilt: null, skipPd: -1, model: model ? 'loo' : 'firmware', err: null, change: null, dir: [] };
-      var dir = C.ledDirectionErrors(p, model || firmwareModel()).map(function (e) { return e.err; });
+      if (!a) return { point: p, flat: null, tilt: null, skipPd: -1, model: model ? 'loo' : 'firmware', err: null, change: null };
       return {
         point: p, flat: a.flat, tilt: a.tilt, skipPd: a.skipPd, model: model ? 'loo' : 'firmware',
         err: {
@@ -117,7 +103,7 @@
           xyFlat: Math.hypot(a.flat.x - p.x, a.flat.y - p.y),
           xyTilt: Math.hypot(a.tilt.x - p.x, a.tilt.y - p.y)
         },
-        change: null, dir: dir
+        change: null
       };
     });
     // tilted points: take off what the level point at the same place solved
@@ -142,16 +128,9 @@
       return out;
     }
     var falseTilt = both(level, 'err'), tiltErr = both(tilted, 'err'), chg = both(tilted, 'change');
-    var dir = [], yaw = ok.map(function (r) { return Math.abs(r.err.yaw); });
-    ok.forEach(function (r) { dir = dir.concat(r.dir); });
-    var xyF = ok.map(function (r) { return r.err.xyFlat; }), xyT = ok.map(function (r) { return r.err.xyTilt; });
     var s = {
       n: ok.length, nLevel: level.length, nTilted: tilted.length, nChange: chg.length / 2,
-      falseTiltRms: rms(falseTilt), falseTiltMax: maxAbs(falseTilt), falseTiltP95: pct(falseTilt.map(Math.abs), 0.95),
-      // median and 95th percentile: one figure hides the tail
-      yawP50: pct(yaw, 0.5), yawP95: pct(yaw, 0.95),
-      xyFlatP50: pct(xyF, 0.5), xyFlatP95: pct(xyF, 0.95), xyTiltP50: pct(xyT, 0.5), xyTiltP95: pct(xyT, 0.95),
-      dirP50: pct(dir, 0.5), dirP95: pct(dir, 0.95), nDir: dir.length,
+      falseTiltRms: rms(falseTilt), falseTiltMax: maxAbs(falseTilt),
       tiltErrRms: rms(tiltErr), tiltErrMax: maxAbs(tiltErr),
       changeRms: rms(chg), changeMax: maxAbs(chg),
       yawRms: rms(ok.map(function (r) { return r.err.yaw; })), yawMax: maxAbs(ok.map(function (r) { return r.err.yaw; })),
@@ -190,7 +169,7 @@
     'x_cm', 'y_cm', 'z_cm', 'yaw_deg', 'pitch_deg', 'roll_deg', 'leds_used', 'model', 'pd_skipped',
     'solved_x_cm', 'solved_y_cm', 'solved_z_cm', 'solved_yaw_deg', 'solved_pitch_deg', 'solved_roll_deg',
     'err_yaw_deg', 'err_pitch_deg', 'err_roll_deg', 'change_err_pitch_deg', 'change_err_roll_deg',
-    'xy_err_with_tilt_cm', 'xy_err_level_model_cm', 'rss_rms', 'led_direction_err_median_deg'
+    'xy_err_with_tilt_cm', 'xy_err_level_model_cm', 'rss_rms'
   ];
   function resultsToCsv(result, k) {
     function n(v, d) { return v === null || v === undefined || isNaN(v) ? '' : +v.toFixed(d === undefined ? 2 : d); }
@@ -200,13 +179,13 @@
       out.push([p.x, p.y, p.z || 0, p.theta || 0, p.pitch || 0, p.roll || 0, k, r.model, r.skipPd >= 0 ? r.skipPd : '',
         t ? n(t.x) : '', t ? n(t.y) : '', t ? n(t.z) : '', t ? n(t.theta) : '', t ? n(t.pitch) : '', t ? n(t.roll) : '',
         e ? n(e.yaw) : '', e ? n(e.pitch) : '', e ? n(e.roll) : '', c ? n(c.pitch) : '', c ? n(c.roll) : '',
-        e ? n(e.xyTilt) : '', e ? n(e.xyFlat) : '', t ? n(t.rms, 4) : '', r.dir.length ? n(pct(r.dir, 0.5)) : ''].join(','));
+        e ? n(e.xyTilt) : '', e ? n(e.xyFlat) : '', t ? n(t.rms, 4) : ''].join(','));
     });
     return out.join('\r\n') + '\r\n';
   }
 
   var api = {
-    TILT_RMS_MAX: TILT_RMS_MAX, XY_WORSE_MAX: XY_WORSE_MAX, LOO_MIN_POINTS: LOO_MIN_POINTS, DIR_NEED: DIR_NEED, pct: pct,
+    TILT_RMS_MAX: TILT_RMS_MAX, XY_WORSE_MAX: XY_WORSE_MAX, LOO_MIN_POINTS: LOO_MIN_POINTS,
     angDiff: angDiff, isLevel: isLevel, samePlace: samePlace, samePoint: samePoint,
     firmwareModel: firmwareModel, analyse: analyse, fitWithout: fitWithout, evaluate: evaluate,
     pointsToCsv: pointsToCsv, csvToPoints: csvToPoints, RESULT_HEADER: RESULT_HEADER, resultsToCsv: resultsToCsv

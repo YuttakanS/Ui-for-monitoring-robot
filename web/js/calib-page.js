@@ -67,7 +67,6 @@
     el.connect.disabled = src === 'demo' || src === 'wifi';
     el.wifiBtn.disabled = src === 'demo' || src === 'serial';
     el.wifiHost.disabled = src === 'wifi';
-    pdReset();
     if (src === 'idle') cancelRec();
     updateStatus();
   }
@@ -108,7 +107,6 @@
     state.rssLines++;
     state.rssTimes.push(performance.now());
     renderLive(rss);
-    pdPush(rss);
     var r = state.rec;
     if (!r) return;
     r.lines.push(rss);
@@ -128,133 +126,6 @@
     }
     el.live.replaceChildren.apply(el.live, rows);
   }
-
-  /* ---------- photodiode wire check ---------- */
-  // Light of each photodiode summed over the lit LEDs (pdTotals()), as PD0 and
-  // as PD1 / PD0, PD2 / PD0, smoothed over PD_SMOOTH lines and shown as % of a
-  // reference taken with the robot still. A loose wire shows as one ratio
-  // dropping or jumping while the wire is touched. Optional beep, so the user
-  // can watch the wires rather than the screen.
-  var PD_SMOOTH = 5, PD_BASE_LINES = 20, PD_SPAN = 30000, PD_ALERT = 0.15, PD_MIN_WINDOW = 10000;
-  var pd = { recent: [], baseAcc: [], base: null, hist: [], lastBeep: 0, audio: null, drawPending: false };
-  var pdEl = {
-    beep: $('pdBeep'), base: $('btnPdBase'), chart: $('pdChart'), note: $('pdNote'),
-    val: [$('pdVal0'), $('pdVal1'), $('pdVal2')], min: [$('pdMin0'), $('pdMin1'), $('pdMin2')]
-  };
-  function pdReset() {
-    pd.recent = []; pd.baseAcc = []; pd.base = null; pd.hist = [];
-    pdRender();
-  }
-  function pdPush(rss) {
-    var s = C.pdTotals(rss);
-    if (!(s[0] > 0.02)) return;                 // no light on PD0: nothing to compare with
-    pd.recent.push([s[0], s[1] / s[0], s[2] / s[0]]);
-    if (pd.recent.length > PD_SMOOTH) pd.recent.shift();
-    var m = [0, 1, 2].map(function (i) {
-      return pd.recent.reduce(function (a, v) { return a + v[i]; }, 0) / pd.recent.length;
-    });
-    pd.last = m;
-    if (!pd.base) {
-      pd.baseAcc.push(m);
-      if (pd.baseAcc.length >= PD_BASE_LINES) pd.base = [0, 1, 2].map(function (i) {
-        return pd.baseAcc.reduce(function (a, v) { return a + v[i]; }, 0) / pd.baseAcc.length;
-      });
-    }
-    if (pd.base) {
-      var now = performance.now(), rel = m.map(function (v, i) { return v / pd.base[i]; });
-      pd.hist.push({ t: now, rel: rel });
-      while (pd.hist.length && now - pd.hist[0].t > PD_SPAN) pd.hist.shift();
-      if (pdEl.beep.checked && rel.some(function (v) { return Math.abs(v - 1) > PD_ALERT; }) && now - pd.lastBeep > 250) {
-        pd.lastBeep = now;
-        pdBeep();
-      }
-    }
-    if (!pd.drawPending) {
-      pd.drawPending = true;
-      requestAnimationFrame(function () { pd.drawPending = false; pdRender(); });
-    }
-  }
-  function pdBeep() {
-    var a = pd.audio;
-    if (!a) return;
-    try {
-      var o = a.createOscillator(), g = a.createGain();
-      o.frequency.value = 880; g.gain.value = 0.15;
-      o.connect(g); g.connect(a.destination);
-      o.start(); o.stop(a.currentTime + 0.08);
-    } catch (e) { /* audio unavailable */ }
-  }
-  pdEl.beep.addEventListener('change', function () {
-    // browsers allow sound only after a click: create the audio here
-    if (pdEl.beep.checked && !pd.audio) {
-      try { pd.audio = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { pd.audio = null; }
-    }
-    if (pd.audio && pd.audio.state === 'suspended') pd.audio.resume();
-    if (pdEl.beep.checked) pdBeep();   // one beep now, so the user knows it works
-  });
-  pdEl.base.addEventListener('click', function () {
-    if (!pd.last) return;
-    pd.base = pd.last.slice(); pd.hist = [];
-    pdRender();
-  });
-
-  function pdRender() {
-    var now = performance.now(), live = state.source !== 'idle';
-    pdEl.base.disabled = !pd.last || !live;
-    for (var i = 0; i < 3; i++) {
-      var h = pd.hist.length ? pd.hist[pd.hist.length - 1].rel[i] : null;
-      pdEl.val[i].textContent = h === null ? '—' : (100 * h).toFixed(0) + '%';
-      pdEl.val[i].classList.toggle('bad', h !== null && Math.abs(h - 1) > PD_ALERT);
-      var recent = pd.hist.filter(function (e) { return now - e.t <= PD_MIN_WINDOW; }).map(function (e) { return e.rel[i]; });
-      pdEl.min[i].textContent = recent.length
-        ? 'ใน 10 วินาที: ต่ำสุด ' + (100 * Math.min.apply(null, recent)).toFixed(0) + '% · สูงสุด ' + (100 * Math.max.apply(null, recent)).toFixed(0) + '%'
-        : '';
-    }
-    pdEl.note.textContent = !live ? 'เชื่อมต่อบอร์ดหรือกด Demo ก่อน'
-      : !pd.last ? 'รอบรรทัด RSS…'
-      : !pd.base ? 'วางหุ่นนิ่ง ๆ กำลังจำค่าอ้างอิง… (' + pd.baseAcc.length + ' / ' + PD_BASE_LINES + ' บรรทัด)'
-      : 'ค่าอ้างอิง (100%): PD0 ' + pd.base[0].toFixed(3) + ' · PD1 ÷ PD0 ' + pd.base[1].toFixed(3) + ' · PD2 ÷ PD0 ' + pd.base[2].toFixed(3);
-    pdDraw(now);
-  }
-
-  function pdDraw(now) {
-    var cv = pdEl.chart, dpr = window.devicePixelRatio || 1;
-    var w = cv.clientWidth, hgt = cv.clientHeight;
-    if (!w || !hgt) return;
-    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(hgt * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(hgt * dpr); }
-    var ctx = cv.getContext('2d');
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, w, hgt);
-    var css = getComputedStyle(document.documentElement);
-    function col(name) { return css.getPropertyValue(name).trim() || '#888'; }
-    var L = 44, R = 8, T = 8, B = 22, LO = 0.5, HI = 1.3;
-    function y(v) { return T + (HI - Math.max(LO, Math.min(HI, v))) / (HI - LO) * (hgt - T - B); }
-    function x(t) { return L + (1 - (now - t) / PD_SPAN) * (w - L - R); }
-    ctx.font = '11px system-ui, sans-serif';
-    ctx.fillStyle = col('--muted'); ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-    [0.5, 0.7, 0.85, 1, 1.15, 1.3].forEach(function (v) {
-      ctx.strokeStyle = col('--axis'); ctx.lineWidth = 1;
-      ctx.setLineDash(v === 0.85 || v === 1.15 ? [4, 3] : []);
-      ctx.globalAlpha = v === 1 ? 1 : 0.6;
-      ctx.beginPath(); ctx.moveTo(L, y(v)); ctx.lineTo(w - R, y(v)); ctx.stroke();
-      ctx.globalAlpha = 1;
-      ctx.fillText((100 * v).toFixed(0) + '%', L - 6, y(v));
-    });
-    ctx.setLineDash([]);
-    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-    [30, 20, 10, 0].forEach(function (s) {
-      ctx.textAlign = s ? 'center' : 'right';   // keep "now" inside the canvas
-      ctx.fillText(s ? '−' + s + ' s' : 'ตอนนี้', x(now - s * 1000), hgt - 6);
-    });
-    ['--text2', '--s1', '--s3'].forEach(function (name, i) {
-      if (pd.hist.length < 2) return;
-      ctx.strokeStyle = col(name); ctx.lineWidth = i ? 2 : 1.5;
-      ctx.beginPath();
-      pd.hist.forEach(function (e, n) { var px = x(e.t), py = y(e.rel[i]); if (n) ctx.lineTo(px, py); else ctx.moveTo(px, py); });
-      ctx.stroke();
-    });
-  }
-  window.addEventListener('resize', function () { pdDraw(performance.now()); });
 
   /* ---------- recording ---------- */
   function readPose() {

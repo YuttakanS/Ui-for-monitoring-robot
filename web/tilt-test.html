@@ -26,8 +26,7 @@
     .verdict.good { color: var(--good); font-weight: 600; }
     td.sub, th.sub { color: var(--text2); }
     th.grp { text-align: center; border-bottom: 1px solid var(--axis); }
-    .sum-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin: 4px 0 10px; }
-    .field input[type=checkbox] { width: auto; margin-right: 4px; vertical-align: middle; }
+    .sum-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 4px 0 10px; }
     .sum-grid .tile-value { font-size: 22px; font-variant-numeric: tabular-nums; }
     .verdict { font-size: 15px; margin: 0 0 8px; }
     .empty { color: var(--muted); margin: 8px 0 0; }
@@ -87,7 +86,6 @@
             <option value="fw">ค่าใน firmware ตอนนี้</option>
           </select>
         </label>
-        <label class="field small"><input id="optFloor" type="checkbox"> ใช้เฉพาะจุดบนพื้น (z = 0) ไม่รวมจุดบนคานเหล็ก</label>
       </div>
       <p class="note">leave-one-out: แต่ละจุดถูกทดสอบด้วย γ, PD_GAIN, RSS_OFFSET ที่คำนวณจากจุดระดับอื่น ๆ (ต้องมีจุดระดับอย่างน้อย 5 จุด ไม่ครบจะใช้ค่าใน firmware แทน) เพื่อไม่ให้จุดนั้นถูกตัดสินด้วยค่าที่ตัวมันเองช่วยคำนวณ</p>
     </section>
@@ -148,7 +146,6 @@
         <div class="tile"><div class="tile-label">ค่าคลาด yaw (rms)</div><div class="tile-value" id="sumYaw">—</div><div class="tile-sub" id="sumYawSub"></div></div>
         <div class="tile"><div class="tile-label">ค่าคลาด x/y เฉลี่ย</div><div class="tile-value" id="sumXy">—</div><div class="tile-sub" id="sumXySub"></div></div>
         <div class="tile"><div class="tile-label">จุดที่เอียงจริง: ค่าคลาด (rms)</div><div class="tile-value" id="sumTilt">—</div><div class="tile-sub" id="sumTiltSub"></div></div>
-        <div class="tile"><div class="tile-label">ทิศทางไปหา LED คลาด (median)</div><div class="tile-value" id="sumDir">—</div><div class="tile-sub" id="sumDirSub"></div></div>
       </div>
       <div class="table-scroll">
         <table id="resultTable">
@@ -160,7 +157,6 @@
               <th colspan="3" class="grp">ค่าคลาด (°)</th>
               <th colspan="2" class="grp">เปลี่ยนจากระดับ: คลาด (°)</th>
               <th colspan="2" class="grp">ค่าคลาด x/y (cm)</th>
-              <th rowspan="2" title="มุมระหว่างทิศทางไปหา LED ที่คำนวณจาก photodiode 3 ตัว กับทิศทางจริง (median ของ LED ทุกดวงที่จุดนี้)">ทิศ LED คลาด (°)</th>
               <th rowspan="2">หมายเหตุ</th>
               <th rowspan="2"></th>
             </tr>
@@ -183,7 +179,6 @@
         <li>เส้นประ = เกณฑ์ ±3°</li>
       </ul>
       <p class="note">เกณฑ์ผ่าน (ตัดสินจากจุดที่วางระดับ): ค่าเอียงหลอก rms ไม่เกิน 3° และ x/y แย่ลงไม่เกิน 0.5 cm เมื่อคำนวณการเอียงด้วย · "แบบระดับ" = คำนวณโดยถือว่าหุ่นวางระดับ (เหมือน firmware ตอนนี้) · "แบบมีเอียง" = คำนวณ pitch/roll ไปพร้อมกัน · ค่า pitch/roll ถูกจำกัดไว้ที่ ±25° ค่าที่ชนขอบแปลว่าหาคำตอบที่สมเหตุสมผลไม่ได้ · "เปลี่ยนจากระดับ" มีค่าเมื่อมีจุดระดับที่ x, y, z, yaw เดียวกัน · สีแดง = ค่าคลาดของมุมเกิน 3°</p>
-      <p class="note"><b>ทิศทางไปหา LED คลาด</b>: ค่าที่ photodiode 3 ตัวอ่านได้จาก LED ดวงหนึ่ง แปลงเป็น "ทิศทางจากหุ่นไปหา LED ดวงนั้น" ได้โดยตรง แล้วเทียบกับทิศทางจริง ค่านี้ไม่ขึ้นกับความแรงของ LED จึงบอกคุณภาพฝั่ง photodiode อย่างเดียว (gain, มุมของหน้าพีระมิด, หุ่นวางระดับไหม) รายงานใน <code>docs/research-6dof-photodiode.md</code> ประมาณจากการจำลองแบบอุดมคติว่าต้องคลาดราว 1–1.5° ต่อดวง จึงจะได้ yaw/pitch/roll แม่น ±3° (เป็นตัวเลขอ้างอิง ยังไม่ผ่านการทดลอง)</p>
     </section>
   </main>
 

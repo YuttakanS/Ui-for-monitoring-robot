@@ -28,18 +28,6 @@
     .lit-pick { margin-top: 12px; display: grid; gap: 6px; }
     .lit-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 92px)); gap: 6px; }
     .bar a { color: var(--text2); }
-    /* one line only: a wrapping line changed the card's height 20 times a
-       second and the whole page jumped */
-    .raw-line { display: flex; gap: 6px; white-space: nowrap; }
-    .raw-line > span { flex: none; }
-    .raw-line code { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-    .pd-nums { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-    .pd-nums .tile-value { font-variant-numeric: tabular-nums; }
-    .pd-nums .tile-value.bad { color: var(--critical); }
-    .pd-chart-wrap { position: relative; height: 220px; margin-top: 10px; }
-    .pd-chart-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-    .field input[type=checkbox] { width: auto; margin-right: 4px; vertical-align: middle; }
-    @media (max-width: 600px) { .pd-nums { grid-template-columns: minmax(0, 1fr); } }
     @media (max-width: 900px) { .cal { grid-template-columns: minmax(0, 1fr); } }
     @media (max-width: 480px) { .cal { padding: 12px; } }
   </style>
@@ -109,27 +97,7 @@
           <tbody></tbody>
         </table>
       </div>
-      <p class="note raw-line"><span>บรรทัดล่าสุดจาก serial:</span> <code id="lastRaw" title="">—</code></p>
-    </section>
-
-    <section class="card wide">
-      <div class="card-head">
-        <h2>ตรวจสาย photodiode</h2>
-        <div class="card-tools">
-          <label class="field small"><input id="pdBeep" type="checkbox"> เสียงเตือน</label>
-          <button id="btnPdBase" class="btn small" type="button" disabled>ตั้งค่าอ้างอิงใหม่</button>
-        </div>
-      </div>
-      <div class="pd-nums">
-        <div class="tile"><div class="tile-label"><span class="key" style="--k:var(--text2)"></span>PD0 แสงรวม (สายเหลือง, GP28)</div><div class="tile-value" id="pdVal0">—</div><div class="tile-sub" id="pdMin0"></div></div>
-        <div class="tile"><div class="tile-label"><span class="key" style="--k:var(--s1)"></span>PD1 ÷ PD0 (สายน้ำเงิน, GP27)</div><div class="tile-value" id="pdVal1">—</div><div class="tile-sub" id="pdMin1"></div></div>
-        <div class="tile"><div class="tile-label"><span class="key" style="--k:var(--s3)"></span>PD2 ÷ PD0 (สายเขียว, GP26)</div><div class="tile-value" id="pdVal2">—</div><div class="tile-sub" id="pdMin2"></div></div>
-      </div>
-      <div class="pd-chart-wrap"><canvas id="pdChart" aria-label="กราฟแสงของ photodiode แต่ละตัวเทียบกับค่าอ้างอิง 30 วินาทีล่าสุด"></canvas></div>
-      <p id="pdNote" class="note">เชื่อมต่อบอร์ดก่อน</p>
-      <p class="note">วิธีใช้: วางหุ่นนิ่ง ๆ รอ 2 วินาทีให้หน้านี้จำค่าอ้างอิง (100%) แล้วแตะหรือขยับสายทีละจุดเบา ๆ อย่าบังแสง LED · ค่าเฉลี่ย 5 บรรทัดล่าสุด (ราว 0.25 วินาที) ·
-        <b>PD1 ÷ PD0</b> และ <b>PD2 ÷ PD0</b> ไม่ขึ้นกับความสว่างของ LED: ถ้าเส้นไหนตกหรือกระโดดตอนแตะสาย สายของ PD นั้นหลวม · ถ้า<b>ทั้งสองเส้น</b>กระโดดพร้อมกันในทิศเดียวกัน ให้สงสัยสายของ PD0 ·
-        เส้นประ = ±15% จากค่าอ้างอิง เปิด "เสียงเตือน" แล้วจะมีเสียงทุกครั้งที่ค่าใดหลุดช่วงนี้ · ย้ายหุ่นแล้วกด "ตั้งค่าอ้างอิงใหม่"</p>
+      <p class="note">บรรทัดล่าสุดจาก serial: <code id="lastRaw">—</code></p>
     </section>
 
     <section class="card">
