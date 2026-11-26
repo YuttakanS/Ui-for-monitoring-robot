@@ -325,6 +325,10 @@
       if (isNaN(p.z)) p.z = 0;
       need.slice(5, 5 + N_LED * N_PD).forEach(function (name) { p.rss.push(num(name)); });
       if (isNaN(p.x) || isNaN(p.y) || p.rss.some(isNaN)) { errors.push('line ' + (i + 1)); continue; }
+      // reference tilt of the robot, written by the tilt test page only
+      var pit = num('pitch_deg'), rol = num('roll_deg');
+      if (!isNaN(pit)) p.pitch = pit;
+      if (!isNaN(rol)) p.roll = rol;
       if (isNaN(p.n)) delete p.n;
       if (isNaN(p.spread)) delete p.spread;
       poses.push(p);
