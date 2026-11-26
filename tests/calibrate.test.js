@@ -526,3 +526,30 @@ test('LED_FREQ and SAMPLE_RATE match robot.ino; aliasPairs finds the harmonics t
   // the report's example plan at 40 kHz has none
   assert.deepEqual(C.aliasPairs([1025, 1275, 1375, 1825, 1925, 2175, 2375, 2525, 2725], 40000, 61), []);
 });
+
+test('pdTotals: light per photodiode over the lit LEDs above the offset; a loose wire shows as its share dropping', function () {
+  var p = { x: 0, y: 45 };
+  var rss = rssAt(p);
+  var s = C.pdTotals(rss);
+  [0, 1, 2].forEach(function (l) {
+    var want = 0;
+    for (var row = 0; row < C.N_LED; row++) want += Math.max(0, rss[row * C.N_PD + l] - C.RSS_OFFSET);
+    close(s[l], want, 1e-12);
+  });
+  // PD 2 reading 70 % of its light: PD2 / PD0 drops to 70 %, PD1 / PD0 stays
+  var low = rss.map(function (v, i) { return i % C.N_PD === 2 ? C.RSS_OFFSET + 0.7 * (v - C.RSS_OFFSET) : v; });
+  var t = C.pdTotals(low);
+  close((t[2] / t[0]) / (s[2] / s[0]), 0.7, 1e-9);
+  close((t[1] / t[0]) / (s[1] / s[0]), 1, 1e-9);
+  // an LED that is off (all three 0) is left out
+  var off = rss.slice(); off[0] = off[1] = off[2] = 0;
+  close(C.pdTotals(off)[0], s[0] - Math.max(0, rss[0] - C.RSS_OFFSET), 1e-12);
+});
+
+test('calibrate.html has every element calib-page.js asks for', function () {
+  var web = path.join(__dirname, '..', 'web');
+  var html = fs.readFileSync(path.join(web, 'calibrate.html'), 'utf8');
+  var js = fs.readFileSync(path.join(web, 'js', 'calib-page.js'), 'utf8');
+  var ids = js.match(/\$\('([^']+)'\)/g).map(function (s) { return s.slice(3, -2); });
+  ids.forEach(function (id) { assert.ok(html.indexOf('id="' + id + '"') >= 0, 'missing #' + id); });
+});

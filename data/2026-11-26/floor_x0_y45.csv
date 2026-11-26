@@ -1,0 +1,2 @@
+x_cm,y_cm,theta_deg,n_lines,spread,led4_pd0,led4_pd1,led4_pd2,led5_pd0,led5_pd1,led5_pd2,led7_pd0,led7_pd1,led7_pd2,led8_pd0,led8_pd1,led8_pd2,led1_pd0,led1_pd1,led1_pd2,led2_pd0,led2_pd1,led2_pd2,led0_pd0,led0_pd1,led0_pd2,led3_pd0,led3_pd1,led3_pd2,led6_pd0,led6_pd1,led6_pd2,z_cm,pitch_deg,roll_deg
+0,45,0,30,1.0434,0.7767,0.7979,0.5267,0.336,0.558,0.4079,0.9362,0.8503,0.8936,0.3741,0.6013,0.5907,0.3321,0.4381,0.1395,0.1224,0.255,0.0806,0.3006,0.3025,0.0659,0.5695,0.4297,0.2423,0.805,0.485,0.5579,0,0,0

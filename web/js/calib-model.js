@@ -535,6 +535,21 @@
     return rss.map(function (v, i) { return used[Math.floor(i / N_PD)] ? v : 0; });
   }
 
+  // ---- Light per photodiode, for the wire check on calibrate.html ---------------
+  // Sum over the lit LEDs (any reading on the three photodiodes) of what each
+  // photodiode reads above RSS_OFFSET. A photodiode whose wire is loose drops
+  // for every LED at once, so its share of the total drops; light that changes
+  // for all three (a shadow, the LEDs) moves the three sums together.
+  // Returns [PD0, PD1, PD2].
+  function pdTotals(rss, offset) {
+    var off = offset !== undefined ? offset : RSS_OFFSET, out = [0, 0, 0];
+    for (var row = 0; row < N_LED; row++) {
+      if (rss[row * N_PD] + rss[row * N_PD + 1] + rss[row * N_PD + 2] === 0) continue; // LED off
+      for (var l = 0; l < N_PD; l++) out[l] += Math.max(0, rss[row * N_PD + l] - off);
+    }
+    return out;
+  }
+
   // ---- Direction to each LED from its three readings ---------------------------
   // (docs/research-6dof-photodiode.md, step 2, in this file's conventions.)
   // For one LED the three photodiodes read  q_l = k * (v_l . u)  after taking
@@ -643,7 +658,7 @@
     averageRss: averageRss, checkPose: checkPose, LED_USE_K: LED_USE_K, selectLeds: selectLeds,
     csvHeader: csvHeader, posesToCsv: posesToCsv, csvToPoses: csvToPoses, formatRssLine: formatRssLine,
     ledDirections: ledDirections, ledDirectionTrue: ledDirectionTrue, ledDirectionErrors: ledDirectionErrors,
-    LED_FREQ: LED_FREQ, SAMPLE_RATE: SAMPLE_RATE, aliasPairs: aliasPairs
+    LED_FREQ: LED_FREQ, SAMPLE_RATE: SAMPLE_RATE, aliasPairs: aliasPairs, pdTotals: pdTotals
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.RACalib = api;
