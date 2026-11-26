@@ -16,41 +16,27 @@ function inoArray(decl) {
   return m[1].split(',').map(function (s) { return s.trim(); });
 }
 
-// The header the CSV rule fixes (CLAUDE.md): raw values; new columns only
-// ever added at the end (z 2026-11-19, pitch_deg / roll_deg 2026-11-20)
-var HEADER_Z = 'timestamp_iso,t_ms,quadrant,x,y,incidence_angle_deg,source,z';
-var HEADER = HEADER_Z + ',pitch_deg,roll_deg';
-
-// parseLine() result with the defaults for values not sent
-function L(o) {
-  return Object.assign({ z: 0, hasZ: false, pitch: 0, hasPitch: false, roll: 0, hasRoll: false }, o);
-}
+// The header the CSV rule fixes (CLAUDE.md): raw cm, z last
+var HEADER = 'timestamp_iso,t_ms,quadrant,x,y,incidence_angle_deg,source,z';
 
 /* ---------- serial lines ---------- */
 
 test('parseLine: lines as robot.ino prints them (Serial.print of a float = 2 decimals)', function () {
   assert.deepEqual(A.parseLine('Quadrant 3: -24.50, -1.47, -0.66, 0.00'),
-    L({ quadrant: 3, x: -24.5, y: -1.47, angle: -0.66, z: 0, hasZ: true }));
+    { quadrant: 3, x: -24.5, y: -1.47, angle: -0.66, z: 0, hasZ: true });
   assert.deepEqual(A.parseLine('Quadrant 1: 12.34, 5.00, 179.99, 3.21\r'),
-    L({ quadrant: 1, x: 12.34, y: 5, angle: 179.99, z: 3.21, hasZ: true }));
+    { quadrant: 1, x: 12.34, y: 5, angle: 179.99, z: 3.21, hasZ: true });
 });
 
 test('parseLine: without z (copy2 and older firmware) z = 0 and hasZ = false', function () {
   assert.deepEqual(A.parseLine('Quadrant 2: -33.84, 47.30, -23.71'),
-    L({ quadrant: 2, x: -33.84, y: 47.3, angle: -23.71 }));
-  assert.deepEqual(A.parseLine('Quadrant 4: 5, -6, 7'), L({ quadrant: 4, x: 5, y: -6, angle: 7 }));
+    { quadrant: 2, x: -33.84, y: 47.3, angle: -23.71, z: 0, hasZ: false });
+  assert.deepEqual(A.parseLine('Quadrant 4: 5, -6, 7'), { quadrant: 4, x: 5, y: -6, angle: 7, z: 0, hasZ: false });
 });
 
 test('parseLine: spacing and case are loose', function () {
-  assert.deepEqual(A.parseLine('  quadrant 4 :1.0 ,-2.0,   3.0  '), L({ quadrant: 4, x: 1, y: -2, angle: 3 }));
-  assert.deepEqual(A.parseLine('QUADRANT3: 1, 2, 3, 4'), L({ quadrant: 3, x: 1, y: 2, angle: 3, z: 4, hasZ: true }));
-});
-
-test('parseLine: optional pitch and roll after z (degrees)', function () {
-  assert.deepEqual(A.parseLine('Quadrant 3: -24.50, -1.47, -0.66, 0.00, 2.50, -1.25'),
-    L({ quadrant: 3, x: -24.5, y: -1.47, angle: -0.66, hasZ: true, pitch: 2.5, hasPitch: true, roll: -1.25, hasRoll: true }));
-  assert.deepEqual(A.parseLine('Quadrant 1: 1, 2, 3, 4, 5'),               // pitch only
-    L({ quadrant: 1, x: 1, y: 2, angle: 3, z: 4, hasZ: true, pitch: 5, hasPitch: true }));
+  assert.deepEqual(A.parseLine('  quadrant 4 :1.0 ,-2.0,   3.0  '), { quadrant: 4, x: 1, y: -2, angle: 3, z: 0, hasZ: false });
+  assert.deepEqual(A.parseLine('QUADRANT3: 1, 2, 3, 4'), { quadrant: 3, x: 1, y: 2, angle: 3, z: 4, hasZ: true });
 });
 
 test('parseLine: anything else is rejected (counted as a parse error, never a sample)', function () {
@@ -62,8 +48,7 @@ test('parseLine: anything else is rejected (counted as a parse error, never a sa
     'Quadrant 1: inf, 1.00, 2.00',
     'Quadrant 1: ovf, 1.00, 2.00',                // Serial.print of a float > 4e9
     'Quadrant 1: 1, 2',                           // too few values
-    'Quadrant 1: 1, 2, 3, 4, 5, 6, 7',            // too many
-    'Quadrant 1: 1, 2, 3, 4, nan, 0',             // a bad tilt value spoils the line
+    'Quadrant 1: 1, 2, 3, 4, 5',                  // too many
     'Quadrant 1: .5, 1, 2', 'Quadrant 1: 1e3, 1, 2', 'Quadrant 1: +1, 2, 3',
     'Quadrant -1: 1, 2, 3', 'Quadrant: 1, 2, 3',
     'Quadrant 1: 1, 2, 3 extra',
@@ -141,20 +126,13 @@ test('toCsv: header, t from the first row, raw values, CRLF', function () {
   var csv = A.toCsv(rows);
   assert.equal(csv,
     HEADER + '\r\n' +
-    '2026-11-20T03:04:05.006Z,0,3,-24.5,-1.47,-0.66,serial,2.3,,\r\n' +
-    '2026-11-20T03:04:05.056Z,50,1,12.34,5,179.99,serial,0,,\r\n');
-});
-
-test('toCsv: pitch and roll are the last two columns, raw degrees', function () {
-  var csv = A.toCsv([A.logEntry(sample('Quadrant 1: 1.00, 2.00, 3.00, 4.00, -2.50, 1.75', 0, 0), 'wifi')]);
-  assert.equal(csv.split('\r\n')[1], '1970-01-01T00:00:00.000Z,0,1,1,2,3,wifi,4,-2.5,1.75');
-  csv = A.toCsv([A.logEntry(sample('Quadrant 1: 1.00, 2.00, 3.00, 4.00, -2.50', 0, 0), 'serial')]);
-  assert.equal(csv.split('\r\n')[1].split(',').slice(7).join(','), '4,-2.5,');  // roll not sent: empty
+    '2026-11-20T03:04:05.006Z,0,3,-24.5,-1.47,-0.66,serial,2.3\r\n' +
+    '2026-11-20T03:04:05.056Z,50,1,12.34,5,179.99,serial,0\r\n');
 });
 
 test('toCsv: z is empty (not 0) when the board did not send it', function () {
   var csv = A.toCsv([A.logEntry(sample('Quadrant 2: -33.84, 47.30, -23.71', 0, 0), 'serial')]);
-  assert.equal(csv.split('\r\n')[1], '1970-01-01T00:00:00.000Z,0,2,-33.84,47.3,-23.71,serial,,,');
+  assert.equal(csv.split('\r\n')[1], '1970-01-01T00:00:00.000Z,0,2,-33.84,47.3,-23.71,serial,');
 });
 
 test('logEntry keeps z as sent, not shifted by the page\'s z zero', function () {
@@ -170,37 +148,12 @@ test('toCsv: no unit conversion (cm in, cm out) and an empty log gives the heade
   assert.deepEqual(A.UNITS.cm, { f: 1, d: 2 }); // the unit menu only changes the display
 });
 
-test('toCsv header only adds columns at the end of the files already recorded', function () {
+test('toCsv header matches the CSV files already recorded', function () {
   var dir = path.join(ROOT, 'data', '2026-11-19', 'motion');
   fs.readdirSync(dir).filter(function (f) { return /\.csv$/.test(f); }).forEach(function (f) {
     var first = fs.readFileSync(path.join(dir, f), 'utf8').split(/\r?\n/)[0];
-    assert.equal(first, HEADER_Z, f);                   // recorded before pitch / roll
-    assert.equal(HEADER.indexOf(first), 0, f);          // same columns, same place
+    assert.equal(first, HEADER, f);
   });
-});
-
-/* ---------- 3D model tilt (pitch / roll) ---------- */
-
-test('robotEuler: yaw turns, pitch + lifts the front, roll + lowers the right side (three.js)', function () {
-  var T = require('../web/vendor/three.min.js');
-  function turned(v, mapYaw, pitch, roll) {
-    var e = A.robotEuler(mapYaw, pitch, roll);
-    return new T.Vector3(v[0], v[1], v[2]).applyEuler(new T.Euler(e.x, e.y, e.z, e.order));
-  }
-  function close(a, b) { assert.ok(Math.abs(a - b) < 1e-9, a + ' vs ' + b); }
-  var s10 = Math.sin(10 * Math.PI / 180);
-  // level: forward follows the map heading only
-  var f = turned([1, 0, 0], 90, 0, 0);
-  close(f.x, 0); close(f.y, 1); close(f.z, 0);
-  // pitch +10: front (local +X) goes up by sin 10, whatever the heading
-  [0, 90, -135].forEach(function (yaw) { close(turned([1, 0, 0], yaw, 10, 0).z, s10); });
-  // roll +10: right side (local -Y) goes down, left side up
-  [0, 90, -135].forEach(function (yaw) {
-    close(turned([0, -1, 0], yaw, 0, 10).z, -s10);
-    close(turned([0, 1, 0], yaw, 0, 10).z, s10);
-  });
-  // yaw does not change how high the front is; roll does not move the front
-  close(turned([1, 0, 0], 45, 10, 20).z, s10);
 });
 
 /* ---------- LEDs ---------- */

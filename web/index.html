@@ -191,30 +191,6 @@
         </div>
       </section>
 
-      <!-- yaw / pitch / roll in degrees; click the title to close or open it
-           (remembered in localStorage, key ra.attCard) -->
-      <section class="card att-card">
-        <details id="attDetails" open>
-          <summary data-i18n="attTitle">มุมของหุ่น: Yaw / Pitch / Roll (°)</summary>
-          <div class="att-grid">
-            <div class="tile">
-              <div class="tile-label">Yaw</div>
-              <div class="tile-value" id="attYaw">—</div>
-            </div>
-            <div class="tile">
-              <div class="tile-label">Pitch</div>
-              <div class="tile-value" id="attPitch">—</div>
-            </div>
-            <div class="tile">
-              <div class="tile-label">Roll</div>
-              <div class="tile-value" id="attRoll">—</div>
-            </div>
-          </div>
-          <div class="tile-sub" id="attNote" role="status"></div>
-          <div class="tile-sub" data-i18n="tiltNote">Pitch + = ด้านหน้ายกขึ้น · Roll + = ด้านขวาต่ำลง</div>
-        </details>
-      </section>
-
       <section class="card led-card">
         <div class="tile-label" data-i18n="ledTitle">เปิด/ปิด LED</div>
         <!-- buttons are built from LEDS in monitor.js, laid out like the map -->
@@ -275,7 +251,7 @@
         <div class="table-scroll">
           <table>
             <thead>
-              <tr><th data-i18n="thTime">เวลา</th><th>Quadrant</th><th>X <span class="unit" data-unit></span></th><th>Y <span class="unit" data-unit></span></th><th>Z <span class="unit" data-unit></span></th><th>Pitch (°)</th><th>Roll (°)</th></tr>
+              <tr><th data-i18n="thTime">เวลา</th><th>Quadrant</th><th>X <span class="unit" data-unit></span></th><th>Y <span class="unit" data-unit></span></th><th>Z <span class="unit" data-unit></span></th></tr>
             </thead>
             <tbody id="tableBody"></tbody>
           </table>
@@ -288,7 +264,6 @@
     <span data-i18n="lastRaw">บรรทัดล่าสุดจาก serial:</span>
     <code id="lastRaw">—</code>
     <a class="foot-link" href="calibrate.html">Calibrate PtxGamma →</a>
-    <a class="foot-link" style="margin-left:12px" href="tilt-test.html">Yaw / Pitch / Roll Test →</a>
   </footer>
 
   <script src="vendor/three.min.js"></script>
