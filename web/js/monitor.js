@@ -84,6 +84,37 @@
     return { x: rollDeg * d, y: -pitchDeg * d, z: mapYawDeg * d, order: 'ZYX' };
   }
 
+  // A vector given in the robot's frame (+X forward, +Y left, +Z up) in the
+  // scene: turned the way robotEuler() turns the 3D model (three.js 'ZYX' =
+  // Rz * Ry * Rx). Used to carry the follow cameras with the robot's tilt.
+  function robotToWorld(v, mapYawDeg, pitchDeg, rollDeg) {
+    var e = robotEuler(mapYawDeg, pitchDeg, rollDeg);
+    var cx = Math.cos(e.x), sx = Math.sin(e.x), cy = Math.cos(e.y), sy = Math.sin(e.y), cz = Math.cos(e.z), sz = Math.sin(e.z);
+    var y1 = cx * v[1] - sx * v[2], z1 = sx * v[1] + cx * v[2];   // Rx
+    var x2 = cy * v[0] + sy * z1, z2 = -sy * v[0] + cy * z1;      // Ry
+    return [cz * x2 - sz * y1, sz * x2 + cz * y1, z2];             // Rz
+  }
+
+  // Camera of the 'third' / 'first' person views for a robot at f = { x, y, z,
+  // yaw (deg, on the map), pitch, roll (deg) }: position, the point it looks
+  // at and its up direction, all carried with the robot's tilt (task #5).
+  // c = the view's settings (CAM3D in the page); robotH = height of the model.
+  function followCamPose(mode, f, c, robotH) {
+    function at(local) {
+      var w = robotToWorld(local, f.yaw, f.pitch, f.roll);
+      return [f.x + w[0], f.y + w[1], f.z + w[2]];
+    }
+    var pos, look;
+    if (mode === 'first') {
+      pos = at([0, 0, c.eye]);
+      look = at([100, 0, c.eye + 100 * Math.tan(c.pitch * Math.PI / 180)]);
+    } else {
+      pos = at([-c.back, 0, c.up]);
+      look = at([c.ahead, 0, robotH]);
+    }
+    return { pos: pos, look: look, up: robotToWorld([0, 0, 1], f.yaw, f.pitch, f.roll) };
+  }
+
   // Standard numbering: Q1 = +x,+y, then counter-clockwise.
   function quadrantOf(x, y) { return x >= 0 ? (y >= 0 ? 1 : 4) : (y >= 0 ? 2 : 3); }
 
@@ -444,7 +475,7 @@
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-      parseLine: parseLine, isRssLine: isRssLine, robotEuler: robotEuler, parseLedAck: parseLedAck, logEntry: logEntry, shownTilt: shownTilt, createLineSplitter: createLineSplitter,
+      parseLine: parseLine, isRssLine: isRssLine, robotEuler: robotEuler, robotToWorld: robotToWorld, followCamPose: followCamPose, parseLedAck: parseLedAck, logEntry: logEntry, shownTilt: shownTilt, createLineSplitter: createLineSplitter,
       quadrantOf: quadrantOf, wrapDeg: wrapDeg,
       niceStep: niceStep, niceCeil: niceCeil, fmtTick: fmtTick,
       fileStamp: fileStamp, toCsv: toCsv, I18N: I18N, translate: translate, UNITS: UNITS, LEDS: LEDS
@@ -2004,6 +2035,7 @@
     var free = state.cam3d === 'free';
     v3.controls.enabled = free;
     v3.follow = null; // start from the robot's pose, not from the last follow
+    if (free) v3.camera.up.set(0, 0, 1); // the follow views tilt it with the robot
     v3.camera.fov = CAM3D[state.cam3d].fov;
     v3.camera.updateProjectionMatrix();
     if (v3.h) size3dLabels(); // label size depends on the field of view
@@ -2021,31 +2053,32 @@
     }
   }
 
-  // Move the camera with the robot. Position and heading are eased, so the
-  // view glides between samples instead of jumping with every line from the
-  // board. Returns true while the camera has not caught up yet.
+  // Move the camera with the robot. Position, heading and tilt (pitch / roll,
+  // task #5: the views lean with the robot) are eased, so the view glides
+  // between samples instead of jumping with every line from the board.
+  // Returns true while the camera has not caught up yet.
   function follow3d(s) {
     var mode = state.cam3d;
     if (mode === 'free' || !s) return false;
     var yaw = mapHeading(s.angle) * Math.PI / 180, f = v3.follow;
-    if (!f) f = v3.follow = { x: s.x, y: s.y, z: s.z, yaw: yaw };
+    var tl = shownTilt(s, state.tiltZero);   // the same tilt as the 3D robot
+    if (!f) f = v3.follow = { x: s.x, y: s.y, z: s.z, yaw: yaw, pitch: tl.pitch, roll: tl.roll };
     var dyaw = Math.atan2(Math.sin(yaw - f.yaw), Math.cos(yaw - f.yaw)); // shortest way round
     f.x += (s.x - f.x) * CAM_EASE;
     f.y += (s.y - f.y) * CAM_EASE;
     f.z += (s.z - f.z) * CAM_EASE;
     f.yaw += dyaw * CAM_EASE;
-    var hx = Math.cos(f.yaw), hy = Math.sin(f.yaw), cam = v3.camera, c = CAM3D[mode];
-    if (mode === 'first') {
-      // the robot and its heading vector would fill the view from inside
-      v3.robot.visible = v3.vec.group.visible = false;
-      var ez = f.z + c.eye;
-      cam.position.set(f.x, f.y, ez);
-      cam.lookAt(f.x + hx * 100, f.y + hy * 100, ez + 100 * Math.tan(c.pitch * Math.PI / 180));
-    } else {
-      cam.position.set(f.x - hx * c.back, f.y - hy * c.back, f.z + c.up);
-      cam.lookAt(f.x + hx * c.ahead, f.y + hy * c.ahead, f.z + ROBOT_H);
-    }
-    return Math.abs(dyaw) > 0.002 || Math.abs(s.x - f.x) + Math.abs(s.y - f.y) + Math.abs(s.z - f.z) > 0.05;
+    f.pitch += (tl.pitch - f.pitch) * CAM_EASE;
+    f.roll += (tl.roll - f.roll) * CAM_EASE;
+    var cam = v3.camera;
+    // the robot and its heading vector would fill the first-person view from inside
+    if (mode === 'first') v3.robot.visible = v3.vec.group.visible = false;
+    var p = followCamPose(mode, { x: f.x, y: f.y, z: f.z, yaw: f.yaw * 180 / Math.PI, pitch: f.pitch, roll: f.roll }, CAM3D[mode], ROBOT_H);
+    cam.position.set(p.pos[0], p.pos[1], p.pos[2]);
+    cam.up.set(p.up[0], p.up[1], p.up[2]);   // the horizon tilts with the robot
+    cam.lookAt(p.look[0], p.look[1], p.look[2]);
+    return Math.abs(dyaw) > 0.002 || Math.abs(s.x - f.x) + Math.abs(s.y - f.y) + Math.abs(s.z - f.z) > 0.05 ||
+      Math.abs(tl.pitch - f.pitch) + Math.abs(tl.roll - f.roll) > 0.05;
   }
 
   // Parse the models (OBJ text). Their geometry is shared by every copy,

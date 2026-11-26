@@ -211,6 +211,41 @@ test('index.html loads calib-model.js before monitor.js and has the tilt control
   });
 });
 
+/* ---------- follow cameras lean with the robot (task #5) ---------- */
+
+test('robotToWorld turns a vector exactly as three.js turns the 3D model (robotEuler)', function () {
+  var T = require('../web/vendor/three.min.js');
+  [[0, 0, 0], [30, 5, 0], [-120, 0, -7], [75, 12, 9], [180, -20, 15]].forEach(function (a) {
+    [[1, 0, 0], [0, 1, 0], [0, 0, 1], [3, -2, 5]].forEach(function (v) {
+      var e = A.robotEuler(a[0], a[1], a[2]);
+      var want = new T.Vector3(v[0], v[1], v[2]).applyEuler(new T.Euler(e.x, e.y, e.z, e.order));
+      var got = A.robotToWorld(v, a[0], a[1], a[2]);
+      [want.x, want.y, want.z].forEach(function (w, i) { assert.ok(Math.abs(got[i] - w) < 1e-12, a + ' ' + v); });
+    });
+  });
+});
+
+test('followCamPose: level = the old cameras; pitch lifts the view, roll tilts the horizon', function () {
+  var third = { back: 95, up: 60, ahead: 30 }, first = { eye: 5, pitch: 14 }, H = 3;
+  function near(a, b, msg) { a.forEach(function (x, i) { assert.ok(Math.abs(x - b[i]) < 1e-9, msg + ' ' + a + ' vs ' + b); }); }
+  // level, facing 30 deg on the map, at (10, -20, 2): the formulas used before
+  var f = { x: 10, y: -20, z: 2, yaw: 30, pitch: 0, roll: 0 }, hx = Math.cos(30 * Math.PI / 180), hy = Math.sin(30 * Math.PI / 180);
+  var p = A.followCamPose('third', f, third, H);
+  near(p.pos, [10 - hx * 95, -20 - hy * 95, 2 + 60], 'third pos');
+  near(p.look, [10 + hx * 30, -20 + hy * 30, 2 + H], 'third look');
+  near(p.up, [0, 0, 1], 'third up');
+  p = A.followCamPose('first', f, first, H);
+  near(p.pos, [10, -20, 7], 'first pos');
+  near(p.look, [10 + hx * 100, -20 + hy * 100, 7 + 100 * Math.tan(14 * Math.PI / 180)], 'first look');
+  // facing +X: nose up -> the first-person view looks higher; right side down
+  // (roll > 0) -> the camera's up leans to the robot's right (-Y)
+  var level = A.followCamPose('first', { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0 }, first, H);
+  var noseUp = A.followCamPose('first', { x: 0, y: 0, z: 0, yaw: 0, pitch: 10, roll: 0 }, first, H);
+  assert.ok(noseUp.look[2] > level.look[2] + 10);
+  var rightDown = A.followCamPose('third', { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 10 }, third, H);
+  assert.ok(rightDown.up[1] < -0.15 && Math.abs(rightDown.up[0]) < 1e-9);
+});
+
 /* ---------- 3D model tilt (pitch / roll) ---------- */
 
 test('robotEuler: yaw turns, pitch + lifts the front, roll + lowers the right side (three.js)', function () {
