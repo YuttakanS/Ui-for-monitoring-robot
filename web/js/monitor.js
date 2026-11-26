@@ -219,6 +219,8 @@
       tiltPc: 'Pitch / Roll คำนวณบน PC จากค่า RSS (x, y, yaw จากบอร์ด) · ค่าสัมบูรณ์อาจคลาด 3–6° ให้วางหุ่นระดับแล้วกด "ตั้งศูนย์การเอียง"',
       tiltPcZeroed: 'Pitch / Roll คำนวณบน PC จากค่า RSS · ศูนย์การเอียง: {n} (CSV เก็บค่าก่อนตั้งศูนย์)',
       tiltPcLimit: 'Pitch / Roll ชนขอบ ±25°: ค่ารอบนี้เชื่อไม่ได้',
+      tiltImu: 'Pitch / Roll จาก IMU บนบอร์ด · วางหุ่นระดับแล้วกด "ตั้งศูนย์การเอียง" (ตั้งศูนย์ในบอร์ด)',
+      tiltImuPc: 'จาก photodiode (เทียบ): {n}',
       tiltPcWait: 'รอค่า RSS จากบอร์ด… ถ้าไม่มาภายในไม่กี่วินาที firmware อาจเก่าเกินไป (ไม่รับคำสั่ง MODE 3)',
       tiltZero: 'ตั้งศูนย์การเอียง',
       tiltZeroReset: 'ล้างศูนย์',
@@ -343,6 +345,8 @@
       tiltPc: 'Pitch / Roll solved on the PC from the RSS line (x, y, yaw from the board) · absolute values may be 3–6° off: put the robot level and press "Zero tilt"',
       tiltPcZeroed: 'Pitch / Roll solved on the PC from the RSS line · tilt zero: {n} (the CSV keeps the values before the zero)',
       tiltPcLimit: 'Pitch / Roll at the ±25° limit: this value cannot be trusted',
+      tiltImu: 'Pitch / Roll from the IMU on the board · put the robot level and press "Zero tilt" (zeroed on the board)',
+      tiltImuPc: 'from the photodiodes (to compare): {n}',
       tiltPcWait: 'Waiting for RSS lines from the board… if none come within a few seconds, the firmware may be too old (no MODE 3 command)',
       tiltZero: 'Zero tilt',
       tiltZeroReset: 'Clear zero',
@@ -534,6 +538,7 @@
     rssLast: null,         // RSS line waiting for its Quadrant line
     rssAt: 0,              // performance.now() of the last RSS line
     tiltPrev: null,        // last PC tilt answer, the start for the next one
+    imuMsg: '',            // last "# IMU ..." line from the board (task #5)
     log: [],
     logSaved: true,
     dirty: true,
@@ -594,6 +599,8 @@
     if (line.charAt(0) === '#') {
       var ack = parseLedAck(line);
       if (ack) { ledFw[ack.led] = ack.on; updateLedUI(); }
+      // "# IMU ok who=0x68", "# IMU not found", "# IMU ZERO pitch=.. roll=..", ...
+      if (/^#\s*IMU\b/i.test(line)) { state.imuMsg = line.replace(/^#\s*/, ''); state.tilesDirty = true; }
       return;
     }
     var s = parseLine(line);
@@ -643,7 +650,9 @@
   }
   function solvePcTilt(s) {
     var C2 = window.RACalib;
-    if (!state.pcTilt || !C2 || s.hasPitch || s.hasRoll || !state.rssLast) return;
+    // solved even when the board sends pitch / roll (IMU, task #5): the screen
+    // shows the board's, the CSV keeps both to compare the two methods
+    if (!state.pcTilt || !C2 || !state.rssLast) return;
     if (s.t - state.rssAt > RSS_FRESH) return;
     // this cycle's RSS line with the pose the board gave for it
     state.rssBuf.push({ rss: state.rssLast, x: s.x, y: s.y, a: s.angle });
@@ -659,7 +668,12 @@
     state.tiltPrev = r.atLimit ? null : r;   // do not start the next one from the limit
   }
   // The board sends RSS lines only in mode 3 (MODE command, 2026-11-25).
-  function sendTiltMode() { if (state.pcTilt) sendSerial('MODE 3\n'); }
+  // Also asks for the IMU state (task #5): the board prints "# IMU ok" at
+  // power-up, before the page is usually connected. Older firmware ignores it.
+  function sendTiltMode() {
+    if (state.pcTilt) sendSerial('MODE 3\n');
+    sendSerial('IMU\n');
+  }
 
   // Show the PC tilt relative to how the robot stands now: the mean of the
   // last second becomes 0 (put the robot level first). The CSV keeps the
@@ -696,6 +710,7 @@
     state.parseErrors = 0;
     state.lastRaw = '';
     state.rssBuf = []; state.rssLast = null; state.rssAt = 0; state.tiltPrev = null;
+    state.imuMsg = '';
     state.dirty = state.tilesDirty = true;
   }
 
@@ -1075,12 +1090,15 @@
     el.attPitch.textContent = tl.src && (tl.src === 'pc' || s.hasPitch) ? tl.pitch.toFixed(2) + '°' : '—';
     el.attRoll.textContent = tl.src && (tl.src === 'pc' || s.hasRoll) ? tl.roll.toFixed(2) + '°' : '—';
     var z0 = state.tiltZero;
-    el.attNote.textContent = tl.src === 'board' ? ''
+    el.attNote.textContent = tl.src === 'board'
+      ? t('tiltImu') + (s.hasPcTilt ? ' · ' + t('tiltImuPc', 'pitch ' + (s.pcPitch - (z0 ? z0.pitch : 0)).toFixed(1) + '°, roll ' + (s.pcRoll - (z0 ? z0.roll : 0)).toFixed(1) + '°') : '') +
+        (state.imuMsg ? ' · ' + state.imuMsg : '')
       : tl.src === 'pc' ? (s.pcAtLimit ? t('tiltPcLimit')
-        : z0 ? t('tiltPcZeroed', 'pitch ' + z0.pitch.toFixed(1) + '°, roll ' + z0.roll.toFixed(1) + '°') : t('tiltPc'))
+        : z0 ? t('tiltPcZeroed', 'pitch ' + z0.pitch.toFixed(1) + '°, roll ' + z0.roll.toFixed(1) + '°') : t('tiltPc')) +
+        (state.imuMsg ? ' · ' + state.imuMsg : '')
       : state.pcTilt && isLive() ? t('tiltPcWait') : t('tiltNone');
-    el.tiltZeroRow.hidden = tl.src !== 'pc';
-    el.btnTiltZeroReset.hidden = !z0;
+    el.tiltZeroRow.hidden = !tl.src;
+    el.btnTiltZeroReset.hidden = !z0 || tl.src !== 'pc';
     el.cNeedle.style.visibility = 'visible';
     el.cNeedle.setAttribute('transform', 'rotate(' + (-mapHeading(s.angle)).toFixed(2) + ' 70 70)');
     // X / Y parts of the heading vector (seen from above) and
@@ -2435,7 +2453,14 @@
   el.btnRecord.addEventListener('click', toggleRecording);
   el.btnZZero.addEventListener('click', zeroZ);
   el.btnZZeroReset.addEventListener('click', function () { setZZero(0); });
-  el.btnTiltZero.addEventListener('click', zeroTilt);
+  // with an IMU the zero belongs on the board (its light model uses the tilt);
+  // the PC's own tilt is zeroed here. Both when the board sends pitch / roll,
+  // so the two stay comparable.
+  el.btnTiltZero.addEventListener('click', function () {
+    var s = state.latest;
+    if (s && (s.hasPitch || s.hasRoll) && isLive()) sendSerial('IMU ZERO\n');
+    zeroTilt();
+  });
   el.btnTiltZeroReset.addEventListener('click', function () { state.tiltZero = null; state.dirty = state.tilesDirty = true; });
   el.pcTilt.addEventListener('change', function () {
     state.pcTilt = el.pcTilt.checked;

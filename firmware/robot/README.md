@@ -476,6 +476,74 @@ the board, where the old model gave about 1–3 cm.)
   Zero z on the web page where the robot stands and read the change.
 - The model assumes the robot is level. Held tilted, z, x and y are off.
 
+## IMU for pitch and roll (task #5, 2026-11-26, branch `feature/task-5-imu`)
+The photodiodes alone cannot tell a tilted robot from one standing elsewhere:
+held tilted, x / y move by about 0.5 cm per degree, and pitch / roll solved
+from the light have 3–6° of false tilt. With the tilt known from an IMU, the
+light model can take it into account. On the PC (7 level floor poses, the
+real misfit applied to a tilted robot), median x / y error:
+
+| Tilt | Level model (before) | Tilt solved from the light | Tilt known (IMU) |
+|---|---|---|---|
+| 0° | 2.3 cm | 6.4 cm | 2.3 cm |
+| 5° | 4.3 cm | 6.4 cm | 2.6 cm |
+| 10° | 7.6 cm | 6.2 cm | 3.1 cm |
+
+**Wiring (MPU6050 on a GY-521 board):**
+
+| GY-521 | Pico W |
+|---|---|
+| VCC | 3V3 (pin 36) |
+| GND | GND |
+| SDA | GP4 (pin 6) |
+| SCL | GP5 (pin 7) |
+| AD0 | open or GND (address 0x68) |
+
+Mount it flat on the robot's base, the board's X arrow to the front (face
+"Y 0", PD 0 on GP28), Y to the left, chips up. Another mounting: set
+`IMU_AXIS` / `IMU_SIGN` in `robot.ino`.
+
+**What the firmware does:**
+- At power-up it looks for the IMU: `# IMU ok who=0x68` or `# IMU not found`.
+  **Without an IMU everything works as before** (level model, the position
+  line has 4 values). The web page asks again with `IMU` when it connects.
+- Each update reads the accelerometer (which way is up: pitch / roll) and the
+  gyro, combined with a complementary filter (`IMU_ALPHA_TAU` = 0.5 s: the
+  gyro below that time scale, the accelerometer above). Yaw stays the EKF's,
+  from the LEDs.
+- The photodiode normals of the light model are turned by pitch / roll
+  (`setTilt()`, the same rotation as `pdNormal()` in `calib-model.js`;
+  `tests/firmware-math.test.js` runs the `.ino` lines in JS and checks they
+  match), so x / y / yaw / z are solved for the tilted robot.
+- The position line gets pitch and roll as values 5 and 6 (degrees, after the
+  zero): `Quadrant <n>: x, y, yaw, z, pitch, roll`. pitch > 0 = front up,
+  roll > 0 = right side down.
+- If the IMU stops answering for about 1 s: `# IMU lost`, back to level.
+
+**Commands:**
+
+| Command | Does | Answer |
+|---|---|---|
+| `IMU ZERO` | robot level: the mean of the next 20 updates (1 s) becomes 0 | `# IMU ZERO pitch=… roll=…` |
+| `IMU 0` / `IMU 1` | leave the tilt out of the light model / use it (pitch / roll are sent either way), to compare x / y | `# IMU USE <0\|1>` |
+| `IMU` | state | `# IMU ok use=1 zero_pitch=… zero_roll=…` |
+
+The zero is in RAM only: send `IMU ZERO` again after each power-up (the
+"Zero tilt" button on the Position Monitor does it when the board sends
+pitch / roll).
+
+**First test on the board:**
+1. Upload, open the Position Monitor, connect: the Yaw / Pitch / Roll card
+   should say the values come from the IMU.
+2. Robot level on the floor: press "Zero tilt".
+3. Lift the front: pitch > 0. Press the right side down: roll > 0. If a sign
+   or axis is wrong, fix `IMU_AXIS` / `IMU_SIGN` and upload again.
+4. Tilt the robot about 5–10° in place and watch x / y, then send `IMU 0` and
+   tilt again: x / y should move much more with `IMU 0`.
+
+Compiled with arduino-cli (rp2040 core 6.4.0, Pico W): 374 KB flash, 120 KB
+RAM. **Not run on the board yet.**
+
 ## Notes
 - **z depends on `PtxGamma` being right.** A brighter LED looks like a closer
   one, so a gamma error shows up as height: in a host simulation, LEDs 10 %

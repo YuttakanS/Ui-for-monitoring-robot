@@ -88,9 +88,13 @@ test('parseLine keeps the quadrant the board sent', function () {
   assert.equal(A.parseLine('Quadrant 2: 10.00, 10.00, 0.00').quadrant, 2);
 });
 
-test('robot.ino prints the line parseLine reads: Quadrant <n>: x, y, heading, z', function () {
-  // (out = USB serial + WiFi since task #3)
-  assert.match(INO, /out\.print\("Quadrant "\); out\.print\(q\); out\.print\(": "\);\s*out\.print\(xcm\); out\.print\(", "\);\s*out\.print\(ycm\); out\.print\(", "\);\s*out\.print\(deg\); out\.print\(", "\);\s*out\.println\(zcm\);/);
+test('robot.ino prints the line parseLine reads: Quadrant <n>: x, y, heading, z[, pitch, roll]', function () {
+  // (out = USB serial + WiFi since task #3; pitch / roll only with an IMU, task #5)
+  assert.match(INO, /out\.print\("Quadrant "\); out\.print\(q\); out\.print\(": "\);\s*out\.print\(xcm\); out\.print\(", "\);\s*out\.print\(ycm\); out\.print\(", "\);\s*out\.print\(deg\); out\.print\(", "\);/);
+  assert.match(INO, /if \(imuOk\) \{\s*out\.print\(zcm\); out\.print\(", "\);\s*out\.print\(\(imuPitch - imuZeroP\) \* 180\.0f \/ M_PI\); out\.print\(", "\);\s*out\.println\(\(imuRoll - imuZeroR\) \* 180\.0f \/ M_PI\);\s*\} else \{\s*out\.println\(zcm\);/);
+  // what that prints, read back by the page
+  var line = 'Quadrant 1: 12.34, 5.00, 179.99, 0.00, 2.50, -1.25';
+  assert.deepEqual(A.parseLine(line), L({ quadrant: 1, x: 12.34, y: 5, angle: 179.99, hasZ: true, pitch: 2.5, hasPitch: true, roll: -1.25, hasRoll: true }));
   // same quadrant numbering as quadrantOf()
   assert.match(INO, /int q = \(xcm >= 0\) \? \(ycm >= 0 \? 1 : 4\) : \(ycm >= 0 \? 2 : 3\);/);
 });

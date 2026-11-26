@@ -227,3 +227,69 @@ test('robot.ino: MODE <1|2|3> switches the output and is answered with "# MODE <
   var page = fs.readFileSync(path.join(__dirname, '..', 'web', 'js', 'calib-page.js'), 'utf8');
   assert.equal(page.split("send('MODE 3\\n');").length - 1, 2, 'calibrate page sends MODE 3 on serial and WiFi connect');
 });
+
+/* ---------- IMU tilt (task #5, 2026-11-26) ---------- */
+// The C++ lines of robot.ino, turned into JS (only arithmetic, cosf / sinf /
+// atan2f / sqrtf and array reads), so the test checks the firmware's own text.
+function cToJs(src) {
+  return src.replace(/\bconst float\b|\bfloat\b|\bint\b/g, 'var')
+    .replace(/\b(cosf|sinf|atan2f|sqrtf)\(/g, function (m, f) { return 'Math.' + f.slice(0, -1) + '('; })
+    .replace(/\bv\(l, (\d)\)/g, 'v[l][$1]');
+}
+function inoBlock(startRe) {
+  var i = INO.search(startRe);
+  assert.ok(i >= 0, startRe + ' not found in robot.ino');
+  var open = INO.indexOf('{', i), depth = 0;
+  for (var j = open; j < INO.length; j++) {
+    if (INO[j] === '{') depth++;
+    if (INO[j] === '}' && --depth === 0) return INO.slice(open + 1, j);
+  }
+  throw new Error('unbalanced braces');
+}
+var D = Math.PI / 180;
+var V = C.ALPHA.map(function (a) { return [Math.cos(C.BETA) * Math.cos(a), -Math.cos(C.BETA) * Math.sin(a), Math.sin(C.BETA)]; });
+
+test('robot.ino setTilt() turns the photodiode normals exactly as pdNormal() in calib-model.js', function () {
+  var body = cToJs(inoBlock(/void setTilt\(float pitch, float roll\)/)).replace(/tiltPitch = pitch; tiltRoll = roll;/, '');
+  var setTilt = new Function('pitch', 'roll', 'v', 'VT', 'var N_PD = 3;' + body); // eslint-disable-line no-new-func
+  [[0, 0], [5, 0], [0, -5], [10, 7], [-20, 15]].forEach(function (pr) {
+    var VT = [[], [], []];
+    setTilt(pr[0] * D, pr[1] * D, V, VT);
+    for (var l = 0; l < 3; l++) {
+      var want = C.pdNormal(l, 0, pr[0] * D, pr[1] * D);
+      for (var i = 0; i < 3; i++) assert.ok(Math.abs(VT[l][i] - want[i]) < 1e-12, 'PD ' + l + ' tilt ' + pr);
+    }
+  });
+});
+
+test('robot.ino reads pitch / roll from the accelerometer and gyro with the page\'s signs', function () {
+  var src = INO.slice(INO.indexOf('const float pAcc'), INO.indexOf('const unsigned long now'));
+  var acc = new Function('a', cToJs(src) + 'return [pAcc, rAcc];'); // eslint-disable-line no-new-func
+  [[5, 0], [0, 5], [10, -7], [-20, 15], [3, 24]].forEach(function (pr) {
+    // at rest the accelerometer reads "up" in the robot's frame: the world z
+    // axis seen from a robot turned as pdNormal() turns it
+    var up = [0, 1, 2].map(function (i) {
+      var e = [0, 0, 0]; e[i] = 1;
+      var cp = Math.cos(pr[0] * D), sp = Math.sin(pr[0] * D), cr = Math.cos(pr[1] * D), sr = Math.sin(pr[1] * D);
+      var r2 = sr * e[1] + cr * e[2];
+      return sp * e[0] + cp * r2;   // z of the turned axis
+    });
+    var got = acc(up);
+    assert.ok(Math.abs(got[0] / D - pr[0]) < 1e-9 && Math.abs(got[1] / D - pr[1]) < 1e-9, 'tilt ' + pr + ' -> ' + got.map(function (x) { return x / D; }));
+  });
+  // gyro: lifting the front turns the robot about its -left axis (g[1] < 0),
+  // so pitch must grow when g[1] is negative; roll grows with g[0]
+  assert.match(INO, /imuPitch = k \* \(imuPitch - g\[1\] \* dt\) \+ \(1 - k\) \* pAcc;/);
+  assert.match(INO, /imuRoll = k \* \(imuRoll \+ g\[0\] \* dt\) \+ \(1 - k\) \* rAcc;/);
+});
+
+test('robot.ino: IMU on GP4 / GP5, model tilt only from the IMU, pitch / roll as values 5 and 6', function () {
+  assert.match(INO, /Wire\.setSDA\(4\);/);
+  assert.match(INO, /Wire\.setSCL\(5\);/);
+  assert.match(INO, /const uint8_t IMU_ADDR = 0x68;/);
+  assert.match(INO, /if \(imuOk && imuInEkf\) setTilt\(imuPitch - imuZeroP, imuRoll - imuZeroR\);/);
+  assert.match(INO, /const float w0 = c0 \* VT\[l\]\[0\] \+ s0 \* VT\[l\]\[1\];/);
+  ['IMU ZERO', 'IMU %d', '"IMU"'].forEach(function (c) { assert.ok(INO.indexOf(c) >= 0, c); });
+  // no IMU: the line stays x, y, angle, z as before
+  assert.match(INO, /if \(imuOk\) \{\s*out\.print\(zcm\); out\.print\(", "\);/);
+});

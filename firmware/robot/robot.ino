@@ -1,6 +1,7 @@
 #include "pico/stdlib.h"
 #include "pico/time.h"
 #include <math.h>
+#include <Wire.h>
 #include <BasicLinearAlgebra.h>
 
 // Task #3 (2026-11-20): the robot also talks to the web pages over WiFi. It
@@ -243,6 +244,24 @@ bool timer_callback(repeating_timer_t* t) {
   return true;
 }
 
+// Photodiode normals of a tilted robot (task #5 IMU, 2026-11-26): v turned by
+// roll about the robot's forward axis, then pitch (pitch > 0: the front, PD 0,
+// up; roll > 0: the right side down), still in the robot's own heading frame.
+// pathLossCS() then turns them by the heading as before. Same rotation as
+// pdNormal() in web/js/calib-model.js. With pitch = roll = 0, VT = v.
+float VT[N_PD][3];
+float tiltPitch = 0, tiltRoll = 0;  // rad, what the model uses now
+void setTilt(float pitch, float roll) {
+  tiltPitch = pitch; tiltRoll = roll;
+  const float cp = cosf(pitch), sp = sinf(pitch), cr = cosf(roll), sr = sinf(roll);
+  for (int l = 0; l < N_PD; l++) {
+    const float r1 = cr * v(l, 1) - sr * v(l, 2), r2 = sr * v(l, 1) + cr * v(l, 2);
+    VT[l][0] = cp * v(l, 0) - sp * r2;
+    VT[l][1] = r1;
+    VT[l][2] = sp * v(l, 0) + cp * r2;
+  }
+}
+
 float vectorNorm(const BLA::Matrix<3, 1>& z) {
   return sqrt(z(0, 0) * z(0, 0) + z(1, 0) * z(1, 0) + z(2, 0) * z(2, 0));
 }
@@ -266,10 +285,10 @@ float pathLossCS(int k, int l, float x0, float y0, float z0, float c0, float s0)
   const float dx = x0 - p(k, 0), dy = y0 - p(k, 1), dz = z0 - p(k, 2);  // p0 - pk
   const float dk = sqrtf(dx * dx + dy * dy + dz * dz);
   const float cosPhikl = (dx * uk(0) + dy * uk(1) + dz * uk(2)) / dk;
-  // w = Omega0 * vl
-  const float w0 = c0 * v(l, 0) + s0 * v(l, 1);
-  const float w1 = -s0 * v(l, 0) + c0 * v(l, 1);
-  const float w2 = v(l, 2);
+  // w = Omega0 * vl, vl tilted by the IMU's pitch / roll (VT, see setTilt())
+  const float w0 = c0 * VT[l][0] + s0 * VT[l][1];
+  const float w1 = -s0 * VT[l][0] + c0 * VT[l][1];
+  const float w2 = VT[l][2];
   const float cosPsikl = -(dx * w0 + dy * w1 + dz * w2) / dk;
   if (cosPsikl > COS_FOV)
     return (m + 1) * (m == 1.0f ? cosPhikl : powf(cosPhikl, m)) * cosPsikl / (dk * dk);
@@ -473,14 +492,118 @@ class Out : public Print {
 };
 Out out;
 
+//----------------------------------------------------------------------
+// IMU for pitch and roll (task #5, 2026-11-26): an MPU6050 (GY-521 board) on
+// I2C, SDA = GP4 (pin 6), SCL = GP5 (pin 7), VCC = 3V3, address 0x68 (AD0 to
+// GND or open). Found at power-up: "# IMU ok who=0x.."; if not, "# IMU not
+// found" and everything works as before (no pitch / roll sent, level model).
+// The photodiodes alone gave pitch / roll with 3-6 deg of false tilt and moved
+// x / y as the robot tilted (2026-11-26, about 0.5 cm per degree); with the
+// tilt known, x / y stay within about 1 cm of level up to 10 deg (PC check).
+// pitch / roll from the accelerometer (which way is up), smoothed with the
+// gyro (complementary filter). Yaw stays the EKF's, from the LEDs.
+// Mounting: the board's axes as the robot's: IMU_AXIS[i] = which board axis
+// (0 = X, 1 = Y, 2 = Z) is the robot's forward / left / up, IMU_SIGN[i] = +1
+// or -1. Default: board X to the front (PD 0, GP28), Y to the left, chip up.
+// Check after mounting: lift the front -> pitch > 0, press the right side
+// down -> roll > 0; otherwise change the signs here.
+const uint8_t IMU_ADDR = 0x68;
+const int IMU_AXIS[3] = { 0, 1, 2 };
+const int IMU_SIGN[3] = { +1, +1, +1 };
+const float IMU_ALPHA_TAU = 0.5f;  // s: gyro below this time scale, accelerometer above
+bool imuOk = false;                // found at power-up and still answering
+bool imuInEkf = true;              // IMU 0 / 1: use the tilt in the light model
+float imuPitch = 0, imuRoll = 0;   // rad, filtered, before the zero
+float imuZeroP = 0, imuZeroR = 0;  // rad, taken off (IMU ZERO); RAM only
+int imuZeroLeft = 0;               // updates still to average for IMU ZERO
+float imuZeroSumP = 0, imuZeroSumR = 0;
+int imuFails = 0;
+unsigned long imuLastUs = 0;
+
+bool imuWrite(uint8_t reg, uint8_t val) {
+  Wire.beginTransmission(IMU_ADDR);
+  Wire.write(reg);
+  Wire.write(val);
+  return Wire.endTransmission() == 0;
+}
+int imuReadByte(uint8_t reg) {
+  Wire.beginTransmission(IMU_ADDR);
+  Wire.write(reg);
+  if (Wire.endTransmission(false) != 0) return -1;
+  if (Wire.requestFrom(IMU_ADDR, (uint8_t)1) != 1) return -1;
+  return Wire.read();
+}
+void imuBegin() {
+  Wire.setSDA(4);
+  Wire.setSCL(5);
+  Wire.begin();
+  Wire.setClock(400000);
+  const int who = imuReadByte(0x75);  // WHO_AM_I: 0x68 on a real MPU6050 (clones differ)
+  imuOk = who >= 0
+          && imuWrite(0x6B, 0x01)    // wake up, clock from the X gyro
+          && imuWrite(0x1A, 0x03)    // low-pass about 44 Hz
+          && imuWrite(0x1B, 0x00)    // gyro +-250 deg/s: 131 per deg/s
+          && imuWrite(0x1C, 0x00);   // accelerometer +-2 g: 16384 per g
+  if (imuOk) { out.print("# IMU ok who=0x"); out.println(who, HEX); }
+  else out.println("# IMU not found");
+  imuLastUs = micros();
+}
+// Reads the IMU and updates imuPitch / imuRoll. Returns false if it did not answer.
+bool imuUpdate() {
+  if (!imuOk) return false;
+  Wire.beginTransmission(IMU_ADDR);
+  Wire.write(0x3B);  // ACCEL_XOUT_H .. GYRO_ZOUT_L, 14 bytes
+  if (Wire.endTransmission(false) != 0 || Wire.requestFrom(IMU_ADDR, (uint8_t)14) != 14) {
+    while (Wire.available()) Wire.read();
+    if (++imuFails >= 20) { imuOk = false; out.println("# IMU lost"); }  // about 1 s
+    return false;
+  }
+  imuFails = 0;
+  int16_t raw[7];
+  for (int i = 0; i < 7; i++) { const int hi = Wire.read(); raw[i] = (int16_t)((hi << 8) | Wire.read()); }
+  // board axes -> robot axes (forward, left, up)
+  float a[3], g[3];
+  for (int i = 0; i < 3; i++) {
+    a[i] = IMU_SIGN[i] * raw[IMU_AXIS[i]] / 16384.0f;                            // g
+    g[i] = IMU_SIGN[i] * raw[4 + IMU_AXIS[i]] / 131.0f * (float)M_PI / 180.0f;  // rad/s
+  }
+  // at rest the accelerometer reads "up" in the robot's frame:
+  // (sin p, sin r cos p, cos r cos p) for pitch p and roll r (see setTilt())
+  const float pAcc = atan2f(a[0], sqrtf(a[1] * a[1] + a[2] * a[2]));
+  const float rAcc = atan2f(a[1], a[2]);
+  const unsigned long now = micros();
+  float dt = (now - imuLastUs) * 1e-6f;
+  imuLastUs = now;
+  if (dt <= 0 || dt > 0.5f) dt = 0;  // first read or a long gap: trust the accelerometer
+  const float k = dt > 0 ? IMU_ALPHA_TAU / (IMU_ALPHA_TAU + dt) : 0;
+  // front up = turning about the robot's -left axis, right down = about +forward
+  imuPitch = k * (imuPitch - g[1] * dt) + (1 - k) * pAcc;
+  imuRoll = k * (imuRoll + g[0] * dt) + (1 - k) * rAcc;
+  if (imuZeroLeft > 0) {
+    imuZeroSumP += imuPitch; imuZeroSumR += imuRoll;
+    if (--imuZeroLeft == 0) {
+      imuZeroP = imuZeroSumP / 20; imuZeroR = imuZeroSumR / 20;
+      out.print("# IMU ZERO pitch="); out.print(imuZeroP * 180.0f / M_PI, 2);
+      out.print(" roll="); out.println(imuZeroR * 180.0f / M_PI, 2);
+    }
+  }
+  return true;
+}
+
 // Commands from the web page, one per line (USB serial or WiFi /cmd):
 //   LED <number> <0|1>     e.g. "LED 4 0" stops using LED 4, "LED 4 1" uses it again
 //   USE <k>                the EKF uses the k brightest lit LEDs (1..9, see LED_USE_K)
 //   MODE <1|2|3>           1 = RSS lines, 2 = position lines, 3 = both (see mode)
 //   TIMING <0|1>           print a "# T ..." line with the loop timing after each loop
 //   WIFI                   print the "# WIFI ..." line again
+//   IMU ZERO               robot level: the mean pitch / roll of the next 20
+//                          updates (1 s) becomes 0 (answer "# IMU ZERO ...")
+//   IMU <0|1>              use the IMU's tilt in the light model or not (to
+//                          compare x / y); pitch / roll are sent either way
+//   IMU                    print the IMU state again
 // Each accepted command is answered with "# LED <number> <0|1>", "# USE <k>",
-// "# MODE <n>" or "# TIMING <0|1>" (the web page ignores lines that start with #).
+// "# MODE <n>", "# TIMING <0|1>" or "# IMU ..." (the web page ignores lines
+// that start with #).
 void printWifiInfo();
 void handleCommand(const char* buf) {
   int num, on;
@@ -501,6 +624,17 @@ void handleCommand(const char* buf) {
     out.print("# TIMING "); out.println(PRINT_TIMING ? 1 : 0);
   } else if (strcmp(buf, "WIFI") == 0) {
     printWifiInfo();
+  } else if (strcmp(buf, "IMU ZERO") == 0) {
+    if (!imuOk) out.println("# IMU not found");
+    else { imuZeroLeft = 20; imuZeroSumP = imuZeroSumR = 0; }  // answered when done
+  } else if (sscanf(buf, "IMU %d", &on) == 1) {
+    imuInEkf = (on != 0);
+    out.print("# IMU USE "); out.println(imuInEkf ? 1 : 0);
+  } else if (strcmp(buf, "IMU") == 0) {
+    out.print(imuOk ? "# IMU ok" : "# IMU not found");
+    out.print(" use="); out.print(imuInEkf ? 1 : 0);
+    out.print(" zero_pitch="); out.print(imuZeroP * 180.0f / M_PI, 2);
+    out.print(" zero_roll="); out.println(imuZeroR * 180.0f / M_PI, 2);
   }
 }
 
@@ -656,8 +790,10 @@ void printWifiInfo() {}
 void setup() {
   Serial.begin(115200);
   analogReadResolution(10);
+  setTilt(0, 0);  // level until the IMU says otherwise
   initEkf();
   initDemod();
+  imuBegin();     // "# IMU ok" or "# IMU not found"
 #if USE_WIFI
   wifiBegin();  // before the sampling timer starts
 #endif
@@ -736,6 +872,11 @@ void loop() {
   }
   unsigned long tDemod = micros();
 
+  // tilt for the light model: the IMU's, less its zero (level if no IMU or IMU 0)
+  imuUpdate();
+  if (imuOk && imuInEkf) setTilt(imuPitch - imuZeroP, imuRoll - imuZeroR);
+  else if (tiltPitch != 0 || tiltRoll != 0) setTilt(0, 0);
+
   for (int f = 0; f < N_LED; f++)
     for (int g = 0; g < N_PD; g++) {
       zn(N_PD*f+g) = RSS[f][g];
@@ -811,8 +952,9 @@ void loop() {
   //Serial.print("Covariance"); Serial.println(Pnm1nm1);
   unsigned long tEkf = micros();
   if (mode == 2 || mode == 3){
-    // Web format:  Quadrant <n>: <x cm>, <y cm>, <angle deg>, <z cm>
-    // (the page also accepts the old line without z, and then takes z = 0)
+    // Web format:  Quadrant <n>: <x cm>, <y cm>, <angle deg>, <z cm>[, <pitch deg>, <roll deg>]
+    // (the page also accepts the old line without z, and then takes z = 0;
+    // pitch / roll only with an IMU, after its zero)
     float xcm = xHnm1nm1(IX) * 100.0;
     float ycm = xHnm1nm1(IY) * 100.0;
     float deg = xHnm1nm1(ITH) / M_PI * 180.0;
@@ -822,7 +964,13 @@ void loop() {
     out.print(xcm); out.print(", ");
     out.print(ycm); out.print(", ");
     out.print(deg); out.print(", ");
-    out.println(zcm);
+    if (imuOk) {
+      out.print(zcm); out.print(", ");
+      out.print((imuPitch - imuZeroP) * 180.0f / M_PI); out.print(", ");
+      out.println((imuRoll - imuZeroR) * 180.0f / M_PI);
+    } else {
+      out.println(zcm);
+    }
   }
   if (PRINT_TIMING) {
     // ms spent waiting for the window, demodulating and in the EKF (which
