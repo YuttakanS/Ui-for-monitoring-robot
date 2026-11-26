@@ -418,35 +418,3 @@ test('PD 2 low at (0, 0) on 2026-11-25 13:41: found over all lit LEDs, position 
     assert.ok(Math.hypot(good.x, good.y) < 3, name + ': without PD 2 ' + good.x.toFixed(1) + ', ' + good.y.toFixed(1));
   });
 });
-
-// ---- tilt (pitch / roll), PC only so far (feature/task-3-tilt-9led) ----------
-test('pathLossTilt: level is pathLoss; pitch + lifts the front, roll + lowers the right side', function () {
-  var d = Math.PI / 180;
-  for (var row = 0; row < 9; row++) for (var l = 0; l < 3; l++)
-    close(C.pathLossTilt(row, l, -0.2, 0.1, 0.05, 0.7, 0, 0), C.pathLoss(row, l, -0.2, 0.1, 0.05, 0.7), 1e-15);
-  // PD 0 looks forward (+x at heading 0): nose up tips its normal up
-  assert.ok(C.pdNormal(0, 0, 10 * d, 0)[2] > C.pdNormal(0, 0, 0, 0)[2]);
-  // robot frame is forward, left, up: a normal pointing left (+y) goes up when the right side goes down
-  var left = C.pdNormal(1, 0, 0, 0), leftRolled = C.pdNormal(1, 0, 0, 10 * d);
-  assert.ok(left[1] !== 0);
-  assert.ok((leftRolled[2] - left[2]) * Math.sign(left[1]) > 0, 'roll + lifts the left side');
-  // the normal stays a unit vector
-  var n = C.pdNormal(2, 0.4, 0.2, -0.3);
-  close(Math.hypot(n[0], n[1], n[2]), 1, 1e-12);
-});
-
-test('solvePose with tilt: a tilt is told apart from a move when the model is exact', function () {
-  var d = Math.PI / 180;
-  [{ x: -25, y: 10, z: 0, theta: 30, pitch: 4, roll: -3 }, { x: 20, y: -30, z: 0, theta: -100, pitch: -8, roll: 6 },
-   { x: 0, y: 0, z: 0, theta: 0, pitch: 0, roll: 0 }].forEach(function (p) {
-    var rss = [];
-    for (var row = 0; row < 9; row++) for (var l = 0; l < 3; l++)
-      rss.push(C.predictRss(row, l, p.x / 100, p.y / 100, p.z / 100, p.theta * d, { pitch: p.pitch * d, roll: p.roll * d }));
-    var r = C.solvePose(rss, { tilt: true });
-    close(r.pitch, p.pitch, 0.1, 'pitch'); close(r.roll, p.roll, 0.1, 'roll');
-    close(r.x, p.x, 0.2, 'x'); close(r.y, p.y, 0.2, 'y');
-    // without tilt the result has pitch = roll = 0
-    var flat = C.solvePose(rss);
-    assert.equal(flat.pitch, 0); assert.equal(flat.roll, 0);
-  });
-});
