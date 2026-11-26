@@ -51,6 +51,7 @@
               <option value="dark" data-i18n="themeDark">มืด</option>
             </select>
           </label>
+          <label class="field field-check"><input id="pcTilt" type="checkbox" checked> <span data-i18n="pcTiltField">คำนวณ pitch/roll บน PC</span></label>
         </div>
       </div>
     </div>
@@ -211,6 +212,10 @@
             </div>
           </div>
           <div class="tile-sub" id="attNote" role="status"></div>
+          <div class="z-zero" id="tiltZeroRow" hidden>
+            <button id="btnTiltZero" class="btn secondary small" type="button" data-i18n="tiltZero">ตั้งศูนย์การเอียง</button>
+            <button id="btnTiltZeroReset" class="btn secondary small" type="button" data-i18n="tiltZeroReset" hidden>ล้างศูนย์</button>
+          </div>
           <div class="tile-sub" data-i18n="tiltNote">Pitch + = ด้านหน้ายกขึ้น · Roll + = ด้านขวาต่ำลง</div>
         </details>
       </section>
@@ -296,6 +301,7 @@
   <script src="vendor/OBJLoader.js"></script>
   <script src="models/models.js"></script>
   <script src="js/wifi-link.js"></script>
+  <script src="js/calib-model.js"></script>
   <script src="js/monitor.js"></script>
 </body>
 </html>

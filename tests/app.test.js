@@ -17,9 +17,10 @@ function inoArray(decl) {
 }
 
 // The header the CSV rule fixes (CLAUDE.md): raw values; new columns only
-// ever added at the end (z 2026-11-19, pitch_deg / roll_deg 2026-11-20)
+// ever added at the end (z 2026-11-19, pitch_deg / roll_deg 2026-11-20,
+// pc_pitch_deg / pc_roll_deg 2026-11-26)
 var HEADER_Z = 'timestamp_iso,t_ms,quadrant,x,y,incidence_angle_deg,source,z';
-var HEADER = HEADER_Z + ',pitch_deg,roll_deg';
+var HEADER = HEADER_Z + ',pitch_deg,roll_deg,pc_pitch_deg,pc_roll_deg';
 
 // parseLine() result with the defaults for values not sent
 function L(o) {
@@ -141,20 +142,20 @@ test('toCsv: header, t from the first row, raw values, CRLF', function () {
   var csv = A.toCsv(rows);
   assert.equal(csv,
     HEADER + '\r\n' +
-    '2026-11-20T03:04:05.006Z,0,3,-24.5,-1.47,-0.66,serial,2.3,,\r\n' +
-    '2026-11-20T03:04:05.056Z,50,1,12.34,5,179.99,serial,0,,\r\n');
+    '2026-11-20T03:04:05.006Z,0,3,-24.5,-1.47,-0.66,serial,2.3,,,,\r\n' +
+    '2026-11-20T03:04:05.056Z,50,1,12.34,5,179.99,serial,0,,,,\r\n');
 });
 
 test('toCsv: pitch and roll are the last two columns, raw degrees', function () {
   var csv = A.toCsv([A.logEntry(sample('Quadrant 1: 1.00, 2.00, 3.00, 4.00, -2.50, 1.75', 0, 0), 'wifi')]);
-  assert.equal(csv.split('\r\n')[1], '1970-01-01T00:00:00.000Z,0,1,1,2,3,wifi,4,-2.5,1.75');
+  assert.equal(csv.split('\r\n')[1], '1970-01-01T00:00:00.000Z,0,1,1,2,3,wifi,4,-2.5,1.75,,');
   csv = A.toCsv([A.logEntry(sample('Quadrant 1: 1.00, 2.00, 3.00, 4.00, -2.50', 0, 0), 'serial')]);
-  assert.equal(csv.split('\r\n')[1].split(',').slice(7).join(','), '4,-2.5,');  // roll not sent: empty
+  assert.equal(csv.split('\r\n')[1].split(',').slice(7).join(','), '4,-2.5,,,');  // roll not sent: empty
 });
 
 test('toCsv: z is empty (not 0) when the board did not send it', function () {
   var csv = A.toCsv([A.logEntry(sample('Quadrant 2: -33.84, 47.30, -23.71', 0, 0), 'serial')]);
-  assert.equal(csv.split('\r\n')[1], '1970-01-01T00:00:00.000Z,0,2,-33.84,47.3,-23.71,serial,,,');
+  assert.equal(csv.split('\r\n')[1], '1970-01-01T00:00:00.000Z,0,2,-33.84,47.3,-23.71,serial,,,,,');
 });
 
 test('logEntry keeps z as sent, not shifted by the page\'s z zero', function () {
@@ -176,6 +177,33 @@ test('toCsv header only adds columns at the end of the files already recorded', 
     var first = fs.readFileSync(path.join(dir, f), 'utf8').split(/\r?\n/)[0];
     assert.equal(first, HEADER_Z, f);                   // recorded before pitch / roll
     assert.equal(HEADER.indexOf(first), 0, f);          // same columns, same place
+  });
+});
+
+test('toCsv: pitch / roll solved on the PC go in pc_pitch_deg / pc_roll_deg (raw, before the tilt zero), not in pitch_deg / roll_deg', function () {
+  var s = sample('Quadrant 1: 1.00, 2.00, 3.00, 4.00', 0, 0);
+  s.pcPitch = 2.3456; s.pcRoll = -1.2; s.hasPcTilt = true;
+  var row = A.toCsv([A.logEntry(s, 'serial')]).split('\r\n')[1].split(',');
+  assert.deepEqual(row.slice(7), ['4', '', '', '2.35', '-1.2']);
+});
+
+test('shownTilt: the board\'s values first, else the PC values less the tilt zero, else level', function () {
+  var board = A.parseLine('Quadrant 1: 1, 2, 3, 4, 5, -6');
+  board.pcPitch = 9; board.pcRoll = 9; board.hasPcTilt = true;
+  assert.deepEqual(A.shownTilt(board, { pitch: 1, roll: 1 }), { pitch: 5, roll: -6, src: 'board' });
+  var pc = A.parseLine('Quadrant 1: 1, 2, 3, 4');
+  pc.pcPitch = 4; pc.pcRoll = -2; pc.hasPcTilt = true;
+  assert.deepEqual(A.shownTilt(pc), { pitch: 4, roll: -2, src: 'pc' });
+  assert.deepEqual(A.shownTilt(pc, { pitch: 1.5, roll: -0.5 }), { pitch: 2.5, roll: -1.5, src: 'pc' });
+  assert.deepEqual(A.shownTilt(A.parseLine('Quadrant 1: 1, 2, 3')), { pitch: 0, roll: 0, src: null });
+});
+
+test('index.html loads calib-model.js before monitor.js and has the tilt controls', function () {
+  var html = fs.readFileSync(path.join(ROOT, 'web', 'index.html'), 'utf8');
+  var a = html.indexOf('src="js/calib-model.js"'), b = html.indexOf('src="js/monitor.js"');
+  assert.ok(a > 0 && a < b);
+  ['pcTilt', 'tiltZeroRow', 'btnTiltZero', 'btnTiltZeroReset', 'attNote'].forEach(function (id) {
+    assert.ok(html.indexOf('id="' + id + '"') >= 0, 'missing #' + id);
   });
 });
 

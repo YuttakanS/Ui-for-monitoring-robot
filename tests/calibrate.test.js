@@ -553,3 +553,37 @@ test('calibrate.html has every element calib-page.js asks for', function () {
   var ids = js.match(/\$\('([^']+)'\)/g).map(function (s) { return s.slice(3, -2); });
   ids.forEach(function (id) { assert.ok(html.indexOf('id="' + id + '"') >= 0, 'missing #' + id); });
 });
+
+/* ---------- pitch / roll alone at the firmware's pose (Position Monitor, 2026-11-26) ---------- */
+test('solveTilt: pitch and roll come back from model RSS at the given x, y, yaw, z', function () {
+  [{ x: 10, y: -10, theta: 30, pitch: 5, roll: -3 }, { x: -40, y: 20, z: 3, theta: -120, pitch: -8, roll: 6 }, { x: 0, y: 0, theta: 0 }]
+    .forEach(function (p) {
+      var r = C.solveTilt(rssAt(p), p);
+      close(r.pitch, p.pitch || 0, 0.01, 'pitch ' + JSON.stringify(p));
+      close(r.roll, p.roll || 0, 0.01, 'roll ' + JSON.stringify(p));
+      assert.equal(r.skipPd, -1); assert.equal(r.atLimit, false);
+    });
+});
+
+test('solveTilt: starts from the previous answer, stays within +-TILT_MAX, null without light', function () {
+  var p = { x: 20, y: 25, theta: 60, pitch: 4, roll: 2 };
+  var r = C.solveTilt(rssAt(p), p, { start: { pitch: 3.5, roll: 2.5 } });
+  close(r.pitch, 4, 0.01); close(r.roll, 2, 0.01);
+  var lim = C.TILT_MAX * 180 / Math.PI;
+  var far = C.solveTilt(rssAt({ x: 0, y: 0, pitch: 40 }), { x: 0, y: 0 });
+  assert.ok(Math.abs(far.pitch) <= lim + 1e-9 && Math.abs(far.roll) <= lim + 1e-9);
+  assert.equal(far.atLimit, true);
+  assert.equal(C.solveTilt(new Array(27).fill(0), { x: 0, y: 0 }), null);
+});
+
+test('solveTilt on the real level floor poses (2026-11-25 / 26): false tilt within a few degrees', function () {
+  var floor = C.csvToPoses(fs.readFileSync(path.join(__dirname, '..', 'data', '2026-11-25', 'calib_105643.csv'), 'utf8')).poses
+    .filter(function (p) { return !(p.z > 0) && !(p.x === -25 && p.y === -25); })
+    .concat(C.csvToPoses(fs.readFileSync(path.join(__dirname, '..', 'data', '2026-11-26', 'floor_x0_y45.csv'), 'utf8')).poses);
+  assert.equal(floor.length, 7);
+  var v = [];
+  floor.forEach(function (p) { var r = C.solveTilt(p.rss, p); v.push(r.pitch, r.roll); });
+  var rms = Math.sqrt(v.reduce(function (a, b) { return a + b * b; }, 0) / v.length);
+  assert.ok(rms < 4.5, 'false tilt rms ' + rms);
+  assert.ok(Math.max.apply(null, v.map(Math.abs)) < 8);
+});

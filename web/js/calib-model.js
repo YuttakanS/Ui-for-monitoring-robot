@@ -510,6 +510,47 @@
     };
   }
 
+  // ---- Pitch and roll only, at a pose the firmware already gives ----------------
+  // For the Position Monitor (2026-11-26): the board keeps sending x, y, yaw
+  // and z from its EKF (level model); the page solves only pitch and roll from
+  // the RSS line, with x, y, yaw, z held where the board put them. x / y are
+  // therefore exactly as good as before, unlike solving all six together.
+  // pose: { x, y, z, theta } in cm / deg (theta = the firmware's angle).
+  // opts: gamma / pdGain / offset as predictRss(); k = LEDs used (the k
+  //   brightest, as LED_USE_K); start = { pitch, roll } in deg to start from
+  //   (the previous answer, so a moving robot needs few steps).
+  // Returns { pitch, roll (deg), rms, skipPd, atLimit } or null when no LED
+  // reads anything. Checked on the 2026-11-25 / 26 level floor poses: false
+  // tilt rms 3.7 deg, max 6.4 deg; about 1 ms.
+  function solveTilt(rss, pose, opts) {
+    opts = opts || {};
+    var used = selectLeds(rss, opts.k), rows = [], row;
+    for (row = 0; row < N_LED; row++) if (used[row * N_PD] + used[row * N_PD + 1] + used[row * N_PD + 2] !== 0) rows.push(row);
+    if (!rows.length) return null;
+    var o = { gamma: opts.gamma, pdGain: opts.pdGain, offset: opts.offset };
+    var skip = lowPd(rss, pose, o);
+    var x = pose.x / 100, y = pose.y / 100, z = (pose.z || 0) / 100, th = (pose.theta || 0) * Math.PI / 180;
+    function resid(q) {
+      o.pitch = q[0]; o.roll = q[1];
+      var out = [];
+      rows.forEach(function (r) {
+        for (var l = 0; l < N_PD; l++) if (l !== skip) out.push(used[r * N_PD + l] - predictRss(r, l, x, y, z, th, o));
+      });
+      return out;
+    }
+    function clamp(q) { for (var i = 0; i < 2; i++) q[i] = Math.max(-TILT_MAX, Math.min(TILT_MAX, q[i])); }
+    var D = Math.PI / 180, s = opts.start;
+    var q0 = s && isFinite(s.pitch) && isFinite(s.roll) ? [s.pitch * D, s.roll * D] : [0, 0];
+    clamp(q0);
+    var best = levMar(resid, q0, { clamp: clamp });
+    var lim = TILT_MAX * 0.999;
+    return {
+      pitch: best.q[0] / D, roll: best.q[1] / D,
+      rms: Math.sqrt(best.cost / resid(best.q).length), skipPd: skip,
+      atLimit: Math.abs(best.q[0]) >= lim || Math.abs(best.q[1]) >= lim
+    };
+  }
+
   // ---- LEDs the EKF uses (as selectLeds() in robot.ino) ------------------------
   // The k brightest lit LEDs (largest RSS of the three photodiodes; ties keep
   // the lower row of p). Returns a copy of rss with the other LEDs set to 0, so
@@ -654,7 +695,7 @@
     pathLoss: pathLoss, pathLossTilt: pathLossTilt, pdNormal: pdNormal, TILT_MAX: TILT_MAX, modelRow: modelRow, parseRssLine: parseRssLine,
     PD_GAIN: PD_GAIN, RSS_OFFSET: RSS_OFFSET, Z_MIN: Z_MIN, Z_MAX: Z_MAX, predictRss: predictRss,
     fitGamma: fitGamma, firmwareLine: firmwareLine, fitModel: fitModel, firmwareLines: firmwareLines,
-    solvePose: solvePose, levMar: levMar, lowPd: lowPd, PD_LOW_RATIO: PD_LOW_RATIO, PD_LOW_MIN: PD_LOW_MIN,
+    solvePose: solvePose, solveTilt: solveTilt, levMar: levMar, lowPd: lowPd, PD_LOW_RATIO: PD_LOW_RATIO, PD_LOW_MIN: PD_LOW_MIN,
     averageRss: averageRss, checkPose: checkPose, LED_USE_K: LED_USE_K, selectLeds: selectLeds,
     csvHeader: csvHeader, posesToCsv: posesToCsv, csvToPoses: csvToPoses, formatRssLine: formatRssLine,
     ledDirections: ledDirections, ledDirectionTrue: ledDirectionTrue, ledDirectionErrors: ledDirectionErrors,
