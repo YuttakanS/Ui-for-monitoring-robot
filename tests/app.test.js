@@ -225,6 +225,16 @@ test('robotToWorld turns a vector exactly as three.js turns the 3D model (robotE
   });
 });
 
+test('heading vector (forward axis): Z = sin(pitch), X / Y shrink by cos(pitch), roll changes nothing', function () {
+  [[0, 0, 0], [30, 10, 0], [-120, -8, 5], [75, 20, -15]].forEach(function (a) {
+    var f = A.robotToWorld([1, 0, 0], a[0], a[1], a[2]), d = Math.PI / 180;
+    assert.ok(Math.abs(f[2] - Math.sin(a[1] * d)) < 1e-12, 'z ' + a);
+    assert.ok(Math.abs(f[0] - Math.cos(a[1] * d) * Math.cos(a[0] * d)) < 1e-12, 'x ' + a);
+    assert.ok(Math.abs(f[1] - Math.cos(a[1] * d) * Math.sin(a[0] * d)) < 1e-12, 'y ' + a);
+    assert.ok(Math.abs(Math.hypot(f[0], f[1], f[2]) - 1) < 1e-12, 'unit ' + a);
+  });
+});
+
 test('followCamPose: level = the old cameras; pitch lifts the view, roll tilts the horizon', function () {
   var third = { back: 95, up: 60, ahead: 30 }, first = { eye: 5, pitch: 14 }, H = 3;
   function near(a, b, msg) { a.forEach(function (x, i) { assert.ok(Math.abs(x - b[i]) < 1e-9, msg + ' ' + a + ' vs ' + b); }); }

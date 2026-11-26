@@ -272,6 +272,7 @@
       vecParts: 'แตกเวกเตอร์',
       vecTitle: 'ทิศที่หุ่นหัน (เวกเตอร์หนึ่งหน่วย)',
       vecNote: 'จากมุมที่บอร์ดส่งมา (Z = 0)',
+      vecNoteTilt: 'จาก yaw และ pitch · Z = sin(pitch): ด้านหน้ายกขึ้น Z เป็นบวก',
       legQuad: 'ควอดรันต์ปัจจุบัน',
       min: 'ต่ำสุด',
       max: 'สูงสุด',
@@ -398,6 +399,7 @@
       vecParts: 'Split vector',
       vecTitle: 'Heading (unit vector)',
       vecNote: 'From the angle the board sends (Z = 0)',
+      vecNoteTilt: 'From yaw and pitch · Z = sin(pitch): front up gives Z > 0',
       legQuad: 'Current quadrant',
       min: 'min',
       max: 'max',
@@ -520,14 +522,17 @@
   function fmtVec(v) { var s = v.toFixed(2); return s === '-0.00' ? '0.00' : s; }
 
   // The arrow drawn on the robot: the way it faces (the firmware's orientation,
-  // 3rd value) as a level unit vector (z = 0), whether it moves or not. It
-  // used to follow the direction of motion; the user asked for the heading
-  // (2026-11-19).
+  // 3rd value), whether it moves or not. It used to follow the direction of
+  // motion; the user asked for the heading (2026-11-19). Since the tilt is
+  // known (task #5) it is the robot's forward axis in 3D, so z = sin(pitch)
+  // (front up = z > 0); roll does not move the forward axis. Level (no tilt
+  // from the board or the PC): z = 0 as before. tilt = true when it had one.
   function dirVec() {
     var s = state.latest;
     if (!s) return null;
-    var hv = headingVec(s.angle);
-    return { x: hv.x, y: hv.y, z: 0 };
+    var tl = shownTilt(s, state.tiltZero);
+    var f = robotToWorld([1, 0, 0], mapHeading(s.angle), tl.pitch, tl.roll);
+    return { x: f[0], y: f[1], z: f[2], tilt: !!tl.src };
   }
   function setLine(ln, x1, y1, x2, y2) {
     ln.setAttribute('x1', x1.toFixed(1)); ln.setAttribute('y1', y1.toFixed(1));
@@ -1145,7 +1150,7 @@
       '<span class="vp"><span class="key" style="--k:var(--s1)"></span>X = ' + fmtVec(mv.x) + '</span>' +
       '<span class="vp"><span class="key" style="--k:var(--s2)"></span>Y = ' + fmtVec(mv.y) + '</span>' +
       '<span class="vp"><span class="key" style="--k:var(--s3)"></span>Z = ' + fmtVec(mv.z) + '</span><br>' +
-      t('vecNote');
+      t(mv.tilt ? 'vecNoteTilt' : 'vecNote');
   }
 
   function clockTime(ms) {
@@ -2013,7 +2018,7 @@
       robot: robot, trail: trail, toOrigin: toOrigin, labels: [], parts: parts, vec: null,
       sig: '', w: 0, h: 0, needs: true };
     controls.addEventListener('change', function () { v3.needs = true; });
-    v3.vec = makeVec3d(); // heading vector; drawn level, not turned with the robot
+    v3.vec = makeVec3d(); // heading vector (dirVec); its parts stay on the room's axes
     reset3dView();
     apply3dCam();
   }
@@ -2115,8 +2120,9 @@
     });
   }
 
-  // Heading vector in 3D, NOT turned with the robot, so its X, Y
-  // and Z parts stay on the room's axes. Length VEC_LEN cm. The dashed lines
+  // Heading vector in 3D (dirVec(): the robot's forward axis, so it points up
+  // or down with the pitch), drawn at the robot but not inside its turned
+  // group, so its X, Y and Z parts stay on the room's axes. Length VEC_LEN cm. The dashed lines
   // drop from its tip to the floor plane and run from there to the X / Y tips.
   var VEC_LEN = 28;
   function makeVec3d() {
