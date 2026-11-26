@@ -196,7 +196,7 @@
       zZeroNote: 'ศูนย์ z: {n} (CSV ยังเป็นค่าดิบ)',
       zBar: 'Z',
       orientation: 'ทิศของหุ่น (Orientation)',
-      tiltValues: '{n}',
+      attTitle: 'มุมของหุ่น: Yaw / Pitch / Roll (°)',
       tiltNone: 'Pitch / Roll: บอร์ดยังไม่ส่ง (ถือว่าหุ่นวางระดับ)',
       tiltNote: 'Pitch + = ด้านหน้ายกขึ้น · Roll + = ด้านขวาต่ำลง',
       compassAria: 'เข็มทิศแสดงทิศที่หุ่นหัน',
@@ -313,7 +313,7 @@
       zZeroNote: 'z zero: {n} (the CSV stays raw)',
       zBar: 'Z',
       orientation: 'Orientation',
-      tiltValues: '{n}',
+      attTitle: 'Robot angles: Yaw / Pitch / Roll (°)',
       tiltNone: 'Pitch / Roll: not sent by the board (taken as level)',
       tiltNote: 'Pitch + = front up · Roll + = right side down',
       compassAria: 'Compass showing where the robot faces',
@@ -520,11 +520,12 @@
     mapTitle: document.querySelector('[data-i18n=mapTitle]'),
     valX: $('valX'), valY: $('valY'), valZ: $('valZ'), mmZ: $('mmZ'),
     zZeroRow: $('zZeroRow'), btnZZero: $('btnZZero'), btnZZeroReset: $('btnZZeroReset'), zZeroNote: $('zZeroNote'), valQ: $('valQ'), valR: $('valR'),
-    valH: $('valH'), valTilt: $('valTilt'), cNeedle: $('cNeedle'), headingNote: $('headingNote'),
+    valH: $('valH'), cNeedle: $('cNeedle'), headingNote: $('headingNote'),
     cComp: $('cComp'), cVx: $('cVx'), cVy: $('cVy'), cDashX: $('cDashX'), cDashY: $('cDashY'), hComp: $('hComp'),
     qMini: $('qMini'), mmX: $('mmX'), mmY: $('mmY'), mmR: $('mmR'), lastTime: $('lastTime'),
     btnRecord: $('btnRecord'), recCount: $('recCount'), recEvery: $('recEvery'), btnCsv: $('btnCsv'), btnClearLog: $('btnClearLog'),
     tableDetails: $('tableDetails'), tableBody: $('tableBody'),
+    attDetails: $('attDetails'), attYaw: $('attYaw'), attPitch: $('attPitch'), attRoll: $('attRoll'), attNote: $('attNote'),
     lastRaw: $('lastRaw'), errCount: $('errCount'), lastAge: $('lastAge'),
     noticeText: $('noticeText'), noticeAction: $('noticeAction'),
     recBadge: $('recBadge'), recTime: $('recTime'), recHeader: $('recHeader'), recHeaderTime: $('recHeaderTime'),
@@ -932,7 +933,8 @@
       el.cNeedle.style.visibility = 'hidden';
       el.cComp.style.visibility = 'hidden';
       el.hComp.textContent = '';
-      el.valTilt.textContent = '';
+      el.attYaw.textContent = el.attPitch.textContent = el.attRoll.textContent = '—';
+      el.attNote.textContent = '';
       return;
     }
     var st = state.stats;
@@ -954,9 +956,12 @@
     // Compass: the value is the firmware's raw angle; the needle points the way
     // the robot faces on the map (SVG rotates clockwise, so negate).
     el.valH.textContent = s.angle.toFixed(2) + '°';
-    el.valTilt.textContent = s.hasPitch || s.hasRoll
-      ? t('tiltValues', 'Pitch ' + (s.hasPitch ? s.pitch.toFixed(2) + '°' : '—') + '  ·  Roll ' + (s.hasRoll ? s.roll.toFixed(2) + '°' : '—'))
-      : t('tiltNone');
+    // Yaw / Pitch / Roll card: yaw is the same raw angle; "—" for a value the
+    // board did not send
+    el.attYaw.textContent = s.angle.toFixed(2) + '°';
+    el.attPitch.textContent = s.hasPitch ? s.pitch.toFixed(2) + '°' : '—';
+    el.attRoll.textContent = s.hasRoll ? s.roll.toFixed(2) + '°' : '—';
+    el.attNote.textContent = s.hasPitch || s.hasRoll ? '' : t('tiltNone');
     el.cNeedle.style.visibility = 'visible';
     el.cNeedle.setAttribute('transform', 'rotate(' + (-mapHeading(s.angle)).toFixed(2) + ' 70 70)');
     // X / Y parts of the heading vector (seen from above) and
@@ -2313,6 +2318,9 @@
   el.btnCsv.addEventListener('click', downloadCsv);
   el.btnClearLog.addEventListener('click', clearLog);
   el.tableDetails.addEventListener('toggle', updateStatus);
+  el.attDetails.addEventListener('toggle', function () {
+    try { localStorage.setItem('ra.attCard', el.attDetails.open ? '1' : '0'); } catch (e) { /* storage unavailable */ }
+  });
 
   el.unit.addEventListener('change', function () {
     state.unit = UNITS[el.unit.value] ? el.unit.value : DEFAULT_UNIT;
@@ -2386,6 +2394,7 @@
     var savedCam = localStorage.getItem('ra.cam3d');
     if (savedCam === 'third' || savedCam === 'first') state.cam3d = savedCam;
     if (localStorage.getItem('ra.vecParts') === '0') state.vecParts = false;
+    if (localStorage.getItem('ra.attCard') === '0') el.attDetails.open = false;
     var savedTrail = localStorage.getItem('ra.trail');
     for (oi = 0; oi < el.trailN.options.length; oi++) {
       if (el.trailN.options[oi].value === savedTrail) state.trailN = +savedTrail;

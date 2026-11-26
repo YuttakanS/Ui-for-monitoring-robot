@@ -116,7 +116,8 @@ body {
 }
 .settings-panel[hidden] { display: none; }
 .settings-panel .field { justify-content: space-between; }
-.tilt-values { margin-top: 6px; font-variant-numeric: tabular-nums; color: var(--text); }
+.att-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 10px 0 6px; }
+.att-grid .tile-value { font-size: 22px; font-variant-numeric: tabular-nums; }
 .field input.wifi-host { width: 13ch; padding: 2px 6px; font-variant-numeric: tabular-nums; }
 
 /* Buttons: one shape and size; .primary is filled (the main action),
