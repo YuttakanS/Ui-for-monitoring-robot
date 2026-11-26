@@ -1,4 +1,4 @@
-# Research Assist: LED positioning robot
+LED positioning robot
 
 A robot finds its own position from 9 blinking LEDs above it. Three photodiodes on
 the robot measure the light, the Pico W firmware separates each LED by its
