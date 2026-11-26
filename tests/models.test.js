@@ -26,12 +26,16 @@ function bounds(vs) {
   return { lo: lo, hi: hi };
 }
 
+// Line endings are ignored: with core.autocrlf on Windows, git checks these
+// files out with CRLF while build_models.js writes LF.
+function readLf(file) { return fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n'); }
+
 test('models: web/models files are up to date with build_models.js (run npm run models)', function () {
   var res = build();
   Object.keys(res.obj).forEach(function (k) {
-    assert.strictEqual(fs.readFileSync(path.join(MODELS_DIR, k + '.obj'), 'utf8'), res.obj[k], k + '.obj');
+    assert.strictEqual(readLf(path.join(MODELS_DIR, k + '.obj')), res.obj[k], k + '.obj');
   });
-  assert.strictEqual(fs.readFileSync(path.join(MODELS_DIR, 'models.js'), 'utf8'), res.js, 'models.js');
+  assert.strictEqual(readLf(path.join(MODELS_DIR, 'models.js')), res.js, 'models.js');
 });
 
 test('models: LED spacing and the frame bars match LEDS in monitor.js', function () {
