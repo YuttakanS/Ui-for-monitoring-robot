@@ -55,8 +55,22 @@
     return {
       wall: s.wall, t: s.t, quadrant: s.quadrant, x: s.x, y: s.y, angle: s.angle, source: source,
       z: s.zRaw !== undefined ? s.zRaw : s.z, hasZ: s.hasZ,
-      pitch: s.pitch, hasPitch: !!s.hasPitch, roll: s.roll, hasRoll: !!s.hasRoll
+      pitch: s.pitch, hasPitch: !!s.hasPitch, roll: s.roll, hasRoll: !!s.hasRoll,
+      pcPitch: s.pcPitch, pcRoll: s.pcRoll, hasPcTilt: !!s.hasPcTilt
     };
+  }
+
+  // Pitch / roll to show for a sample (deg): the board's own values when it
+  // sends them, else the ones this page solved from the RSS line (task #3,
+  // 2026-11-26: s.pcPitch / s.pcRoll, raw), less the page's tilt zero.
+  // src: 'board' | 'pc' | null (neither: shown as level, "—" in the numbers).
+  function shownTilt(s, zero) {
+    if (s.hasPitch || s.hasRoll) return { pitch: s.pitch, roll: s.roll, src: 'board' };
+    if (s.hasPcTilt) {
+      var z = zero || { pitch: 0, roll: 0 };
+      return { pitch: s.pcPitch - z.pitch, roll: s.pcRoll - z.roll, src: 'pc' };
+    }
+    return { pitch: 0, roll: 0, src: null };
   }
 
   // Euler angles (radians, three.js order 'ZYX': yaw, then pitch, then roll
@@ -118,14 +132,18 @@
     // New columns go at the end so the earlier ones keep their place: z
     // (2026-11-19), then pitch_deg and roll_deg (2026-11-20). Each is empty
     // when the board did not send it (not 0, so the CSV stays raw).
-    var out = ['timestamp_iso,t_ms,quadrant,x,y,incidence_angle_deg,source,z,pitch_deg,roll_deg'];
+    // pc_pitch_deg / pc_roll_deg (2026-11-26): solved by this page from the
+    // RSS line (not from the firmware, so kept apart from pitch_deg /
+    // roll_deg), before the page's tilt zero; empty when not solved.
+    var out = ['timestamp_iso,t_ms,quadrant,x,y,incidence_angle_deg,source,z,pitch_deg,roll_deg,pc_pitch_deg,pc_roll_deg'];
     var t0 = rows.length ? rows[0].t : 0;
     for (var i = 0; i < rows.length; i++) {
       var r = rows[i];
       out.push([
         new Date(r.wall).toISOString(), Math.round(r.t - t0),
         r.quadrant, r.x, r.y, r.angle, r.source, r.hasZ ? r.z : '',
-        r.hasPitch ? r.pitch : '', r.hasRoll ? r.roll : ''
+        r.hasPitch ? r.pitch : '', r.hasRoll ? r.roll : '',
+        r.hasPcTilt ? +r.pcPitch.toFixed(2) : '', r.hasPcTilt ? +r.pcRoll.toFixed(2) : ''
       ].join(','));
     }
     return out.join('\r\n') + '\r\n';
@@ -198,6 +216,13 @@
       orientation: 'ทิศของหุ่น (Orientation)',
       attTitle: 'มุมของหุ่น: Yaw / Pitch / Roll (°)',
       tiltNone: 'Pitch / Roll: บอร์ดยังไม่ส่ง (ถือว่าหุ่นวางระดับ)',
+      tiltPc: 'Pitch / Roll คำนวณบน PC จากค่า RSS (x, y, yaw จากบอร์ด) · ค่าสัมบูรณ์อาจคลาด 3–6° ให้วางหุ่นระดับแล้วกด "ตั้งศูนย์การเอียง"',
+      tiltPcZeroed: 'Pitch / Roll คำนวณบน PC จากค่า RSS · ศูนย์การเอียง: {n} (CSV เก็บค่าก่อนตั้งศูนย์)',
+      tiltPcLimit: 'Pitch / Roll ชนขอบ ±25°: ค่ารอบนี้เชื่อไม่ได้',
+      tiltPcWait: 'รอค่า RSS จากบอร์ด… ถ้าไม่มาภายในไม่กี่วินาที firmware อาจเก่าเกินไป (ไม่รับคำสั่ง MODE 3)',
+      tiltZero: 'ตั้งศูนย์การเอียง',
+      tiltZeroReset: 'ล้างศูนย์',
+      pcTiltField: 'คำนวณ pitch/roll บน PC',
       tiltNote: 'Pitch + = ด้านหน้ายกขึ้น · Roll + = ด้านขวาต่ำลง',
       compassAria: 'เข็มทิศแสดงทิศที่หุ่นหัน',
       headingCW: '0° = หันไป +X · ค่าบวก = หมุนตามเข็มนาฬิกา',
@@ -315,6 +340,13 @@
       orientation: 'Orientation',
       attTitle: 'Robot angles: Yaw / Pitch / Roll (°)',
       tiltNone: 'Pitch / Roll: not sent by the board (taken as level)',
+      tiltPc: 'Pitch / Roll solved on the PC from the RSS line (x, y, yaw from the board) · absolute values may be 3–6° off: put the robot level and press "Zero tilt"',
+      tiltPcZeroed: 'Pitch / Roll solved on the PC from the RSS line · tilt zero: {n} (the CSV keeps the values before the zero)',
+      tiltPcLimit: 'Pitch / Roll at the ±25° limit: this value cannot be trusted',
+      tiltPcWait: 'Waiting for RSS lines from the board… if none come within a few seconds, the firmware may be too old (no MODE 3 command)',
+      tiltZero: 'Zero tilt',
+      tiltZeroReset: 'Clear zero',
+      pcTiltField: 'Solve pitch/roll on the PC',
       tiltNote: 'Pitch + = front up · Roll + = right side down',
       compassAria: 'Compass showing where the robot faces',
       headingCW: '0° = facing +X · positive = clockwise',
@@ -408,7 +440,7 @@
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-      parseLine: parseLine, isRssLine: isRssLine, robotEuler: robotEuler, parseLedAck: parseLedAck, logEntry: logEntry, createLineSplitter: createLineSplitter,
+      parseLine: parseLine, isRssLine: isRssLine, robotEuler: robotEuler, parseLedAck: parseLedAck, logEntry: logEntry, shownTilt: shownTilt, createLineSplitter: createLineSplitter,
       quadrantOf: quadrantOf, wrapDeg: wrapDeg,
       niceStep: niceStep, niceCeil: niceCeil, fmtTick: fmtTick,
       fileStamp: fileStamp, toCsv: toCsv, I18N: I18N, translate: translate, UNITS: UNITS, LEDS: LEDS
@@ -496,6 +528,12 @@
     recEvery: 0,           // keep one row every this many seconds; 0 = every line
     recSlot: -1,           // index of the last interval a row was kept for
     zZero: 0,              // cm subtracted from z on screen (not in the CSV); not saved
+    pcTilt: true,          // solve pitch / roll on the PC from RSS lines (ra.pcTilt)
+    tiltZero: null,        // { pitch, roll } deg taken off the PC tilt on screen; not saved
+    rssBuf: [],            // last cycles { rss (27 values), x, y, a } for the tilt
+    rssLast: null,         // RSS line waiting for its Quadrant line
+    rssAt: 0,              // performance.now() of the last RSS line
+    tiltPrev: null,        // last PC tilt answer, the start for the next one
     log: [],
     logSaved: true,
     dirty: true,
@@ -526,6 +564,7 @@
     btnRecord: $('btnRecord'), recCount: $('recCount'), recEvery: $('recEvery'), btnCsv: $('btnCsv'), btnClearLog: $('btnClearLog'),
     tableDetails: $('tableDetails'), tableBody: $('tableBody'),
     attDetails: $('attDetails'), attYaw: $('attYaw'), attPitch: $('attPitch'), attRoll: $('attRoll'), attNote: $('attNote'),
+    tiltZeroRow: $('tiltZeroRow'), btnTiltZero: $('btnTiltZero'), btnTiltZeroReset: $('btnTiltZeroReset'), pcTilt: $('pcTilt'),
     lastRaw: $('lastRaw'), errCount: $('errCount'), lastAge: $('lastAge'),
     noticeText: $('noticeText'), noticeAction: $('noticeAction'),
     recBadge: $('recBadge'), recTime: $('recTime'), recHeader: $('recHeader'), recHeaderTime: $('recHeaderTime'),
@@ -558,13 +597,18 @@
       return;
     }
     var s = parseLine(line);
-    if (!s) { if (!isRssLine(line)) state.parseErrors++; return; }
+    if (!s) {
+      if (!isRssLine(line)) state.parseErrors++;
+      else if (state.pcTilt) feedRss(line);
+      return;
+    }
 
     s.t = performance.now();
     s.wall = Date.now();
     // z as sent (kept for the CSV); s.z is shown relative to the z zero
     s.zRaw = s.z;
     if (s.hasZ) s.z -= state.zZero;
+    solvePcTilt(s);
     state.samples.push(s);
     state.latest = s;
     addStats(s);
@@ -578,6 +622,57 @@
       state.logSaved = false;
     }
     state.dirty = state.tilesDirty = true;
+  }
+
+  /* ---------- pitch / roll solved on the PC (task #3, 2026-11-26) ---------- */
+  // In mode 3 robot.ino prints the RSS line of a cycle just before its
+  // Quadrant line. The page keeps the last RSS_AVG RSS lines and, for each
+  // Quadrant line, solves pitch and roll with x, y, yaw and z held where the
+  // board put them (RACalib.solveTilt(), calib-model.js). x / y / yaw on
+  // screen and in the CSV stay the board's.
+  // Up to RSS_AVG cycles are averaged against noise, but only those where the
+  // board put the robot within RSS_NEAR_CM / RSS_NEAR_DEG of where it is now:
+  // averaging the light of a moving robot against its newest pose would show
+  // a false tilt (the demo moving at ~20 cm/s gave ~0.8 deg).
+  var RSS_AVG = 3, RSS_FRESH = 400, RSS_NEAR_CM = 1.5, RSS_NEAR_DEG = 3;
+  function feedRss(line) {
+    var C2 = window.RACalib, rss = C2 && C2.parseRssLine(line);
+    if (!rss) return;
+    state.rssLast = rss;
+    state.rssAt = performance.now();
+  }
+  function solvePcTilt(s) {
+    var C2 = window.RACalib;
+    if (!state.pcTilt || !C2 || s.hasPitch || s.hasRoll || !state.rssLast) return;
+    if (s.t - state.rssAt > RSS_FRESH) return;
+    // this cycle's RSS line with the pose the board gave for it
+    state.rssBuf.push({ rss: state.rssLast, x: s.x, y: s.y, a: s.angle });
+    state.rssLast = null;
+    if (state.rssBuf.length > RSS_AVG) state.rssBuf.shift();
+    var near = state.rssBuf.filter(function (e) {
+      return Math.hypot(e.x - s.x, e.y - s.y) <= RSS_NEAR_CM && Math.abs(wrapDeg(e.a - s.angle)) <= RSS_NEAR_DEG;
+    });
+    var avg = C2.averageRss(near.map(function (e) { return e.rss; })).rss;
+    var r = C2.solveTilt(avg, { x: s.x, y: s.y, z: s.zRaw, theta: s.angle }, { start: state.tiltPrev });
+    if (!r || !isFinite(r.pitch) || !isFinite(r.roll)) return;
+    s.pcPitch = r.pitch; s.pcRoll = r.roll; s.hasPcTilt = true; s.pcAtLimit = r.atLimit;
+    state.tiltPrev = r.atLimit ? null : r;   // do not start the next one from the limit
+  }
+  // The board sends RSS lines only in mode 3 (MODE command, 2026-11-25).
+  function sendTiltMode() { if (state.pcTilt) sendSerial('MODE 3\n'); }
+
+  // Show the PC tilt relative to how the robot stands now: the mean of the
+  // last second becomes 0 (put the robot level first). The CSV keeps the
+  // values before the zero.
+  function zeroTilt() {
+    var S = state.samples, n = 0, p = 0, r = 0;
+    if (!S.length) return;
+    var tEnd = S[S.length - 1].t;
+    for (var i = S.length - 1; i >= 0 && S[i].t >= tEnd - 1000; i--) {
+      if (!S[i].hasPcTilt) continue;
+      p += S[i].pcPitch; r += S[i].pcRoll; n++;
+    }
+    if (n) { state.tiltZero = { pitch: p / n, roll: r / n }; state.dirty = state.tilesDirty = true; }
   }
 
   function addStats(s) {
@@ -600,6 +695,7 @@
     if (state.paused) setPaused(false);
     state.parseErrors = 0;
     state.lastRaw = '';
+    state.rssBuf = []; state.rssLast = null; state.rssAt = 0; state.tiltPrev = null;
     state.dirty = state.tilesDirty = true;
   }
 
@@ -742,6 +838,7 @@
     setSource('serial');
     readLoop();
     sendAllLeds(); // bring the board in line with the switches on the page
+    sendTiltMode(); // RSS lines too, for pitch / roll on the PC
   }
 
   async function readLoop() {
@@ -803,6 +900,7 @@
         showNotice('');
         ledFw = {};      // the robot may have restarted: confirm the LEDs again
         sendAllLeds();
+        sendTiltMode();
         updateStatus(); updateLedUI();
       },
       onError: function (kind) {
@@ -845,10 +943,23 @@
       // face the direction of travel (derivative of the path above)
       var mh = Math.atan2(40 * 0.55 * Math.cos(t * 0.55), -40 * 0.35 * Math.sin(t * 0.35)) * 180 / Math.PI;
       var a = wrapDeg((mh - HEADING_OFFSET) * HEADING_SIGN) + (Math.random() - 0.5) * 0.6;
-      // tilt, as a board with a tilt sensor would send it (degrees)
+      // tilt (degrees). With the light model at hand (calib-model.js) the demo
+      // sends what robot.ino sends in mode 3: the RSS line of the tilted robot
+      // (1 % noise), then the Quadrant line without pitch / roll, so the tilt
+      // goes through the same PC solver as a real board. Without it, the old
+      // way: pitch / roll as values 5 and 6.
       var pitch = 8 * Math.sin(t * 0.7), roll = 6 * Math.sin(t * 0.45 + 1);
-      var q = quadrantOf(x, y);
-      var line = 'Quadrant ' + q + ': ' + [x, y, a, z, pitch, roll].map(function (v) { return v.toFixed(2); }).join(', ') + '\r\n';
+      var q = quadrantOf(x, y), C2 = window.RACalib, vals = [x, y, a, z], line = '';
+      if (C2 && state.pcTilt) {
+        var D = Math.PI / 180, rss = [];
+        for (var row = 0; row < C2.N_LED; row++)
+          for (var l = 0; l < C2.N_PD; l++)
+            rss.push(C2.predictRss(row, l, x / 100, y / 100, z / 100, a * D, { pitch: pitch * D, roll: roll * D }) * (1 + 0.01 * (Math.random() - 0.5)));
+        line = C2.formatRssLine(rss) + '\r\n';
+      } else {
+        vals.push(pitch, roll);
+      }
+      line += 'Quadrant ' + q + ': ' + vals.map(function (v) { return v.toFixed(2); }).join(', ') + '\r\n';
       var cut = Math.floor(Math.random() * line.length); // arrive in two chunks, like real serial
       split(line.slice(0, cut));
       split(line.slice(cut));
@@ -934,7 +1045,8 @@
       el.cComp.style.visibility = 'hidden';
       el.hComp.textContent = '';
       el.attYaw.textContent = el.attPitch.textContent = el.attRoll.textContent = '—';
-      el.attNote.textContent = '';
+      el.attNote.textContent = state.pcTilt && isLive() ? t('tiltPcWait') : '';
+      el.tiltZeroRow.hidden = true;
       return;
     }
     var st = state.stats;
@@ -956,12 +1068,19 @@
     // Compass: the value is the firmware's raw angle; the needle points the way
     // the robot faces on the map (SVG rotates clockwise, so negate).
     el.valH.textContent = s.angle.toFixed(2) + '°';
-    // Yaw / Pitch / Roll card: yaw is the same raw angle; "—" for a value the
-    // board did not send
+    // Yaw / Pitch / Roll card: yaw is the same raw angle; pitch / roll from
+    // the board, else solved on the PC (shownTilt()); "—" when neither
+    var tl = shownTilt(s, state.tiltZero);
     el.attYaw.textContent = s.angle.toFixed(2) + '°';
-    el.attPitch.textContent = s.hasPitch ? s.pitch.toFixed(2) + '°' : '—';
-    el.attRoll.textContent = s.hasRoll ? s.roll.toFixed(2) + '°' : '—';
-    el.attNote.textContent = s.hasPitch || s.hasRoll ? '' : t('tiltNone');
+    el.attPitch.textContent = tl.src && (tl.src === 'pc' || s.hasPitch) ? tl.pitch.toFixed(2) + '°' : '—';
+    el.attRoll.textContent = tl.src && (tl.src === 'pc' || s.hasRoll) ? tl.roll.toFixed(2) + '°' : '—';
+    var z0 = state.tiltZero;
+    el.attNote.textContent = tl.src === 'board' ? ''
+      : tl.src === 'pc' ? (s.pcAtLimit ? t('tiltPcLimit')
+        : z0 ? t('tiltPcZeroed', 'pitch ' + z0.pitch.toFixed(1) + '°, roll ' + z0.roll.toFixed(1) + '°') : t('tiltPc'))
+      : state.pcTilt && isLive() ? t('tiltPcWait') : t('tiltNone');
+    el.tiltZeroRow.hidden = tl.src !== 'pc';
+    el.btnTiltZeroReset.hidden = !z0;
     el.cNeedle.style.visibility = 'visible';
     el.cNeedle.setAttribute('transform', 'rotate(' + (-mapHeading(s.angle)).toFixed(2) + ' 70 70)');
     // X / Y parts of the heading vector (seen from above) and
@@ -988,10 +1107,10 @@
   function updateTable() {
     var S = state.samples, frag = document.createDocumentFragment();
     for (var i = S.length - 1; i >= 0 && i >= S.length - 20; i--) {
-      var s = S[i], tr = document.createElement('tr');
+      var s = S[i], tr = document.createElement('tr'), tl = shownTilt(s, state.tiltZero);
       [clockTime(s.wall) + '.' + String(s.wall % 1000).padStart(3, '0'),
         s.quadrant, fmtLen(s.x), fmtLen(s.y), s.hasZ ? fmtLen(s.z) : '—',
-        s.hasPitch ? s.pitch.toFixed(2) : '—', s.hasRoll ? s.roll.toFixed(2) : '—'].forEach(function (v) {
+        tl.src === 'pc' || s.hasPitch ? tl.pitch.toFixed(2) : '—', tl.src === 'pc' || s.hasRoll ? tl.roll.toFixed(2) : '—'].forEach(function (v) {
         var td = document.createElement('td');
         td.textContent = v;
         tr.appendChild(td);
@@ -2221,7 +2340,8 @@
       v3.drop.computeLineDistances();
       v3.drop.visible = v3.shadow.visible = s.z > 0.5;
       v3.shadow.position.set(s.x, s.y, 0.08);
-      var eu = robotEuler(mapHeading(s.angle), s.pitch, s.roll);
+      var tl = shownTilt(s, state.tiltZero);   // board's values, else the PC's
+      var eu = robotEuler(mapHeading(s.angle), tl.pitch, tl.roll);
       v3.robot.rotation.set(eu.x, eu.y, eu.z, eu.order);
       var op = v3.toOrigin.geometry.attributes.position;
       op.setXYZ(0, 0, 0, 0.1);
@@ -2315,6 +2435,16 @@
   el.btnRecord.addEventListener('click', toggleRecording);
   el.btnZZero.addEventListener('click', zeroZ);
   el.btnZZeroReset.addEventListener('click', function () { setZZero(0); });
+  el.btnTiltZero.addEventListener('click', zeroTilt);
+  el.btnTiltZeroReset.addEventListener('click', function () { state.tiltZero = null; state.dirty = state.tilesDirty = true; });
+  el.pcTilt.addEventListener('change', function () {
+    state.pcTilt = el.pcTilt.checked;
+    try { localStorage.setItem('ra.pcTilt', state.pcTilt ? '1' : '0'); } catch (e) { /* storage unavailable */ }
+    state.rssBuf = []; state.rssLast = null; state.tiltPrev = null;
+    // ask the board for RSS lines, or stop them (mode 2 = positions only)
+    if (isLive()) sendSerial(state.pcTilt ? 'MODE 3\n' : 'MODE 2\n');
+    state.dirty = state.tilesDirty = true;
+  });
   el.btnCsv.addEventListener('click', downloadCsv);
   el.btnClearLog.addEventListener('click', clearLog);
   el.tableDetails.addEventListener('toggle', updateStatus);
@@ -2394,6 +2524,7 @@
     var savedCam = localStorage.getItem('ra.cam3d');
     if (savedCam === 'third' || savedCam === 'first') state.cam3d = savedCam;
     if (localStorage.getItem('ra.vecParts') === '0') state.vecParts = false;
+    if (localStorage.getItem('ra.pcTilt') === '0') state.pcTilt = false;
     if (localStorage.getItem('ra.attCard') === '0') el.attDetails.open = false;
     var savedTrail = localStorage.getItem('ra.trail');
     for (oi = 0; oi < el.trailN.options.length; oi++) {
@@ -2403,6 +2534,7 @@
     if (isFinite(savedEvery) && savedEvery > 0) state.recEvery = savedEvery;
   } catch (e) { /* storage unavailable */ }
   el.recEvery.value = String(state.recEvery);
+  el.pcTilt.checked = state.pcTilt;
   el.wifiHost.value = window.RAWifi ? RAWifi.savedHost() : '192.168.42.1';
   var savedTheme = null;
   try { savedTheme = localStorage.getItem('ra.theme'); } catch (e) { /* storage unavailable */ }
