@@ -206,7 +206,7 @@ test('index.html loads calib-model.js before monitor.js and has the tilt control
   var html = fs.readFileSync(path.join(ROOT, 'web', 'index.html'), 'utf8');
   var a = html.indexOf('src="js/calib-model.js"'), b = html.indexOf('src="js/monitor.js"');
   assert.ok(a > 0 && a < b);
-  ['pcTilt', 'tiltZeroRow', 'btnTiltZero', 'btnTiltZeroReset', 'attNote'].forEach(function (id) {
+  ['tiltZeroRow', 'btnTiltZero', 'btnTiltZeroReset', 'attNote'].forEach(function (id) {
     assert.ok(html.indexOf('id="' + id + '"') >= 0, 'missing #' + id);
   });
 });

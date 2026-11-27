@@ -208,6 +208,7 @@
       themeLight: 'สว่าง',
       themeDark: 'มืด',
       settings: 'ตั้งค่า',
+      close: 'ปิด',
       statusIdle: 'ยังไม่เชื่อมต่อ',
       statusDemo: 'Demo (ข้อมูลจำลอง)',
       statusStale: 'เชื่อมต่อแล้ว — ยังไม่มีข้อมูลที่อ่านได้',
@@ -255,7 +256,6 @@
       tiltPcWait: 'รอค่า RSS จากบอร์ด… ถ้าไม่มาภายในไม่กี่วินาที firmware อาจเก่าเกินไป (ไม่รับคำสั่ง MODE 3)',
       tiltZero: 'ตั้งศูนย์การเอียง',
       tiltZeroReset: 'ล้างศูนย์',
-      pcTiltField: 'คำนวณ pitch/roll บน PC',
       tiltNote: 'Pitch + = ด้านหน้ายกขึ้น · Roll + = ด้านขวาต่ำลง',
       compassAria: 'เข็มทิศแสดงทิศที่หุ่นหัน',
       headingCW: '0° = หันไป +X · ค่าบวก = หมุนตามเข็มนาฬิกา',
@@ -270,6 +270,8 @@
       legTrail: 'เส้นทาง',
       legVec: 'ทิศที่หุ่นหัน',
       vecParts: 'แตกเวกเตอร์',
+      fullscreen: 'เต็มจอ',
+      exitFullscreen: 'ออกจากเต็มจอ',
       vecTitle: 'ทิศที่หุ่นหัน (เวกเตอร์หนึ่งหน่วย)',
       vecNote: 'จากมุมที่บอร์ดส่งมา (Z = 0)',
       vecNoteTilt: 'จาก yaw และ pitch · Z = sin(pitch): ด้านหน้ายกขึ้น Z เป็นบวก',
@@ -335,6 +337,7 @@
       themeLight: 'Light',
       themeDark: 'Dark',
       settings: 'Settings',
+      close: 'Close',
       statusIdle: 'Not connected',
       statusDemo: 'Demo (simulated data)',
       statusStale: 'Connected — no readable data yet',
@@ -382,7 +385,6 @@
       tiltPcWait: 'Waiting for RSS lines from the board… if none come within a few seconds, the firmware may be too old (no MODE 3 command)',
       tiltZero: 'Zero tilt',
       tiltZeroReset: 'Clear zero',
-      pcTiltField: 'Solve pitch/roll on the PC',
       tiltNote: 'Pitch + = front up · Roll + = right side down',
       compassAria: 'Compass showing where the robot faces',
       headingCW: '0° = facing +X · positive = clockwise',
@@ -397,6 +399,8 @@
       legTrail: 'Trail',
       legVec: 'Heading',
       vecParts: 'Split vector',
+      fullscreen: 'Full screen',
+      exitFullscreen: 'Exit full screen',
       vecTitle: 'Heading (unit vector)',
       vecNote: 'From the angle the board sends (Z = 0)',
       vecNoteTilt: 'From yaw and pitch · Z = sin(pitch): front up gives Z > 0',
@@ -568,7 +572,7 @@
     recEvery: 0,           // keep one row every this many seconds; 0 = every line
     recSlot: -1,           // index of the last interval a row was kept for
     zZero: 0,              // cm subtracted from z on screen (not in the CSV); not saved
-    pcTilt: true,          // solve pitch / roll on the PC from RSS lines (ra.pcTilt)
+    pcTilt: true,          // solve pitch / roll on the PC from RSS lines (always on; the settings switch was removed)
     tiltZero: null,        // { pitch, roll } deg taken off the PC tilt on screen; not saved
     rssBuf: [],            // last cycles { rss (27 values), x, y, a } for the tilt
     rssLast: null,         // RSS line waiting for its Quadrant line
@@ -593,6 +597,7 @@
     btnPause: $('btnPause'), rangeRadios: document.querySelectorAll('input[name=range]'),
     statusDot: $('statusDot'), statusText: $('statusText'), rate: $('rate'), notice: $('notice'),
     map: $('map'), map2dWrap: $('map2dWrap'), map3d: $('map3d'), btnReset3d: $('btnReset3d'),
+    btnFull3d: $('btnFull3d'), mapCard: document.querySelector('.map-card'),
     viewRadios: document.querySelectorAll('input[name=mapView]'), legQuad: $('legQuad'),
     btnVecParts: $('btnVecParts'), legVecParts: $('legVecParts'),
     cam3d: $('cam3d'), cam3dField: $('cam3dField'),
@@ -605,7 +610,7 @@
     btnRecord: $('btnRecord'), recCount: $('recCount'), recEvery: $('recEvery'), btnCsv: $('btnCsv'), btnClearLog: $('btnClearLog'),
     tableDetails: $('tableDetails'), tableBody: $('tableBody'),
     attDetails: $('attDetails'), attYaw: $('attYaw'), attPitch: $('attPitch'), attRoll: $('attRoll'), attNote: $('attNote'),
-    tiltZeroRow: $('tiltZeroRow'), btnTiltZero: $('btnTiltZero'), btnTiltZeroReset: $('btnTiltZeroReset'), pcTilt: $('pcTilt'),
+    tiltZeroRow: $('tiltZeroRow'), btnTiltZero: $('btnTiltZero'), btnTiltZeroReset: $('btnTiltZeroReset'),
     lastRaw: $('lastRaw'), errCount: $('errCount'), lastAge: $('lastAge'),
     noticeText: $('noticeText'), noticeAction: $('noticeAction'),
     recBadge: $('recBadge'), recTime: $('recTime'), recHeader: $('recHeader'), recHeaderTime: $('recHeaderTime'),
@@ -2437,6 +2442,8 @@
     el.map2dWrap.hidden = is3d;
     el.map3d.hidden = !is3d;
     el.btnReset3d.hidden = !is3d || state.cam3d !== 'free';
+    el.btnFull3d.hidden = !is3d || !el.mapCard.requestFullscreen;
+    if (!is3d && document.fullscreenElement === el.mapCard) document.exitFullscreen();
     el.cam3dField.hidden = !is3d;
     el.legQuad.hidden = is3d; // the quadrant highlight is 2D only
     el.mapTitle.setAttribute('data-i18n', is3d ? 'mapTitle3d' : 'mapTitle');
@@ -2501,14 +2508,6 @@
     zeroTilt();
   });
   el.btnTiltZeroReset.addEventListener('click', function () { state.tiltZero = null; state.dirty = state.tilesDirty = true; });
-  el.pcTilt.addEventListener('change', function () {
-    state.pcTilt = el.pcTilt.checked;
-    try { localStorage.setItem('ra.pcTilt', state.pcTilt ? '1' : '0'); } catch (e) { /* storage unavailable */ }
-    state.rssBuf = []; state.rssLast = null; state.tiltPrev = null;
-    // ask the board for RSS lines, or stop them (mode 2 = positions only)
-    if (isLive()) sendSerial(state.pcTilt ? 'MODE 3\n' : 'MODE 2\n');
-    state.dirty = state.tilesDirty = true;
-  });
   el.btnCsv.addEventListener('click', downloadCsv);
   el.btnClearLog.addEventListener('click', clearLog);
   el.tableDetails.addEventListener('toggle', updateStatus);
@@ -2556,20 +2555,15 @@
   el.theme.addEventListener('change', function () { setTheme(el.theme.value, true); });
 
   /* ---------- settings menu (baud, language) ---------- */
-  function setSettingsOpen(open, returnFocus) {
-    el.settingsPanel.hidden = !open;
-    el.btnSettings.setAttribute('aria-expanded', String(open));
-    if (!open && returnFocus) el.btnSettings.focus();
-  }
-  el.btnSettings.addEventListener('click', function () { setSettingsOpen(el.settingsPanel.hidden); });
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && !el.settingsPanel.hidden) setSettingsOpen(false, true);
-  });
-  // close on a click or focus move outside the menu
-  ['pointerdown', 'focusin'].forEach(function (type) {
-    document.addEventListener(type, function (e) {
-      if (!el.settingsPanel.hidden && !el.btnSettings.parentNode.contains(e.target)) setSettingsOpen(false);
-    });
+  // A modal popup (<dialog>): Esc closes it (the browser's own), as do the
+  // close button and a click on the dimmed backdrop; focus goes back to the
+  // settings button.
+  el.btnSettings.addEventListener('click', function () { el.settingsPanel.showModal(); });
+  $('btnSettingsClose').addEventListener('click', function () { el.settingsPanel.close(); });
+  el.settingsPanel.addEventListener('click', function (e) {
+    if (e.target !== el.settingsPanel) return; // inside the box
+    var r = el.settingsPanel.getBoundingClientRect();
+    if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) el.settingsPanel.close();
   });
 
   try {
@@ -2588,7 +2582,7 @@
     var savedCam = localStorage.getItem('ra.cam3d');
     if (savedCam === 'third' || savedCam === 'first') state.cam3d = savedCam;
     if (localStorage.getItem('ra.vecParts') === '0') state.vecParts = false;
-    if (localStorage.getItem('ra.pcTilt') === '0') state.pcTilt = false;
+    localStorage.removeItem('ra.pcTilt'); // the old settings switch: an old '0' must not turn it off
     if (localStorage.getItem('ra.attCard') === '0') el.attDetails.open = false;
     var savedTrail = localStorage.getItem('ra.trail');
     for (oi = 0; oi < el.trailN.options.length; oi++) {
@@ -2598,7 +2592,6 @@
     if (isFinite(savedEvery) && savedEvery > 0) state.recEvery = savedEvery;
   } catch (e) { /* storage unavailable */ }
   el.recEvery.value = String(state.recEvery);
-  el.pcTilt.checked = state.pcTilt;
   el.wifiHost.value = window.RAWifi ? RAWifi.savedHost() : '192.168.42.1';
   var savedTheme = null;
   try { savedTheme = localStorage.getItem('ra.theme'); } catch (e) { /* storage unavailable */ }
@@ -2621,6 +2614,18 @@
     }
   }
   el.btnReset3d.addEventListener('click', function () { if (v3) reset3dView(); });
+  // Full screen for the 3D card; Esc (the browser's) also leaves it.
+  el.btnFull3d.addEventListener('click', function () {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else el.mapCard.requestFullscreen().catch(function () { /* refused */ });
+  });
+  document.addEventListener('fullscreenchange', function () {
+    var key = document.fullscreenElement === el.mapCard ? 'exitFullscreen' : 'fullscreen';
+    el.btnFull3d.setAttribute('data-i18n', key);
+    el.btnFull3d.textContent = t(key);
+    state.dirty = true;
+    if (v3) v3.needs = true;
+  });
   el.cam3d.addEventListener('change', function () { setCam3d(el.cam3d.value, true); });
   el.cam3d.value = state.cam3d;
   el.btnVecParts.addEventListener('click', function () { setVecParts(!state.vecParts, true); });
